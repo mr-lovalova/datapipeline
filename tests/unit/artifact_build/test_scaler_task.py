@@ -8,8 +8,8 @@ from datapipeline.artifacts.scaler import (
     StandardScalerArtifact,
     load_scaler_artifact,
 )
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
@@ -53,7 +53,7 @@ def _identity(records):
 
 def _runtime(
     tmp_path,
-    dataset: FeatureDatasetConfig | None = None,
+    dataset: DatasetConfig | None = None,
     rows=(),
 ) -> Runtime:
     artifacts_root = tmp_path / "artifacts"
@@ -63,7 +63,7 @@ def _runtime(
         "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
     )
     if dataset is None:
-        dataset = FeatureDatasetConfig(sample=SampleConfig(cadence="1h"))
+        dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
@@ -86,11 +86,11 @@ def _dataset(
     scale: bool = True,
     sequence: SequenceConfig | None = None,
     split: HashSplitConfig | TimeSplitConfig | None = None,
-) -> FeatureDatasetConfig:
-    return FeatureDatasetConfig(
+) -> DatasetConfig:
+    return DatasetConfig(
         sample=SampleConfig(cadence=cadence),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="x",
                 stream="stream",
                 field="value",
@@ -123,7 +123,7 @@ def test_materialize_standard_scaler_uses_all_scalar_observations(
     assert artifact.observations == 2
     assert artifact.statistics["x"].mean == 2.0
     assert result.meta == {
-        "features": 1,
+        "variables": 1,
         "observations": 2,
     }
 
@@ -296,16 +296,16 @@ def test_folded_scaler_assigns_records_by_floored_sample_time(tmp_path) -> None:
 
 
 def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> None:
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="value",
                 stream="stream",
                 field="value",
                 scale=True,
             ),
-            FeatureRecordConfig(
+            VariableConfig(
                 id="other",
                 stream="stream",
                 field="other",
@@ -337,10 +337,10 @@ def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> No
 def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
     tmp_path,
 ) -> None:
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h", keys=["security_id"]),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="value",
                 stream="stream",
                 field="value",
@@ -377,10 +377,10 @@ def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
 
 
 def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> None:
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="other",
                 stream="stream",
                 field="other",

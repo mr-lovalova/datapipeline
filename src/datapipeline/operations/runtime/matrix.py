@@ -33,7 +33,8 @@ def run_matrix_operation(
     target_entries = metadata.targets
     if options.stage == "postprocessed":
         plan = build_postprocess_plan(context)
-        feature_entries, target_entries = plan.select_metadata(metadata)
+        feature_entries = plan.feature_entries
+        target_entries = plan.target_entries
         samples = plan.apply(samples)
 
     builder = MatrixBuilder(feature_entries, target_entries, options.max_cells)

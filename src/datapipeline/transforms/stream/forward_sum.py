@@ -1,0 +1,66 @@
+from collections import deque
+from collections.abc import Iterator
+from itertools import groupby
+from math import isfinite
+
+from datapipeline.domain.record import TemporalRecord
+from datapipeline.transforms.rolling_window import RollingSum
+from datapipeline.transforms.utils import (
+    clone_record_with_field,
+    finite_number,
+    get_field,
+    is_missing,
+    partition_key,
+)
+
+
+class ForwardSumTransform:
+    """Sum the next fixed number of records within each partition."""
+
+    def __init__(
+        self,
+        field: str,
+        window: int,
+        partition_fields: tuple[str, ...],
+        to: str,
+    ) -> None:
+        self.field = field
+        self.to = to
+        self.window = window
+        self.partition_fields = partition_fields
+
+    def apply(self, stream: Iterator[TemporalRecord]) -> Iterator[TemporalRecord]:
+        for _, records in groupby(
+            stream,
+            key=lambda record: partition_key(record, self.partition_fields),
+        ):
+            yield from self._sum_partition(records)
+
+    def _sum_partition(
+        self,
+        records: Iterator[TemporalRecord],
+    ) -> Iterator[TemporalRecord]:
+        pending: deque[TemporalRecord] = deque()
+        total = RollingSum(self.window)
+        for record in records:
+            pending.append(record)
+            total.append(self._value(record))
+            if len(pending) <= self.window:
+                continue
+
+            value = total.result() if total.sample_count == self.window else None
+            if value is not None and not isfinite(value):
+                raise OverflowError(
+                    f"Forward sum field {self.field!r} exceeds the supported "
+                    "floating-point range"
+                )
+            yield clone_record_with_field(pending.popleft(), self.to, value)
+
+        while pending:
+            yield clone_record_with_field(pending.popleft(), self.to, None)
+
+    def _value(self, record: TemporalRecord) -> float | None:
+        value = get_field(record, self.field)
+        if is_missing(value):
+            return None
+        return finite_number(value, self.field)

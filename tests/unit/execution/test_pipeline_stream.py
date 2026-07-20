@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.execution import runner as pipeline_runner
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.pipeline import Pipeline
@@ -106,7 +106,7 @@ def _context(tmp_path: Path) -> PipelineContext:
         Runtime(
             project_yaml=project_yaml,
             artifacts_root=artifacts_root,
-            dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+            dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         )
     )
 

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from datapipeline.artifacts.errors import ArtifactResolutionError
+from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts
 from datapipeline.artifacts.planning import ArtifactGraph
 from datapipeline.artifacts.settings import BuildSettings
@@ -207,6 +208,7 @@ def _plan_build(
 
 
 def _execute_build_jobs(
+    definition: PipelineDefinition,
     runtime: Runtime,
     plan: BuildPlan,
     settings: BuildSettings,
@@ -220,7 +222,13 @@ def _execute_build_jobs(
         else BuildState()
     )
     for job in plan.jobs:
+        artifact_hash = plan.artifact_hashes.for_artifact(job.task.id)
         with operation_scope(f"build:{job.task.id}"):
+            _require_stable_artifact_inputs(
+                definition,
+                job.task.id,
+                artifact_hash,
+            )
             emit_execution_message(
                 "Config:\n"
                 + json.dumps(
@@ -264,10 +272,15 @@ def _execute_build_jobs(
                 raise RuntimeError(
                     f"Artifact operation '{job.task.id}' produced no artifact."
                 )
+            _require_stable_artifact_inputs(
+                definition,
+                job.task.id,
+                artifact_hash,
+            )
             current_state.register(
                 job.task.id,
                 result.relative_path,
-                artifact_hash=plan.artifact_hashes.for_artifact(job.task.id),
+                artifact_hash=artifact_hash,
                 files=result.files,
                 meta=result.meta,
             )
@@ -281,6 +294,24 @@ def _execute_build_jobs(
             path = (Path(runtime.artifacts_root) / result.relative_path).resolve()
             emit_file_result(label, path)
     return current_state
+
+
+def _require_stable_artifact_inputs(
+    definition: PipelineDefinition,
+    artifact_id: str,
+    expected_hash: str,
+) -> None:
+    current_hashes = calculate_artifact_hashes(
+        definition.project,
+        definition.dataset,
+        definition.streams,
+        definition.artifact_operations,
+    )
+    if current_hashes.for_artifact(artifact_id) != expected_hash:
+        raise RuntimeError(
+            f"Source files changed while building artifact '{artifact_id}'. "
+            "Rerun the command with stable inputs."
+        )
 
 
 def run_build_if_needed(
@@ -327,6 +358,7 @@ def run_build_if_needed(
         settings.observability.heartbeat_interval_seconds
     )
     _execute_build_jobs(
+        definition,
         runtime=runtime,
         plan=plan,
         settings=settings,

@@ -6,11 +6,10 @@ from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipel
 from datapipeline.artifacts.registry import (
     SCALER_SPEC,
     VECTOR_METADATA_SPEC,
-    VECTOR_SCHEMA_SPEC,
 )
-from datapipeline.artifacts.specs import VECTOR_INPUTS
+from datapipeline.artifacts.specs import VARIABLE_RECORDS
 from datapipeline.services.runtime_compiler import compile_runtime
-from datapipeline.vector_inputs.store import load_vector_inputs_manifest
+from datapipeline.artifacts.variable_records import load_variable_records_manifest
 from tests.helpers.regression import read_jsonl, serve_dataset
 
 
@@ -20,10 +19,10 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
 
     runtime = compile_runtime(request.definition)
     hydrated = hydrate_runtime_artifacts_for_pipeline(runtime, request.definition)
-    assert set(hydrated) >= {"vector_inputs", "scaler", "metadata", "schema"}
+    assert set(hydrated) >= {"variable_records", "scaler", "metadata"}
 
-    manifest = load_vector_inputs_manifest(
-        runtime.artifacts.resolve_path(VECTOR_INPUTS)
+    manifest = load_variable_records_manifest(
+        runtime.artifacts.resolve_path(VARIABLE_RECORDS)
     )
     assert manifest.sample_keys == ("ticker",)
     assert manifest.sample_key_types == ("string",)
@@ -52,8 +51,7 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
     assert metadata_artifact.sample.keys == ["ticker"]
     assert [entry.key for entry in metadata_artifact.sample.domain] == [["A"], ["B"]]
 
-    schema_artifact = runtime.artifacts.load(VECTOR_SCHEMA_SPEC)
-    assert [(entry.id, entry.kind) for entry in schema_artifact.features] == [
+    assert [(entry.id, entry.kind) for entry in metadata_artifact.features] == [
         ("price_scaled", "scalar"),
         ("price_history", "list"),
         ("price_mean_2", "scalar"),
@@ -63,7 +61,10 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
         ("fundamental__@metric:debt", "scalar"),
         ("fundamental__@metric:revenue", "scalar"),
     ]
-    assert schema_artifact.targets == ()
+    price_history = metadata_artifact.features[1]
+    assert price_history.kind == "list"
+    assert price_history.length == 2
+    assert metadata_artifact.targets == ()
 
     dataset_path = request.serve_run_plans[0].paths.dataset_dir / "dataset.jsonl"
     samples = read_jsonl(dataset_path)

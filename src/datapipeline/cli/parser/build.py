@@ -10,7 +10,7 @@ from .common import (
 def add_build_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "build",
-        help="materialize project artifacts (schema, hashes, etc.)",
+        help="materialize project artifacts (metadata, statistics, etc.)",
         parents=[common],
     )
     add_dataset_flag(parser)

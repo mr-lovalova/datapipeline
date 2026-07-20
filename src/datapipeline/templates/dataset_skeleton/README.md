@@ -22,7 +22,8 @@ jerry serve --dataset your-dataset --limit 3
   - Replace placeholders (`path`/`url`, headers/params, delimiter, etc.)
   - Prefer `${env:NAME}` for secrets or machine-local paths instead of literal values
 - `your-dataset/streams/*.yaml`
-  - Map sources into canonical records, derive streams, or align multiple streams.
+  - Map sources into canonical records, derive streams, broadcast shared
+    temporal records, or align multiple streams.
 - `your-dataset/.env.example`
   - Copy to `.env` next to `project.yaml` for local dataset-specific secrets and paths
 - `your-dataset/dataset.yaml`
@@ -45,7 +46,7 @@ YAML config (dataset project root):
 - `your-dataset/`
   - `project.yaml` (paths and globals)
   - `sources/*.yaml` (raw source definitions)
-  - `streams/*.yaml` (source-backed, derived, and aligned streams)
+  - `streams/*.yaml` (source-backed, derived, broadcast, and aligned streams)
   - `dataset.yaml` (features, targets, split, and postprocess policy)
   - `profiles/{serve,build,inspect,materialize}.<name>.yaml` (profiles; optional overrides)
   - `profiles/{serve,build,inspect,materialize}.defaults.yaml` (optional per-kind defaults)
@@ -77,7 +78,7 @@ Python plugin code:
   - `parsers/` (raw -> DTO)
   - `domains/<domain>/model.py` (domain record models)
   - `mappers/` (iterator mappings from parsed values to domain records)
-  - `combiners/` (aligned-record combine functions)
+  - `combiners/` (broadcast/aligned record combine functions)
   - `loaders/` (optional custom loaders)
 
 ## Learn more

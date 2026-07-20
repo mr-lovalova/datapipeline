@@ -1,4 +1,3 @@
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -8,15 +7,14 @@ from datapipeline.artifacts.models import (
     ListVectorMetadataEntry,
     ScalarVectorMetadataEntry,
     VectorMetadataEntry,
-    VectorSchemaCadence,
 )
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
 from datapipeline.runtime import Runtime
-from datapipeline.domain.feature_id import base_id as _base_feature_id
+from datapipeline.domain.variable_id import base_id as _base_variable_id
 from datapipeline.transforms.utils import is_missing
 
 
@@ -36,7 +34,6 @@ class VectorMetadataStats:
     null_count: int = 0
     scalar_types: set[str] = field(default_factory=set)
     element_types: set[str] = field(default_factory=set)
-    lengths: Counter[int] = field(default_factory=Counter)
     first_observed: datetime | None = None
     last_observed: datetime | None = None
     observed_elements: int = 0
@@ -77,7 +74,6 @@ class VectorMetadataStats:
                 )
             self.kind = "list"
             self.list_length = length
-            self.lengths[length] += 1
             self.observed_elements += sum(
                 1 for element in value if not is_missing(element)
             )
@@ -94,7 +90,7 @@ class VectorMetadataStats:
 
 def collect_vector_metadata(
     runtime: Runtime,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
     cadence: str,
     sample_keys: Sequence[str],
     progress_step: str,
@@ -141,7 +137,7 @@ def collect_vector_metadata(
                 if entry is None:
                     entry = stats[fid] = VectorMetadataStats(
                         id=fid,
-                        base_id=_base_feature_id(fid),
+                        base_id=_base_variable_id(fid),
                     )
                 entry.observe(value, ts)
             progress.advance()
@@ -193,8 +189,8 @@ def metadata_entries_from_stats(
     for entry in entries:
         kind = entry.kind or "scalar"
         if kind == "list":
-            target = entry.list_length
-            if target is None:
+            length = entry.list_length
+            if length is None:
                 raise ValueError(
                     f"List metadata entry {entry.id!r} has no fixed sequence length."
                 )
@@ -208,11 +204,7 @@ def metadata_entries_from_stats(
                     first_observed=entry.first_observed,
                     last_observed=entry.last_observed,
                     element_types=tuple(sorted(entry.element_types)),
-                    lengths={
-                        str(length): count
-                        for length, count in sorted(entry.lengths.items())
-                    },
-                    cadence=VectorSchemaCadence(target=target),
+                    length=length,
                     observed_elements=entry.observed_elements,
                 )
             )

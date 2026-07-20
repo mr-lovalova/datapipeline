@@ -5,7 +5,7 @@ PreviewStage = Literal[
     "input",
     "canonical",
     "records",
-    "features",
+    "variables",
     "samples",
     "postprocess",
 ]
@@ -14,7 +14,7 @@ PREVIEW_STAGES: tuple[PreviewStage, ...] = (
     "input",
     "canonical",
     "records",
-    "features",
+    "variables",
     "samples",
     "postprocess",
 )

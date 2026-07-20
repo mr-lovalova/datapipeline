@@ -3,19 +3,21 @@ from pathlib import Path
 from datapipeline.config.sources import SourceConfig
 from datapipeline.config.streams import (
     AlignedStreamConfig,
+    BroadcastStreamConfig,
     DerivedStreamConfig,
     SourceStreamConfig,
     StreamConfig,
 )
 from datapipeline.runtime import (
     AlignedRuntimeStream,
+    BroadcastRuntimeStream,
     DerivedRuntimeStream,
     Runtime,
     RuntimeStream,
     SourceRuntimeStream,
 )
 from datapipeline.services.definitions import PipelineDefinition
-from datapipeline.services.streams.aligned import build_combine_stage
+from datapipeline.services.streams.combine import build_combine_stage
 from datapipeline.services.streams.source import build_mapper, build_source
 from datapipeline.services.streams.validation import stream_partition_by
 
@@ -46,6 +48,20 @@ def _compile_derived_stream(
     )
 
 
+def _compile_broadcast_stream(
+    config: BroadcastStreamConfig,
+    stream_configs: dict[str, StreamConfig],
+) -> BroadcastRuntimeStream:
+    partition_by = stream_partition_by(stream_configs, config.id)
+    return BroadcastRuntimeStream(
+        input_stream=config.from_.stream,
+        broadcast_stream=config.from_.broadcast,
+        combine=build_combine_stage(config, partition_by),
+        partition_by=partition_by,
+        transforms=tuple(config.transforms),
+    )
+
+
 def _compile_aligned_stream(
     config: AlignedStreamConfig,
     stream_configs: dict[str, StreamConfig],
@@ -71,6 +87,11 @@ def compile_runtime(definition: PipelineDefinition) -> Runtime:
             )
         elif isinstance(config, DerivedStreamConfig):
             runtime_streams[stream_id] = _compile_derived_stream(
+                config,
+                stream_configs,
+            )
+        elif isinstance(config, BroadcastStreamConfig):
+            runtime_streams[stream_id] = _compile_broadcast_stream(
                 config,
                 stream_configs,
             )

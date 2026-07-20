@@ -1,6 +1,6 @@
 import argparse
 
-from datapipeline.cli.source_options import SOURCE_FS_FORMATS, SOURCE_TRANSPORTS
+from datapipeline.cli.source_options import SOURCE_FORMATS, SOURCE_TRANSPORTS
 
 
 def add_source_command(sub, common: argparse.ArgumentParser) -> None:
@@ -51,8 +51,8 @@ def add_source_command(sub, common: argparse.ArgumentParser) -> None:
     create.add_argument(
         "--format",
         "-f",
-        choices=SOURCE_FS_FORMATS,
-        help="data format for fs/http transports; pickle requires fs",
+        choices=SOURCE_FORMATS,
+        help="data format for fs/http transports",
     )
     create.add_argument(
         "--loader",

@@ -86,6 +86,73 @@ def test_core_io_source_rejects_options_for_another_format() -> None:
         )
 
 
+@pytest.mark.parametrize("format_", ["csv", "jsonl"])
+def test_core_fs_source_accepts_gzip_compression(format_: str) -> None:
+    source = source_config(
+        loader={
+            "entrypoint": "core.io",
+            "args": {
+                "transport": "fs",
+                "format": format_,
+                "path": "records.gz",
+                "compression": "gzip",
+            },
+        }
+    )
+
+    assert source.loader.args.compression == "gzip"
+
+
+def test_core_fs_source_rejects_gzip_for_json() -> None:
+    with pytest.raises(
+        ValueError,
+        match="gzip compression is supported only for csv and jsonl formats",
+    ):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "json",
+                    "path": "records.gz",
+                    "compression": "gzip",
+                },
+            }
+        )
+
+
+def test_core_io_source_rejects_pickle_format() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Input should be 'csv', 'json' or 'jsonl'",
+    ):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "pickle",
+                    "path": "records.pkl",
+                },
+            }
+        )
+
+
+def test_core_http_source_rejects_compression() -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "http",
+                    "format": "jsonl",
+                    "url": "https://example.test/records.jsonl.gz",
+                    "compression": "gzip",
+                },
+            }
+        )
+
+
 def test_custom_source_loader_keeps_plugin_arguments_explicitly_open() -> None:
     source = source_config(
         loader={

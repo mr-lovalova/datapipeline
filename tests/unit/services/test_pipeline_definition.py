@@ -7,19 +7,18 @@ from datapipeline.artifacts import fingerprints
 from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VECTOR_INPUTS,
+    VARIABLE_RECORDS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
 )
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
+    MetadataTask,
     ScalerTask,
-    SchemaTask,
-    VectorInputsTask,
+    VariableRecordsTask,
 )
 from datapipeline.services import config_inventory
 from datapipeline.services.pipeline import load_pipeline
@@ -90,7 +89,7 @@ def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
         datetime(2021, 1, 1, tzinfo=timezone.utc),
     )
     first.dataset.features.append(
-        FeatureRecordConfig(id="local", stream="local", field="value")
+        VariableConfig(id="local", stream="local", field="value")
     )
 
     assert first is not second
@@ -421,22 +420,22 @@ def test_custom_artifact_change_does_not_change_core_artifact_hashes(
     )
 
     assert first.for_artifact("snapshot") != second.for_artifact("snapshot")
-    for key in (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA):
+    for key in (VARIABLE_RECORDS, VECTOR_METADATA):
         assert first.for_artifact(key) == second.for_artifact(key)
 
 
-def test_artifact_hashing_rejects_missing_schema_dependencies(tmp_path: Path) -> None:
+def test_artifact_hashing_rejects_missing_metadata_dependencies(tmp_path: Path) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
 
     with pytest.raises(
         ValueError,
-        match="Required artifact operation 'vector_inputs' is not declared",
+        match="Required artifact operation 'variable_records' is not declared",
     ):
         calculate_artifact_hashes(
             definition.project,
             definition.dataset,
             definition.streams,
-            (SchemaTask(),),
+            (MetadataTask(),),
         )
 
 
@@ -453,10 +452,10 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     definition = load_pipeline(project_yaml)
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            FeatureRecordConfig(
+            VariableConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -473,17 +472,19 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
             definition.project,
             dataset,
             definition.streams,
-            (VectorInputsTask(),),
+            (VariableRecordsTask(),),
         )
 
 
-def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) -> None:
+def test_scaling_policy_does_not_invalidate_unscaled_variable_records(
+    tmp_path: Path,
+) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     streams = _single_stream_catalog()
-    operations = (ScalerTask(), VectorInputsTask())
-    unscaled = FeatureDatasetConfig(
+    operations = (ScalerTask(), VariableRecordsTask())
+    unscaled = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(id="price", stream="prices", field="close")],
+        features=[VariableConfig(id="price", stream="prices", field="close")],
     )
     scaled = unscaled.model_copy(
         update={"features": [unscaled.features[0].model_copy(update={"scale": True})]}
@@ -502,8 +503,8 @@ def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) ->
         operations,
     )
 
-    assert scaled_hashes.for_artifact(VECTOR_INPUTS) == (
-        unscaled_hashes.for_artifact(VECTOR_INPUTS)
+    assert scaled_hashes.for_artifact(VARIABLE_RECORDS) == (
+        unscaled_hashes.for_artifact(VARIABLE_RECORDS)
     )
     assert scaled_hashes.for_artifact(SCALER_STATISTICS) != (
         unscaled_hashes.for_artifact(SCALER_STATISTICS)
@@ -513,7 +514,7 @@ def test_scaling_policy_does_not_invalidate_raw_vector_inputs(tmp_path: Path) ->
 def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     streams = _single_stream_catalog()
-    feature = FeatureRecordConfig(
+    feature = VariableConfig(
         id="price",
         stream="prices",
         field="close",
@@ -532,7 +533,7 @@ def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
             )
         ],
     )
-    baseline = FeatureDatasetConfig(
+    baseline = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[feature],
         split=split,
@@ -583,7 +584,7 @@ def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
         }
     )
 
-    def scaler_hash(dataset: FeatureDatasetConfig) -> str:
+    def scaler_hash(dataset: DatasetConfig) -> str:
         return calculate_artifact_hashes(
             definition.project,
             dataset,
@@ -627,9 +628,9 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
     unused = data / "unused.jsonl"
     used.write_text("{}\n", encoding="utf-8")
     unused.write_text("{}\n", encoding="utf-8")
-    dataset = FeatureDatasetConfig(
+    dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[FeatureRecordConfig(id="price", stream="used", field="close")],
+        features=[VariableConfig(id="price", stream="used", field="close")],
     )
     streams = StreamsConfig.model_validate(
         {
@@ -672,8 +673,8 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    assert after_unused_change.for_artifact(VECTOR_INPUTS) == baseline.for_artifact(
-        VECTOR_INPUTS
+    assert after_unused_change.for_artifact(VARIABLE_RECORDS) == baseline.for_artifact(
+        VARIABLE_RECORDS
     )
 
     used.write_text("used changed\n", encoding="utf-8")
@@ -683,7 +684,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    for key in (VECTOR_INPUTS, VECTOR_METADATA, VECTOR_SCHEMA):
+    for key in (VARIABLE_RECORDS, VECTOR_METADATA):
         assert after_used_change.for_artifact(key) != baseline.for_artifact(key)
 
 
@@ -779,3 +780,36 @@ def test_artifact_cache_version_changes_artifact_hash(
     )
 
     assert changed_artifact_hashes != definition.artifact_hashes
+
+
+def test_metadata_format_version_invalidates_only_metadata_and_dependents(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    definition = load_pipeline(_write_pipeline(tmp_path))
+    tasks = (VariableRecordsTask(), MetadataTask())
+    current = calculate_artifact_hashes(
+        definition.project,
+        definition.dataset,
+        definition.streams,
+        tasks,
+    )
+
+    monkeypatch.setattr(
+        fingerprints,
+        "VECTOR_METADATA_VERSION",
+        fingerprints.VECTOR_METADATA_VERSION + 1,
+    )
+    changed = calculate_artifact_hashes(
+        definition.project,
+        definition.dataset,
+        definition.streams,
+        tasks,
+    )
+
+    assert changed.for_artifact(VARIABLE_RECORDS) == current.for_artifact(
+        VARIABLE_RECORDS
+    )
+    assert changed.for_artifact(VECTOR_METADATA) != current.for_artifact(
+        VECTOR_METADATA
+    )

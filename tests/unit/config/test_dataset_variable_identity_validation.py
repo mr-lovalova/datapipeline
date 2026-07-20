@@ -1,7 +1,7 @@
 import pytest
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
 from datapipeline.config.dataset.split import DatasetFold, HashSplitConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.services.dataset import validate_dataset_streams
@@ -23,14 +23,14 @@ def _dataset(
     sample_keys: list[str] | None = None,
     stream: str = "prices",
     sequence: SequenceConfig | None = None,
-) -> FeatureDatasetConfig:
-    feature = FeatureRecordConfig(
+) -> DatasetConfig:
+    feature = VariableConfig(
         stream=stream,
         id="close",
         field="close",
         sequence=sequence,
     )
-    return FeatureDatasetConfig(
+    return DatasetConfig(
         sample=SampleConfig(cadence="1d", keys=sample_keys or []),
         features=[feature],
     )
@@ -87,7 +87,7 @@ def test_dataset_accepts_hybrid_sequence_identity() -> None:
 
 
 def test_dataset_rejects_sequences_with_hash_split() -> None:
-    feature = FeatureRecordConfig(
+    feature = VariableConfig(
         stream="prices",
         id="close",
         field="close",
@@ -95,7 +95,7 @@ def test_dataset_rejects_sequences_with_hash_split() -> None:
     )
 
     with pytest.raises(ValueError, match="hash splits cannot be used.*close"):
-        FeatureDatasetConfig(
+        DatasetConfig(
             sample=SampleConfig(cadence="1d"),
             features=[feature],
             split=HashSplitConfig(

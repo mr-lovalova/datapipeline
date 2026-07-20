@@ -5,6 +5,7 @@ from datapipeline.config.options import (
     OUTPUT_TRANSPORTS,
     OUTPUT_VIEWS,
 )
+from datapipeline.io.compression import COMPRESSION_CHOICES
 
 from .common import (
     add_artifact_mode_flag,
@@ -51,6 +52,11 @@ def add_inspect_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-encoding",
         help="text encoding for fs jsonl/csv/txt outputs (default: utf-8)",
+    )
+    parser.add_argument(
+        "--output-compression",
+        choices=COMPRESSION_CHOICES,
+        help="compress fs jsonl/csv output with gzip",
     )
     parser.add_argument(
         "--output-view",

@@ -23,7 +23,7 @@ def add_materialize_command(sub, common: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output",
-        help="override one profile's destination .jsonl file (requires --profile)",
+        help="override one profile's destination .jsonl or .jsonl.gz file (requires --profile)",
     )
     parser.add_argument(
         "--overwrite",

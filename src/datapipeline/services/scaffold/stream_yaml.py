@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
+from datapipeline.config.streams import (
+    AlignedStreamConfig,
+    BroadcastStreamConfig,
+    SourceStreamConfig,
+)
 from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.locking import ScaffoldLock, acquire_scaffold_lock
 from datapipeline.services.scaffold.paths import ensure_project_scaffold
@@ -72,6 +76,40 @@ def write_aligned_stream(
                 "streams/aligned.yaml.j2",
                 stream_id=config.id,
                 input_streams=list(config.from_.align),
+                combine_entrypoint=config.combine.entrypoint,
+            ).strip()
+            + "\n"
+        )
+        write_new_file(path, content)
+        return path
+
+
+def write_broadcast_stream(
+    project_yaml: Path,
+    stream_id: str,
+    primary_stream: str,
+    broadcast_stream: str,
+    combine_entrypoint: str,
+    scaffold_lock: ScaffoldLock | None = None,
+) -> Path:
+    with acquire_scaffold_lock(project_yaml.parent, scaffold_lock) as project_lock:
+        config = BroadcastStreamConfig.model_validate(
+            {
+                "id": stream_id,
+                "from": {
+                    "stream": primary_stream,
+                    "broadcast": broadcast_stream,
+                },
+                "combine": {"entrypoint": combine_entrypoint},
+            }
+        )
+        path = _new_stream_path(project_yaml, config.id, project_lock)
+        content = (
+            render(
+                "streams/broadcast.yaml.j2",
+                stream_id=config.id,
+                primary_stream=config.from_.stream,
+                broadcast_stream=config.from_.broadcast,
                 combine_entrypoint=config.combine.entrypoint,
             ).strip()
             + "\n"

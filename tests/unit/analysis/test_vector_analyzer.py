@@ -8,7 +8,6 @@ from datapipeline.artifacts.models import (
     ListVectorColumnStats,
     ListVectorMetadataEntry,
     ScalarVectorMetadataEntry,
-    VectorSchemaCadence,
     VectorStatsArtifact,
 )
 from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
@@ -34,8 +33,7 @@ def _sequence(identifier: str, base_id: str, length: int):
         present_count=1,
         null_count=0,
         element_types=("float", "null"),
-        lengths={str(length): 1},
-        cadence=VectorSchemaCadence(target=length),
+        length=length,
         observed_elements=1,
     )
 

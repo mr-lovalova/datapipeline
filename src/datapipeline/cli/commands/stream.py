@@ -9,6 +9,7 @@ from datapipeline.cli.prompts import (
     prompt_required,
 )
 from datapipeline.cli.workspace import WorkspaceContext, resolve_default_project_yaml
+from datapipeline.services.project import load_project
 from datapipeline.services.scaffold.discovery import (
     list_combiners,
     list_mappers,
@@ -22,8 +23,11 @@ from datapipeline.services.scaffold.layout import (
 from datapipeline.services.scaffold.paths import default_project_yaml_path, pkg_root
 from datapipeline.services.scaffold.stream_yaml import (
     write_aligned_stream,
+    write_broadcast_stream,
     write_source_stream,
 )
+from datapipeline.services.streams.loader import load_streams
+from datapipeline.services.streams.validation import stream_partition_by
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +89,22 @@ def handle(
         [
             ("source", "Source-backed (source → ordered stream)"),
             ("aligned", "Aligned (streams → ordered stream)"),
+            (
+                "broadcast",
+                "Broadcast (partitioned stream + global stream → ordered stream)",
+            ),
         ],
     )
+    if use_identity and stream_type != "source":
+        raise SystemExit("--identity is only supported for source-backed streams.")
     if stream_type == "aligned":
-        if use_identity:
-            raise SystemExit("--identity is only supported for source-backed streams.")
         _scaffold_aligned_stream(
+            plugin_root=plugin_root,
+            project_yaml=default_project,
+        )
+        return
+    if stream_type == "broadcast":
+        _scaffold_broadcast_stream(
             plugin_root=plugin_root,
             project_yaml=default_project,
         )
@@ -154,6 +168,55 @@ def _scaffold_aligned_stream(
             project_yaml=proj_path,
             stream_id=stream_id,
             input_streams=input_streams,
+            combine_entrypoint=combine_entrypoint,
+        )
+    except (FileExistsError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
+    logger.info("Stream: %s", path)
+
+
+def _scaffold_broadcast_stream(
+    plugin_root: Path | None,
+    project_yaml: Path | None,
+) -> None:
+    root_dir, _name, _ = pkg_root(plugin_root)
+    proj_path = project_yaml or default_project_yaml_path(root_dir)
+    streams = load_streams(load_project(proj_path)).streams
+    primary_streams: list[str] = []
+    broadcast_streams: list[str] = []
+    for stream_id in sorted(streams):
+        if stream_partition_by(streams, stream_id):
+            primary_streams.append(stream_id)
+        else:
+            broadcast_streams.append(stream_id)
+    if not primary_streams:
+        raise SystemExit(
+            "No partitioned streams found. Broadcast streams require a primary "
+            "stream with non-empty partition_by."
+        )
+    if not broadcast_streams:
+        raise SystemExit(
+            "No global streams found. Broadcast streams require an input stream "
+            "with empty partition_by."
+        )
+
+    primary_stream = pick_from_list(
+        "Select primary stream (partitioned):",
+        primary_streams,
+    )
+    broadcast_stream = pick_from_list(
+        "Select broadcast stream (global):",
+        broadcast_streams,
+    )
+    stream_id = choose_name("Stream id")
+    combine_entrypoint = _select_combiner(plugin_root)
+
+    try:
+        path = write_broadcast_stream(
+            project_yaml=proj_path,
+            stream_id=stream_id,
+            primary_stream=primary_stream,
+            broadcast_stream=broadcast_stream,
             combine_entrypoint=combine_entrypoint,
         )
     except (FileExistsError, ValueError) as exc:

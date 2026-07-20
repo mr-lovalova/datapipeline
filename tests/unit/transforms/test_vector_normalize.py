@@ -1,24 +1,38 @@
 import pytest
 
-from datapipeline.artifacts.models import VectorSchemaCadence, VectorSchemaEntry
+from datapipeline.artifacts.models import (
+    ListVectorMetadataEntry,
+    ScalarVectorMetadataEntry,
+    VectorMetadataEntry,
+)
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.transforms.vector.ensure_schema import (
+from datapipeline.transforms.vector.normalize import (
     NormalizeFeaturesTransform,
     NormalizeTargetsTransform,
 )
 from tests.unit.transforms.helpers import make_vector
 
 
-def _scalar(identifier: str) -> VectorSchemaEntry:
-    return VectorSchemaEntry(id=identifier, kind="scalar")
-
-
-def _sequence(identifier: str, size: int) -> VectorSchemaEntry:
-    return VectorSchemaEntry(
+def _scalar(identifier: str) -> VectorMetadataEntry:
+    return ScalarVectorMetadataEntry(
         id=identifier,
+        base_id=identifier,
+        kind="scalar",
+        present_count=0,
+        null_count=0,
+    )
+
+
+def _sequence(identifier: str, size: int) -> VectorMetadataEntry:
+    return ListVectorMetadataEntry(
+        id=identifier,
+        base_id=identifier,
         kind="list",
-        cadence=VectorSchemaCadence(target=size),
+        present_count=0,
+        null_count=0,
+        length=size,
+        observed_elements=0,
     )
 
 

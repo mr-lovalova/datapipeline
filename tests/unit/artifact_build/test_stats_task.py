@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.artifacts.specs import VECTOR_METADATA
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -21,7 +21,7 @@ def _ts(day: int) -> datetime:
 def _metadata() -> VectorMetadata:
     return VectorMetadata.model_validate(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "features": [
                 {
                     "id": "speed",
@@ -30,8 +30,7 @@ def _metadata() -> VectorMetadata:
                     "present_count": 1,
                     "null_count": 0,
                     "element_types": ["float", "null"],
-                    "lengths": {"2": 1},
-                    "cadence": {"target": 2},
+                    "length": 2,
                     "observed_elements": 1,
                 }
             ],
@@ -58,10 +57,10 @@ def _runtime(tmp_path) -> Runtime:
     return Runtime(
         project_yaml=project_yaml,
         artifacts_root=tmp_path / "artifacts",
-        dataset=FeatureDatasetConfig(
+        dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),
-            features=[FeatureRecordConfig(id="speed", stream="stream", field="value")],
-            targets=[FeatureRecordConfig(id="return", stream="stream", field="value")],
+            features=[VariableConfig(id="speed", stream="stream", field="value")],
+            targets=[VariableConfig(id="return", stream="stream", field="value")],
         ),
     )
 
@@ -80,9 +79,10 @@ class _Context:
 
 
 def _postprocess_plan(*nodes: PipelineNode) -> PostprocessPlan:
+    metadata = _metadata()
     return PostprocessPlan(
-        feature_ids=("speed",),
-        target_ids=("return",),
+        feature_entries=metadata.features,
+        target_entries=metadata.targets,
         nodes=nodes,
     )
 

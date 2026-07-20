@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 import datapipeline.operations.artifacts.ticks as ticks_module
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import TicksTask
 from datapipeline.config.transforms import WhereConfig
@@ -61,7 +61,7 @@ def _runtime(tmp_path, rows=None, partition_by=()) -> Runtime:
     runtime = Runtime(
         project_yaml=project_yaml,
         artifacts_root=artifacts_root,
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         execution=ExecutionConfig(),
     )
     runtime.streams["source.stream"] = SourceRuntimeStream(
@@ -293,6 +293,38 @@ def test_materialize_ticks_rejects_missing_key_field(tmp_path) -> None:
 
     assert destination.read_text(encoding="utf-8") == "previous\n"
     assert list(destination.parent.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (float("nan"), "missing grid_by field"),
+        (float("inf"), "must not contain infinity"),
+        (float("-inf"), "must not contain infinity"),
+    ],
+)
+def test_materialize_ticks_rejects_non_finite_grid_values_atomically(
+    tmp_path,
+    value: float,
+    message: str,
+) -> None:
+    record = _record(0, "placeholder")
+    record.security_id = value
+    runtime = _runtime(tmp_path, [record])
+
+    with pytest.raises(ValueError, match=message):
+        materialize_ticks(
+            runtime,
+            TicksTask(
+                id="model_grid",
+                entrypoint="core.artifact.ticks",
+                stream="source.stream",
+                grid_by=["security_id"],
+                output="build/model_grid.jsonl",
+            ),
+        )
+
+    assert not (runtime.artifacts_root / "build/model_grid.jsonl").exists()
 
 
 def test_materialize_ticks_uses_stream_transforms(

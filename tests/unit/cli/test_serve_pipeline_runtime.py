@@ -1,9 +1,13 @@
+import gzip
+import json
 import logging
 from types import SimpleNamespace
 
 import pytest
 
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -30,21 +34,22 @@ def _runtime(streams=None):
     return runtime
 
 
-def _dataset(*, targets=None):
-    return SimpleNamespace(
-        features=[SimpleNamespace(id="price", stream="prices", scale=False)],
-        targets=list(targets or []),
-        sample=SimpleNamespace(cadence="1d", keys=[]),
-        split=None,
+def _dataset(
+    targets: list[VariableConfig] | None = None,
+    split: TimeSplitConfig | None = None,
+) -> DatasetConfig:
+    return DatasetConfig(
+        features=[VariableConfig(id="price", stream="prices", field="value")],
+        targets=[] if targets is None else targets,
+        sample=SampleConfig(cadence="1d"),
+        split=split,
     )
 
 
-def _preview_dataset(stream):
-    return SimpleNamespace(
-        features=[SimpleNamespace(id="price", stream=stream, scale=False)],
-        targets=[],
-        sample=SimpleNamespace(cadence="1d", keys=[]),
-        split=None,
+def _preview_dataset(stream: str) -> DatasetConfig:
+    return DatasetConfig(
+        features=[VariableConfig(id="price", stream=stream, field="value")],
+        sample=SampleConfig(cadence="1d"),
     )
 
 
@@ -59,13 +64,14 @@ def _target():
     )
 
 
-def _fs_target(destination):
+def _fs_target(destination, compression=None):
     return OutputTarget(
         transport="fs",
         format="jsonl",
         view="raw",
         encoding="utf-8",
         destination=destination,
+        compression=compression,
         run=None,
     )
 
@@ -171,19 +177,20 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         heartbeat_interval_seconds=None,
         output_ids=("holdout.train", "holdout.validation"),
     )
-    dataset = _dataset()
-    dataset.split = TimeSplitConfig(
-        intervals=[
-            TimeInterval(id="train", until="2021-01-01T00:00:00Z"),
-            TimeInterval(id="val"),
-        ],
-        folds=[
-            DatasetFold(
-                id="holdout",
-                train=["train"],
-                validation=["val"],
-            )
-        ],
+    dataset = _dataset(
+        split=TimeSplitConfig(
+            intervals=[
+                TimeInterval(id="train", until="2021-01-01T00:00:00Z"),
+                TimeInterval(id="val"),
+            ],
+            folds=[
+                DatasetFold(
+                    id="holdout",
+                    train=["train"],
+                    validation=["val"],
+                )
+            ],
+        )
     )
     runtime.dataset = dataset
     target = _fs_target(tmp_path / "vectors.jsonl")
@@ -224,7 +231,9 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
 
 def test_samples_preview_stops_before_postprocess(monkeypatch):
     runtime = _runtime()
-    dataset = _dataset(targets=[object()])
+    dataset = _dataset(
+        targets=[VariableConfig(id="target", stream="targets", field="value")]
+    )
     target = _target()
     monkeypatch.setattr(
         "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
@@ -273,37 +282,35 @@ def test_record_previews_stop_at_the_named_stage(monkeypatch, preview, expected)
     assert list(result.outputs[0].rows) == [expected]
 
 
-def test_features_preview_returns_processed_feature_records(monkeypatch):
+def test_variables_preview_returns_processed_variable_records(monkeypatch):
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_feature_pipeline",
-        lambda *args, **kwargs: iter(["feature"]),
+        "datapipeline.operations.runtime.pipeline.run_variable_pipeline",
+        lambda *args, **kwargs: iter(["variable"]),
     )
 
     result = _serve(
         _runtime(),
         _preview_dataset("derived.prices"),
         _target(),
-        preview="features",
+        preview="variables",
     )
 
-    assert list(result.outputs[0].rows) == ["feature"]
+    assert list(result.outputs[0].rows) == ["variable"]
 
 
-def test_feature_preview_rejects_duplicate_resolved_destinations(
+def test_variable_preview_rejects_duplicate_resolved_destinations(
     monkeypatch,
     tmp_path,
 ) -> None:
-    dataset = SimpleNamespace(
+    dataset = DatasetConfig(
         features=[
-            SimpleNamespace(id="a/b", stream="first", scale=False),
-            SimpleNamespace(id="a?b", stream="second", scale=False),
+            VariableConfig(id="a/b", stream="first", field="value"),
+            VariableConfig(id="a?b", stream="second", field="value"),
         ],
-        targets=[],
-        sample=SimpleNamespace(cadence="1d", keys=[]),
-        split=None,
+        sample=SampleConfig(cadence="1d"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_feature_pipeline",
+        "datapipeline.operations.runtime.pipeline.run_variable_pipeline",
         lambda *args, **kwargs: pytest.fail(
             "preview streams must not be opened before destinations are validated"
         ),
@@ -317,7 +324,7 @@ def test_feature_preview_rejects_duplicate_resolved_destinations(
             _runtime(),
             dataset,
             _fs_target(tmp_path / "preview.jsonl"),
-            preview="features",
+            preview="variables",
         )
 
     assert not list(tmp_path.iterdir())
@@ -340,6 +347,64 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
     result = _serve(runtime, dataset, target, preview="postprocess")
 
     assert list(result.outputs[0].rows) == ["post:vector"]
+
+
+@pytest.mark.parametrize(
+    ("preview", "expected", "output_id"),
+    [
+        ("input", "source", "derived.prices"),
+        ("canonical", "mapped:source", "derived.prices"),
+        ("records", "records:transformed:mapped:source", "derived.prices"),
+        ("variables", "variable", "price"),
+        ("samples", "vector", None),
+        ("postprocess", "post:vector", None),
+    ],
+)
+def test_all_preview_stages_write_gzip_through_the_shared_output_path(
+    monkeypatch,
+    tmp_path,
+    preview,
+    expected,
+    output_id,
+) -> None:
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        lambda *args, **kwargs: _record_preview_pipeline(),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.run_variable_pipeline",
+        lambda *args, **kwargs: iter(["variable"]),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        lambda runtime_obj, rectangular_required: (None, None),
+    )
+    monkeypatch.setattr(
+        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        lambda *args, **kwargs: _sample_preview_pipeline(),
+    )
+
+    target = _fs_target(tmp_path / "preview.jsonl.gz", compression="gzip")
+    result = _serve(
+        _runtime({"derived.prices": object()}),
+        _preview_dataset("derived.prices"),
+        target,
+        preview=preview,
+    )
+    persist_runtime_result(
+        result,
+        target=target,
+        logger=logging.getLogger(__name__),
+    )
+
+    destination = (
+        target.for_output(output_id).destination
+        if output_id is not None
+        else target.destination
+    )
+    assert destination is not None
+    with gzip.open(destination, "rt", encoding="utf-8") as stream:
+        assert [json.loads(line) for line in stream] == [expected]
 
 
 def test_preview_rejects_unknown_stage() -> None:

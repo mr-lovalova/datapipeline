@@ -17,7 +17,7 @@ def read_json_artifact(path: Path) -> dict[str, Any]:
 def write_json_artifact(path: Path, payload: Mapping[str, Any]) -> None:
     sink = AtomicTextFileSink(path)
     try:
-        json.dump(payload, sink.fh, indent=2, sort_keys=True)
+        json.dump(payload, sink.fh, indent=2, sort_keys=True, allow_nan=False)
         sink.close()
     except BaseException:
         sink.abort()

@@ -129,6 +129,7 @@ def execute_runtime_job(
                         "format": job.output.format,
                         "view": job.output.view,
                         "encoding": job.output.encoding,
+                        "compression": job.output.compression,
                         "destination": (
                             str(job.output.destination)
                             if job.output.destination is not None

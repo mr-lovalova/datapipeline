@@ -6,7 +6,7 @@ from itertools import islice
 from typing import TypeVar
 
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     SplitConfig,
@@ -29,10 +29,11 @@ from datapipeline.pipelines.dataset.pipeline import (
     run_scaled_dataset_pipeline,
 )
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
-from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.variable.pipeline import run_variable_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
+    BroadcastRuntimeStream,
     DerivedRuntimeStream,
     Runtime,
     require_runtime_stream,
@@ -99,14 +100,14 @@ def _sample_output(
 
 
 def _preview_plan(
-    preview_cfgs: list[FeatureRecordConfig],
+    preview_cfgs: list[VariableConfig],
     preview: PreviewStage,
-) -> list[tuple[str, FeatureRecordConfig]]:
+) -> list[tuple[str, VariableConfig]]:
     if preview not in _RECORD_PREVIEWS:
         return [(cfg.id, cfg) for cfg in preview_cfgs]
 
     seen: set[str] = set()
-    plan: list[tuple[str, FeatureRecordConfig]] = []
+    plan: list[tuple[str, VariableConfig]] = []
     for cfg in preview_cfgs:
         stream_id = cfg.stream
         if stream_id in seen:
@@ -138,7 +139,7 @@ def _record_preview_stream(
                 context,
                 pipeline.through_node(upstream.node_count - 1),
             )
-        if isinstance(stream, AlignedRuntimeStream):
+        if isinstance(stream, (AlignedRuntimeStream, BroadcastRuntimeStream)):
             node_name = "combine_records"
         else:
             node_name = "map_records"
@@ -152,8 +153,8 @@ def _serve_preview(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[FeatureRecordConfig],
-    target_cfgs: list[FeatureRecordConfig],
+    feature_cfgs: list[VariableConfig],
+    target_cfgs: list[VariableConfig],
     cadence: str,
     sample_keys: list[str],
     limit: int | None,
@@ -183,10 +184,10 @@ def _serve_preview(
 
     outputs: list[RuntimeOutput] = []
     preview_plan = _preview_plan(feature_cfgs + target_cfgs, preview)
-    resolved_outputs: list[tuple[str, FeatureRecordConfig, OutputTarget]] = []
+    resolved_outputs: list[tuple[str, VariableConfig, OutputTarget]] = []
     destinations: dict[str, str] = {}
     for output_id, cfg in preview_plan:
-        output_target = target.for_feature(output_id)
+        output_target = target.for_output(output_id)
         destination = output_target.destination
         if destination is not None:
             collision_key = output_destination_key(destination)
@@ -206,8 +207,8 @@ def _serve_preview(
                 str(output_id),
                 preview,
             )
-        elif preview == "features":
-            stream = run_feature_pipeline(
+        elif preview == "variables":
+            stream = run_variable_pipeline(
                 context,
                 cfg,
                 sample_keys=sample_keys,
@@ -223,8 +224,8 @@ def _serve_dataset(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[FeatureRecordConfig],
-    target_cfgs: list[FeatureRecordConfig],
+    feature_cfgs: list[VariableConfig],
+    target_cfgs: list[VariableConfig],
     cadence: str,
     sample_keys: list[str],
     limit: int | None,
@@ -254,8 +255,8 @@ def _serve_fold_outputs(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[FeatureRecordConfig],
-    target_cfgs: list[FeatureRecordConfig],
+    feature_cfgs: list[VariableConfig],
+    target_cfgs: list[VariableConfig],
     cadence: str,
     sample_keys: list[str],
     output_ids: tuple[str, ...],

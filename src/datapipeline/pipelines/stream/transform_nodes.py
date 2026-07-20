@@ -16,10 +16,14 @@ from datapipeline.config.transforms import (
     FillConfig,
     FloorTimeConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
     LagConfig,
     LeadConfig,
+    Log1pConfig,
+    LogConfig,
     PreprocessConfig,
     RollingConfig,
+    RollingSlopeConfig,
     ShiftTimeConfig,
     TransformConfig,
     WhereConfig,
@@ -36,10 +40,13 @@ from datapipeline.transforms.stream.fill import (
     ForwardFillTransform,
     StatisticalFillTransform,
 )
+from datapipeline.transforms.stream.forward_sum import ForwardSumTransform
 from datapipeline.transforms.stream.collapse import CollapseTransform
 from datapipeline.transforms.stream.lag import LagTransform
 from datapipeline.transforms.stream.lead import LeadTransform
+from datapipeline.transforms.stream.logarithm import Log1pTransform, LogTransform
 from datapipeline.transforms.stream.rolling import RollingTransform
+from datapipeline.transforms.stream.rolling_slope import RollingSlopeTransform
 from datapipeline.transforms.time import FloorTimeTransform, ShiftTimeTransform
 from datapipeline.transforms.where import WhereTransform
 
@@ -119,6 +126,13 @@ def build_transform_nodes(
                 partition_by,
                 operation.to,
             ).apply
+        elif isinstance(operation, ForwardSumConfig):
+            node_op = ForwardSumTransform(
+                operation.field,
+                operation.window,
+                partition_by,
+                operation.to,
+            ).apply
         elif isinstance(operation, EnsureCadenceConfig):
             node_op = EnsureCadenceTransform(
                 operation.cadence,
@@ -160,6 +174,18 @@ def build_transform_nodes(
                 operation.min_samples,
                 operation.statistic,
             ).apply
+        elif isinstance(operation, RollingSlopeConfig):
+            node_op = RollingSlopeTransform(
+                operation.x,
+                operation.y,
+                operation.window,
+                partition_by,
+                operation.to,
+            ).apply
+        elif isinstance(operation, LogConfig):
+            node_op = LogTransform(operation.field, operation.to).apply
+        elif isinstance(operation, Log1pConfig):
+            node_op = Log1pTransform(operation.field, operation.to).apply
         elif isinstance(operation, DeriveConfig):
             if operation.right_field is not None:
                 transform = DeriveTransform(

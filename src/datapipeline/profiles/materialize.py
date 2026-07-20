@@ -17,8 +17,8 @@ from datapipeline.profiles.models import MaterializeJob
 from datapipeline.runtime import Runtime
 from datapipeline.services.materialize import (
     check_materialize_destination,
-    materialize_destination_path,
-    materialize_stream_to_path,
+    materialize_stream,
+    resolve_materialize_output,
 )
 from datapipeline.services.path_policy import sanitize_path_segment
 
@@ -67,7 +67,7 @@ def resolve_materialize_jobs(
             MaterializeJob(
                 name=profile.name,
                 stream=profile.stream,
-                output=output.resolve(),
+                output=resolve_materialize_output(output),
                 overwrite=profile.overwrite if overwrite is None else overwrite,
                 observability=observability,
             )
@@ -89,7 +89,11 @@ def preflight_materialize_jobs(
                 f"Materialize profile '{job.name}' references unknown "
                 f"stream '{job.stream}'."
             )
-        path = materialize_destination_path(job.output)
+        path = job.output.destination
+        if job.output.transport != "fs" or path is None:
+            raise ValueError(
+                f"Materialize profile '{job.name}' requires a filesystem output."
+            )
         destinations.append((job, path))
         if path.is_relative_to(artifacts_root):
             raise ValueError(
@@ -119,7 +123,7 @@ def execute_materialize_job(
             + json.dumps(
                 {
                     "stream": job.stream,
-                    "output": str(job.output),
+                    "output": str(job.output.destination),
                     "overwrite": job.overwrite,
                     "execution": runtime.execution.model_dump(mode="json"),
                     "observability": job.observability.effective_config(),
@@ -128,7 +132,7 @@ def execute_materialize_job(
             ),
             level=logging.DEBUG,
         )
-        output = materialize_stream_to_path(
+        output = materialize_stream(
             runtime=runtime,
             stream_id=job.stream,
             output=job.output,

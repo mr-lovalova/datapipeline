@@ -1,9 +1,8 @@
 import codecs
 import csv
-import io
 import itertools
 import json
-import pickle
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
@@ -50,6 +49,34 @@ def _read_all_text(chunks: Iterable[bytes], encoding: str) -> str:
     return "".join(parts)
 
 
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"JSON object contains duplicate key {key!r}.")
+        value[key] = item
+    return value
+
+
+def _reject_non_standard_json_constant(value: str) -> None:
+    raise ValueError(f"JSON contains non-standard constant {value}.")
+
+
+def _parse_finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"JSON number is outside the finite float range: {value}.")
+    return number
+
+
+def _json_decoder() -> json.JSONDecoder:
+    return json.JSONDecoder(
+        object_pairs_hook=_reject_duplicate_json_keys,
+        parse_constant=_reject_non_standard_json_constant,
+        parse_float=_parse_finite_json_float,
+    )
+
+
 class CsvDecoder(Decoder):
     def __init__(
         self,
@@ -77,9 +104,30 @@ class CsvDecoder(Decoder):
         return itertools.chain((first,), lines)
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
-        reader = csv.DictReader(self._iter_lines(chunks), delimiter=self.delimiter)
+        reader = csv.reader(
+            self._iter_lines(chunks),
+            delimiter=self.delimiter,
+            strict=True,
+        )
+        try:
+            fieldnames = next(reader)
+        except StopIteration:
+            return
+
+        if not fieldnames or any(not fieldname.strip() for fieldname in fieldnames):
+            raise ValueError("CSV header contains an empty field name.")
+        if len(fieldnames) != len(set(fieldnames)):
+            raise ValueError("CSV header contains duplicate field names.")
+
         for row in reader:
-            yield row
+            if not row:
+                continue
+            if len(row) != len(fieldnames):
+                raise ValueError(
+                    f"CSV row {reader.line_num} has {len(row)} fields; "
+                    f"expected {len(fieldnames)}."
+                )
+            yield dict(zip(fieldnames, row))
 
 
 class JsonDecoder(Decoder):
@@ -93,7 +141,7 @@ class JsonDecoder(Decoder):
 
     def _load_payload(self, chunks: Iterable[bytes]) -> Any:
         text = _read_all_text(chunks, self.encoding)
-        data = json.loads(text)
+        data = _json_decoder().decode(text)
         if self.array_field is not None:
             if not isinstance(data, dict):
                 raise ValueError("json array_field requires a top-level object")
@@ -117,22 +165,9 @@ class JsonLinesDecoder(Decoder):
         self.encoding = encoding
 
     def decode(self, chunks: Iterable[bytes]) -> Iterator[dict]:
+        decoder = _json_decoder()
         for line in _iter_text_lines(chunks, self.encoding):
             s = line.strip()
             if not s:
                 continue
-            yield json.loads(s)
-
-
-class PickleDecoder(Decoder):
-    def decode(self, chunks: Iterable[bytes]) -> Iterator[Any]:
-        buffer = io.BytesIO()
-        for chunk in chunks:
-            buffer.write(chunk)
-        buffer.seek(0)
-        unpickler = pickle.Unpickler(buffer)
-        try:
-            while True:
-                yield unpickler.load()
-        except EOFError:
-            return
+            yield decoder.decode(s)

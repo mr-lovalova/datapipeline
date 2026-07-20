@@ -48,6 +48,7 @@ def handle_serve(
         fmt=args.output_format,
         directory=args.output_directory,
         output_encoding=args.output_encoding,
+        output_compression=args.output_compression,
         workspace_root=workspace_root,
         view=args.output_view,
     )
@@ -84,6 +85,7 @@ def handle_inspect(
         fmt=args.output_format,
         directory=args.output_directory,
         output_encoding=args.output_encoding,
+        output_compression=args.output_compression,
         workspace_root=workspace_root,
         view=args.output_view,
     )

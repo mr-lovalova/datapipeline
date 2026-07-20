@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
-from datapipeline.domain.feature_id import FEATURE_ID_SEPARATOR
+from datapipeline.domain.variable_id import VARIABLE_ID_SEPARATOR
 
 
 NonEmptyString = Annotated[
@@ -18,7 +18,7 @@ class SequenceConfig(BaseModel):
     stride: int = Field(default=1, gt=0, strict=True)
 
 
-class FeatureRecordConfig(BaseModel):
+class VariableConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     id: NonEmptyString
@@ -29,10 +29,10 @@ class FeatureRecordConfig(BaseModel):
 
     @field_validator("id")
     @classmethod
-    def validate_id(cls, feature_id: str) -> str:
-        if FEATURE_ID_SEPARATOR in feature_id:
+    def validate_id(cls, variable_id: str) -> str:
+        if VARIABLE_ID_SEPARATOR in variable_id:
             raise ValueError(
-                "feature id must not contain reserved separator "
-                f"{FEATURE_ID_SEPARATOR!r}"
+                "variable id must not contain reserved separator "
+                f"{VARIABLE_ID_SEPARATOR!r}"
             )
-        return feature_id
+        return variable_id

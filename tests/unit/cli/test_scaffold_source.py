@@ -75,23 +75,9 @@ def test_create_source_quotes_yaml_sensitive_entrypoints(tmp_path: Path) -> None
     assert source.parser.entrypoint == 'custom"parser\\name'
 
 
-def test_create_pickle_source_satisfies_source_contract(tmp_path: Path) -> None:
-    plugin_root = _create_plugin(tmp_path)
-    loader_ep, loader_args = default_loader_config("fs", "pickle")
-    path = create_source_yaml(
-        source_id="demo.weather",
-        loader_ep=loader_ep,
-        loader_args=loader_args,
-        parser_ep="identity",
-        root=plugin_root,
-    )
-
-    source = SourceConfig.model_validate(
-        yaml.safe_load(path.read_text(encoding="utf-8"))
-    )
-
-    assert source.loader.args.format == "pickle"
-    assert "encoding" not in source.loader.args.model_fields_set
+def test_default_loader_config_rejects_pickle_format() -> None:
+    with pytest.raises(ValueError, match="Unsupported source format: 'pickle'"):
+        default_loader_config("fs", "pickle")
 
 
 def test_default_loader_config_rejects_unknown_transport() -> None:

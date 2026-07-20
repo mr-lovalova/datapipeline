@@ -13,3 +13,5 @@ preprocess:
 transforms:
   - { operation: ensure_cadence, cadence: 1h }
   - { operation: fill, field: value, statistic: mean, window: 2, min_samples: 1 }
+  - { operation: log1p, field: value, to: log1p_value }
+  - { operation: forward_sum, field: value, window: 2, to: future_2 }

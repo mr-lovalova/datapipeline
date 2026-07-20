@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
+from datapipeline.domain.value import normalize_data_value
 
 View = Literal["flat", "raw"]
 
@@ -63,7 +64,7 @@ def flatten_fields(prefix: str, value: Any, out: dict[str, Any]) -> None:
 def _set_flat_field(out: dict[str, Any], field: str, value: Any) -> None:
     if field in out:
         raise ValueError(f"Flat output field {field!r} is produced more than once.")
-    out[field] = value
+    out[field] = normalize_data_value(value)
 
 
 def _normalize_key_struct(key: Any) -> Any:
@@ -73,6 +74,8 @@ def _normalize_key_struct(key: Any) -> Any:
 
 
 def _jsonable(value: Any) -> Any:
+    if isinstance(value, float):
+        return normalize_data_value(value)
     if _is_scalar(value):
         return value
     if isinstance(value, TemporalRecord):

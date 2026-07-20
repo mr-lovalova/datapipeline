@@ -6,7 +6,7 @@ These live under the dataset “project root” directory (the folder containing
 
 - `project.yaml`: paths + globals (single source of truth).
 - `sources/*.yaml`: raw sources (loader + parser wiring).
-- `streams/*.yaml`: source-backed, derived, or aligned canonical streams.
+- `streams/*.yaml`: source-backed, derived, broadcast, or aligned canonical streams.
 - `dataset.yaml`: sample, feature/target, split, and postprocess policy.
 - `profiles/serve.<name>.yaml`: serve profiles.
 - `profiles/build.<name>.yaml`: build profiles.
@@ -74,8 +74,8 @@ globals:
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
-  Core artifact operations are `scaler`, `vector_inputs`, `metadata`, `schema`,
-  and `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
+  Core artifact operations are `scaler`, `variable_records`, `metadata`, and
+  `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
@@ -106,6 +106,7 @@ output:
   directory: runs
   # view: raw # optional; csv defaults to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
+  # compression: gzip # optional; fs jsonl/csv only
 limit: 100 # cap vectors per output
 throttle_ms: null # milliseconds to sleep between emitted vectors
 # Optional overrides:
@@ -129,6 +130,12 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
   split outputs use `<profile>.<fold-id>.<role>.<ext>`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
+- `output.compression: gzip` writes fs `jsonl`/`csv` outputs with a `.gz`
+  suffix. This applies unchanged to full dataset, split, inspect, and preview
+  outputs; Jerry does not infer compression from a filename.
+- Output values use `None` as the canonical missing value. A transient floating
+  `NaN` is emitted as null (`None` in pickle and an empty CSV cell); positive
+  and negative infinity fail the output operation.
 - A full pipeline serve with `dataset.yaml:split` writes one output file per
   configured fold role, using profile-qualified filenames such as
   `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
@@ -179,15 +186,16 @@ overwrite: true
   profile remains the source of the stream identity.
 - Relative profile outputs resolve from `project.yaml`; relative CLI `--output`
   values resolve from the workspace root, or the current directory without a
-  workspace. All output paths must end in `.jsonl`.
+  workspace. A `.jsonl` path writes plain JSONL; `.jsonl.gz` writes gzip JSONL.
+  The concrete path is the complete materialize output contract.
 - Before execution, Jerry validates every selected stream and checks the full
   destination set for duplicates and existing files. No profile writes until
   the whole selected batch passes this preflight.
 - `overwrite: false` is the built-in default. `--overwrite` and
   `--no-overwrite` override every selected profile; shared defaults belong in
   `profiles/materialize.defaults.yaml`.
-- Output and metadata paths must be outside `project.paths.artifacts`; that
-  directory is reserved for managed artifacts and build state.
+- Output paths must be outside `project.paths.artifacts`; that directory is
+  reserved for managed artifacts and build state.
 - `artifact_mode` is command-wide and belongs only in
   `profiles/materialize.defaults.yaml`. `AUTO` prepares missing or stale stream
   prerequisites, `FORCE` rebuilds them, and `OFF` requires them to be current.
@@ -196,8 +204,8 @@ overwrite: true
 ### Build Profiles (`profiles/build.<name>.yaml`)
 
 ```yaml
-# profiles/build.schema.yaml
-operation: schema # required; artifact operation ID to execute
+# profiles/build.metadata.yaml
+operation: metadata # required; artifact operation ID to execute
 mode: AUTO # AUTO | FORCE | "OFF"
 # enabled: true # optional; profile-level switch
 # Optional overrides:
@@ -213,8 +221,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 ```
 
 - Build profiles are orchestration profiles; they do not replace operation definitions.
-- `operation` selects the artifact operation ID for that profile (`schema`,
-  `scaler`, `metadata`, ...). Selected build profiles must reference distinct
+- `operation` selects the artifact operation ID for that profile (`metadata`,
+  `scaler`, `stats`, ...). Selected build profiles must reference distinct
   operations.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist;
@@ -355,13 +363,20 @@ loader:
 
 - `id`: the source alias; referenced by source-backed streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
-- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http and is configured via `loader.args`.
+- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http,
+  accepts CSV, JSON, and JSONL, and is configured via `loader.args`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
   to track custom-loader inputs for artifact freshness. Local `core.io`
   filesystem paths are tracked automatically. The list is order-insensitive;
   duplicate entries are rejected.
 - A filesystem `path` containing standard glob characters (`*`, `?`, `[`) loads
   every matching file in sorted order; a path without them loads one file.
+- Filesystem CSV and JSONL sources may set `compression: gzip`. Compression is
+  explicit and is not inferred from a `.gz` suffix.
+- Built-in CSV decoding requires a non-empty, unique header and the same number
+  of fields in every record. Built-in JSON and JSONL decoding reject duplicate
+  object keys, non-standard numeric constants, and numbers outside the finite
+  float range instead of silently changing the data.
 - Local freshness snapshots include glob membership, file paths, sizes, and
   filesystem modification metadata. HTTP response bodies and headers are not
   fingerprinted: use `--artifact-mode FORCE` when a stable URL can return new
@@ -435,12 +450,12 @@ transforms:
 - `partition_by`: complete identity of an independent record series, used by
   ordering and history-based transforms. The runtime appends the reserved
   `time` field to the canonical sort key, so it must not appear here. Derived
-  and aligned streams inherit it.
+  and fan-in streams inherit it from their partitioned input.
 - `ordered_by`: optional assertion that records entering the ordering stage use
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, mapped records are
   externally sorted. Derived streams reuse upstream canonical order.
-- Feature identity is derived at the dataset boundary. Every `sample.keys`
+- Variable identity is derived at the dataset boundary. Every `sample.keys`
   field must occur in the resolved `partition_by` of every referenced stream.
   Partition fields absent from `sample.keys` suffix the configured feature or
   target ID in partition order (for example, `temp__@station_id:XYZ`). Putting
@@ -448,7 +463,49 @@ transforms:
   putting none there produces wide output; using a subset produces a hybrid.
   Dataset feature and target IDs cannot contain the reserved `__` separator.
   Generated suffixes escape strings and tag non-string scalar values so
-  different component tuples cannot produce the same feature ID.
+  different component tuples cannot produce the same variable ID.
+
+### Broadcast Streams
+
+A broadcast stream attaches one unpartitioned record to every partitioned
+primary record at the same timestamp. The primary stream supplies partition
+identity and output order; the broadcast stream supplies shared temporal data.
+
+```yaml
+id: equity.price_with_factors
+from:
+  stream: equity.price.daily
+  broadcast: market.factors.daily
+combine:
+  entrypoint: combine_price_and_factors
+  args: {}
+
+# Optional transforms run after combining.
+# transforms: [...]
+```
+
+Notes:
+
+- `from.stream` is the primary input and must resolve to a non-empty
+  `partition_by`. The broadcast stream inherits that partition identity.
+- `from.broadcast` must resolve to an empty `partition_by`.
+- To attach several global series, align them into one unpartitioned stream,
+  then use that stream as `from.broadcast`.
+- Matching is exact timestamp equality. Broadcast streams do not perform
+  as-of matching, filling, tolerance matching, or many-to-many expansion.
+- The primary input must contain at most one record per `(partition, time)`
+  key. The broadcast input must contain at most one record per timestamp.
+  Source-backed streams establish canonical order before broadcasting;
+  duplicate keys or a violated `ordered_by` assertion still fail.
+- Every primary timestamp must have a broadcast record. A missing match fails
+  the stream; broadcast timestamps unused by the primary are ignored.
+- Jerry fully indexes the finite broadcast input before reading the primary.
+  Memory use is proportional to the number of broadcast records.
+- Combine signature is `combine(primary_record, broadcast_record, **args)`.
+  Inputs are read-only. The same broadcast record object is reused for every
+  primary partition at its timestamp. The combiner returns one record or
+  `None` to skip that primary record.
+- The broadcast stream outputs records; its own `transforms` apply afterward.
 
 ### Aligned Streams (Engineered Domains)
 
@@ -559,29 +616,35 @@ postprocess:
 - Each sample-key field must contain non-null JSON scalar values of one stable
   type. Floating-point keys must be finite; booleans, integers, and floats are
   distinct key types and cannot be mixed within one field.
-- Stateful ordered transforms such as `lag`, `lead`, `rolling`, `fill`, and
-  `ensure_cadence` use stream `partition_by` as their entity partition. Define
+- Stateful ordered transforms such as `lag`, `lead`, `rolling`,
+  `rolling_slope`, `forward_sum`, `fill`, and `ensure_cadence` use stream
+  `partition_by` as their entity partition. Define
   `partition_by: [security_id]` on the source-backed stream when transform state
   must stay per security; downstream streams inherit it.
 - `partition_by` is the complete series identity. `sample.keys` select which
   partition fields identify output rows; remaining partition fields suffix
-  feature IDs such as `close__@security_id:AAPL`. This supports long, wide, and
-  hybrid layouts without a separate format or feature-identity setting.
+  variable IDs such as `close__@security_id:AAPL`. This supports long, wide, and
+  hybrid layouts without a separate format or variable-identity setting.
 - `field` selects the record attribute used as the feature/target value.
-- Every `id` must be unique across both `features` and `targets`. Scaler,
-  schema, and metadata operations plus postprocess policies use this shared
-  vector-ID space.
+- `None` is the canonical missing variable value. A floating `NaN` produced by
+  a parser, mapper, or transform is converted to `None` when the field is
+  projected; positive and negative infinity are rejected. Identity fields
+  reject every non-finite float rather than treating it as missing.
+- Every `id` must be unique across both `features` and `targets`. Scaler and
+  metadata operations plus postprocess policies use this shared vector-ID
+  space.
 - `scale: true` scales assembled scalar or sequence values with the managed
   `build/scaler.json` artifact when a dataset output is produced. Fitting
   options belong to the scaler operation and cannot be overridden per vector.
-  `None` remains `None`; other nonnumeric or non-finite values fail.
-- `sequence` emits `FeatureSequence` windows and accepts `size` plus
+  `None` and transient `NaN` remain missing; other nonnumeric values and
+  infinity fail.
+- `sequence` emits `VariableSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with ordered transforms
-  before feature extraction when contiguous ticks are required. The resolved
+  before variable projection when contiguous ticks are required. The resolved
   stream partition keeps every independent series in one contiguous ordered
   group.
-- Feature configuration exposes only `scale` and `sequence`; it does not accept
-  arbitrary feature transform entry-point clauses.
+- Variable configuration exposes only `scale` and `sequence`; it does not accept
+  arbitrary transform entry-point clauses.
 - `split` first assigns each sample one primitive label. Hash splits assign from
   the complete sample key and require `ratios`. Time splits require ordered
   `intervals` with unique IDs and strictly increasing endpoints. Every interval
@@ -644,13 +707,13 @@ postprocess:
 
 - `postprocess.columns.features` and `postprocess.columns.targets` have separate
   selection policies.
-- `postprocess.samples.features` and `postprocess.samples.targets` filter complete rows after schema
-  normalization.
+- `postprocess.samples.features` and `postprocess.samples.targets` filter
+  complete rows after typed normalization.
 - `ids` is optional. Selection and sample filters default to every retained ID.
   Empty, duplicate, or unknown IDs are errors.
-- Column selection requires `build/metadata.json`; normalization always uses
-  the typed `build/schema.json` artifact.
-- Execution order is fixed: column selection, schema normalization, then sample
+- Column selection and normalization use the same typed `build/metadata.json`
+  artifact.
+- Execution order is fixed: column selection, typed normalization, then sample
   filters.
 - Postprocess does not mutate values. Configure missing-value repair on the
   ordered record stream before feature extraction.
@@ -677,12 +740,16 @@ epsilon: 1.0e-12
   If a primitive label is reused across folds, its values are scaled separately
   for each output. Sequence windows are constructed before scaling, so every
   value in one output sequence uses the same fold scaler.
-- `build/schema.json` (from the `schema` operation) is derived from typed metadata
-  without rescanning vectors. It enumerates discovered feature/target
-  identifiers (including partitions), scalar/list kinds, and fixed list
-  lengths used during normalization. Mixed scalar/list values, empty lists,
-  and varying list lengths fail metadata generation.
-- `build/metadata.json` (from the `metadata` operation) captures heavier statistics—present/null counts, inferred value types, list-length histograms, per-partition timestamps, and the dataset window. Configure `metadata.window_mode` with `union|intersection|strict|relaxed` (default `intersection`) to control how start/end bounds are derived. `union` considers base features, `intersection` uses their overlap, `strict` intersects every partition, and `relaxed` unions partitions independently.
+- `build/metadata.json` (from the `metadata` operation) is the canonical typed
+  vector contract. It records feature/target identifiers (including
+  partitions), scalar/list kinds and lengths, present/null counts, inferred
+  value types, per-partition timestamps, and the dataset window. Mixed
+  scalar/list values, empty lists, and varying list lengths fail metadata
+  generation. Configure `metadata.window_mode` with
+  `union|intersection|strict|relaxed` (default `intersection`) to control how
+  start/end bounds are derived. `union` considers base features,
+  `intersection` uses their overlap, `strict` intersects every partition, and
+  `relaxed` unions partitions independently.
 - Artifact operation execution order comes from the typed dependency graph. Runtime
   commands prepare the union of all selected profiles' requirements once;
   explicit build profiles remain separate artifact roots.
@@ -701,8 +768,10 @@ epsilon: 1.0e-12
 
 - Jerry outputs are deterministic given a fixed config, plugin code, and source snapshot.
 - A command uses the validated configuration and environment snapshot loaded at
-  startup. Keep configuration and source inputs stable while it runs; edits are
-  observed by the next command rather than re-read mid-execution.
+  startup. Local source files and glob inventories are rechecked around every
+  artifact operation; if they change, the command fails rather than registering
+  an artifact from a mixed source generation as current. Configuration edits are
+  observed by the next command.
 - Core artifact hashes cover each artifact's effective typed dependency and
   source closure. Plugin artifact operations conservatively cover the complete
   dataset and stream catalog because they do not declare inputs. Hashing does

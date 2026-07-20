@@ -47,6 +47,31 @@ def test_atomic_text_sink_abort_preserves_existing_file(tmp_path) -> None:
     assert destination.read_text(encoding="utf-8") == "old"
 
 
+def test_atomic_gzip_text_sink_commits_deterministic_output(tmp_path) -> None:
+    first = tmp_path / "first.jsonl.gz"
+    second = tmp_path / "second.jsonl.gz"
+    for destination in (first, second):
+        sink = AtomicTextFileSink(destination, compression="gzip")
+        sink.write_text('{"value":1}\n')
+        sink.close()
+
+    with gzip.open(first, "rt", encoding="utf-8") as stream:
+        assert stream.read() == '{"value":1}\n'
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_atomic_gzip_text_sink_abort_preserves_existing_file(tmp_path) -> None:
+    destination = tmp_path / "output.jsonl.gz"
+    destination.write_bytes(b"existing")
+    sink = AtomicTextFileSink(destination, compression="gzip")
+
+    sink.write_text("replacement\n")
+    sink.abort()
+
+    assert destination.read_bytes() == b"existing"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
 def test_atomic_text_sink_rejects_invalid_encoding_before_creating_temp_file(
     tmp_path,
 ) -> None:

@@ -5,7 +5,11 @@ import pytest
 import yaml
 
 from datapipeline.cli.commands.stream import handle as handle_stream_create
-from datapipeline.config.streams import AlignedStreamConfig, SourceStreamConfig
+from datapipeline.config.streams import (
+    AlignedStreamConfig,
+    BroadcastStreamConfig,
+    SourceStreamConfig,
+)
 from datapipeline.plugins import MAPPERS_EP
 from datapipeline.services.project import load_project
 from datapipeline.services.streams.loader import load_streams
@@ -268,11 +272,14 @@ def test_source_stream_accepts_custom_mapper_reference(
     assert not (package / "mappers").exists()
 
 
-def test_stream_identity_flag_rejects_multistream(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("stream_choice", ["2", "3"])
+def test_stream_identity_flag_rejects_non_source_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    stream_choice: str,
 ) -> None:
     plugin_root = _create_plugin(tmp_path)
-    _input_sequence(monkeypatch, ["2"])
+    _input_sequence(monkeypatch, [stream_choice])
     with pytest.raises(SystemExit):
         handle_stream_create(plugin_root=plugin_root, use_identity=True)
 
@@ -347,3 +354,47 @@ def test_aligned_stream_scaffold_selects_registered_combiner(
         (streams_dir / "air_density.processed.yaml").read_text(encoding="utf-8")
     )
     assert config["combine"]["entrypoint"] == "air_density"
+
+
+def test_broadcast_stream_scaffold_selects_partitioned_and_global_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plugin_root = _create_plugin(tmp_path)
+    dataset_root = plugin_root / "your-dataset"
+    sources_dir = dataset_root / "sources"
+    streams_dir = dataset_root / "streams"
+    project_yaml = dataset_root / "project.yaml"
+    _write_project_yaml(project_yaml, sources_dir, streams_dir)
+    _write_source_yaml(sources_dir / "demo.weather.yaml", "demo.weather")
+    primary_path = streams_dir / "weather.temperature.yaml"
+    _write_source_stream_yaml(primary_path, "weather.temperature")
+    primary_path.write_text(
+        primary_path.read_text(encoding="utf-8") + "partition_by: [station]\n",
+        encoding="utf-8",
+    )
+    _write_source_stream_yaml(
+        streams_dir / "weather.baseline.yaml",
+        "weather.baseline",
+    )
+
+    _input_sequence(
+        monkeypatch,
+        [
+            "3",  # broadcast stream
+            "1",  # partitioned primary
+            "1",  # global broadcast input
+            "weather.adjusted",
+            "attach_baseline",
+        ],
+    )
+
+    handle_stream_create(plugin_root=plugin_root)
+
+    stream_path = streams_dir / "weather.adjusted.yaml"
+    config = BroadcastStreamConfig.model_validate(
+        yaml.safe_load(stream_path.read_text(encoding="utf-8"))
+    )
+    assert config.from_.stream == "weather.temperature"
+    assert config.from_.broadcast == "weather.baseline"
+    assert config.combine.entrypoint == "attach_baseline"

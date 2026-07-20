@@ -8,7 +8,7 @@ from datapipeline.artifacts.scaler import (
 )
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.split import DatasetFold
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.execution.pipeline import Pipeline
@@ -25,9 +25,9 @@ from datapipeline.transforms.vector.scaler import SampleScaler
 
 def run_dataset_pipeline(
     context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Generator[Sample, None, None]:
@@ -46,9 +46,9 @@ def run_dataset_pipeline(
 
 def build_dataset_pipeline(
     context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Pipeline:
@@ -71,9 +71,9 @@ def build_dataset_pipeline(
 
 def run_scaled_dataset_pipeline(
     context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Generator[Sample, None, None]:
@@ -106,11 +106,11 @@ def run_scaled_dataset_pipeline(
 
 def run_fold_dataset_pipeline(
     context: PipelineContext,
-    feature_configs: Sequence[FeatureRecordConfig],
+    feature_configs: Sequence[VariableConfig],
     group_by_cadence: str,
     fold: DatasetFold,
     labels: Collection[str],
-    target_configs: Sequence[FeatureRecordConfig] | None = None,
+    target_configs: Sequence[VariableConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Generator[Sample, None, None]:
@@ -163,8 +163,8 @@ def run_fold_dataset_pipeline(
 
 def _sample_scaler(
     artifact: StandardScalerArtifact,
-    feature_configs: Sequence[FeatureRecordConfig],
-    target_configs: Sequence[FeatureRecordConfig] | None,
+    feature_configs: Sequence[VariableConfig],
+    target_configs: Sequence[VariableConfig] | None,
 ) -> SampleScaler:
     return SampleScaler(
         artifact,

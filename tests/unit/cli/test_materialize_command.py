@@ -26,7 +26,7 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
             "--profile",
             "adv-20",
             "--output",
-            "adv-20.jsonl",
+            "adv-20.jsonl.gz",
             "--overwrite",
             "--artifact-mode",
             "force",
@@ -39,7 +39,7 @@ def test_materialize_parser_accepts_profile_overrides() -> None:
 
     assert args.cmd == "materialize"
     assert args.profile == "adv-20"
-    assert args.output == "adv-20.jsonl"
+    assert args.output == "adv-20.jsonl.gz"
     assert args.overwrite is True
     assert args.artifact_mode == "FORCE"
     assert args.visuals == "off"
@@ -134,10 +134,16 @@ def test_materialize_resolves_profile_output_from_workspace(
     assert executed == [request]
 
 
-def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
+def test_materialize_passes_gzip_output_to_profile_resolution(monkeypatch) -> None:
+    captured = {}
+    request = object()
     monkeypatch.setattr(
         "datapipeline.cli.commands.materialize.build_materialize_run_request",
-        lambda **kwargs: pytest.fail("profiles should not run"),
+        lambda **kwargs: captured.update(kwargs) or request,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.commands.materialize.run_profiles",
+        lambda selected: None,
     )
     args = build_parser().parse_args(
         [
@@ -147,14 +153,13 @@ def test_materialize_rejects_non_jsonl_output(monkeypatch) -> None:
             "--profile",
             "adv-20",
             "--output",
-            "adv-20.csv",
+            "adv-20.jsonl.gz",
         ]
     )
 
-    with pytest.raises(SystemExit) as exc_info:
-        _execute(args)
+    _execute(args)
 
-    assert exc_info.value.code == 2
+    assert captured["output"].name == "adv-20.jsonl.gz"
 
 
 def test_materialize_allows_global_overrides_without_profile(monkeypatch) -> None:

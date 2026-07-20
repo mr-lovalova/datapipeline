@@ -2,6 +2,7 @@ import pytest
 
 from datapipeline.config.streams import (
     AlignedStreamConfig,
+    BroadcastStreamConfig,
     DerivedStreamConfig,
     SourceStreamConfig,
     StreamsConfig,
@@ -113,6 +114,53 @@ def test_aligned_stream_has_combiner_and_transforms() -> None:
     assert len(stream.transforms) == 1
 
 
+def test_broadcast_stream_has_primary_broadcast_combiner_and_transforms() -> None:
+    stream = BroadcastStreamConfig.model_validate(
+        {
+            "id": "enriched",
+            "from": {
+                "stream": " partitioned.measurements ",
+                "broadcast": " global.reference ",
+            },
+            "combine": {"entrypoint": "attach_reference"},
+            "transforms": [{"operation": "dedupe"}],
+        }
+    )
+
+    assert stream.from_.stream == "partitioned.measurements"
+    assert stream.from_.broadcast == "global.reference"
+    assert stream.input_streams() == (
+        "partitioned.measurements",
+        "global.reference",
+    )
+    assert stream.combine.entrypoint == "attach_reference"
+    assert len(stream.transforms) == 1
+
+
+@pytest.mark.parametrize("field", ["map", "preprocess", "partition_by", "ordered_by"])
+def test_broadcast_stream_rejects_other_stream_contracts(field: str) -> None:
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        BroadcastStreamConfig.model_validate(
+            {
+                "id": "enriched",
+                "from": {"stream": "measurements", "broadcast": "reference"},
+                "combine": {"entrypoint": "attach_reference"},
+                field: {"entrypoint": "identity"} if field == "map" else [],
+            }
+        )
+
+
+def test_broadcast_stream_requires_distinct_inputs() -> None:
+    with pytest.raises(ValueError, match="must be different streams"):
+        BroadcastStreamConfig.model_validate(
+            {
+                "id": "invalid",
+                "from": {"stream": "measurements", "broadcast": "measurements"},
+                "combine": {"entrypoint": "attach_reference"},
+            }
+        )
+
+
 def test_aligned_stream_requires_two_inputs() -> None:
     with pytest.raises(ValueError, match="at least 2 items"):
         AlignedStreamConfig.model_validate(
@@ -182,6 +230,11 @@ def test_stream_catalog_selects_all_concrete_stream_types() -> None:
                     "from": {"align": ["prices", "returns"]},
                     "combine": {"entrypoint": "market_cap"},
                 },
+                "enriched": {
+                    "id": "enriched",
+                    "from": {"stream": "prices", "broadcast": "reference"},
+                    "combine": {"entrypoint": "attach_reference"},
+                },
             }
         }
     )
@@ -189,6 +242,7 @@ def test_stream_catalog_selects_all_concrete_stream_types() -> None:
     assert isinstance(catalog.streams["prices"], SourceStreamConfig)
     assert isinstance(catalog.streams["returns"], DerivedStreamConfig)
     assert isinstance(catalog.streams["market_cap"], AlignedStreamConfig)
+    assert isinstance(catalog.streams["enriched"], BroadcastStreamConfig)
 
 
 def test_stream_catalog_rejects_unknown_fields() -> None:

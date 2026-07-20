@@ -2,7 +2,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import datapipeline.integrations.ml.torch_support as torch_support
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.integrations.ml.torch_support import _resolve_columns
 
 
@@ -11,7 +11,7 @@ def test_torch_dataset_reads_flattened_sequence_columns(
     monkeypatch,
 ) -> None:
     adapter = SimpleNamespace(
-        dataset=FeatureDatasetConfig(sample=SampleConfig(cadence="1h")),
+        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
         row_columns=lambda flatten_sequences=False: (
             ["history[0]", "history[1]"],
             [],

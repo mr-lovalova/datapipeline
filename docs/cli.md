@@ -18,25 +18,25 @@ filtering.
 
 - `jerry serve --project <project.yaml> --preview <stage> --limit N [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - `input`: values entering the selected stream: parsed source values,
-    completed upstream records, or aligned input tuples.
-  - `canonical`: domain records after source mapping or aligned combining;
+    completed upstream records, broadcast input pairs, or aligned input tuples.
+  - `canonical`: domain records after source mapping or fan-in combining;
     derived streams pass their input through unchanged at this boundary.
   - `records`: records after configured transforms and ordering.
-  - `features`: ordered feature/target records after sequence construction.
+  - `variables`: ordered feature/target records after sequence construction.
     Values remain unscaled because scaling is selected by the full dataset
     output's fold.
   - `samples`: assembled samples before postprocess.
   - `postprocess`: samples after the configured postprocess pipeline.
     Preview stages remain unscaled; omit `--preview` to apply each selected
     fold's scaler.
-  - Record stages emit once per unique configured record stream, `features`
+  - Record stages emit once per unique configured record stream, `variables`
     emits once per feature/target, and sample stages emit one combined stream.
   - Omit `--preview` to run the full pipeline and output persistence.
   - Use `--log-level DEBUG` for full debug output; the CLI default is `INFO`.
   - Before runtime execution, Jerry combines the artifact requirements of all
     selected profiles and prepares that union once. The artifact graph orders
     those internal jobs; it never changes profile order.
-- `jerry serve --project <project.yaml> --output-transport stdout --output-format jsonl --output-view flat|raw --output-encoding <codec> --limit N [--artifact-mode AUTO|FORCE|OFF] [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS] [--profile name]`
+- `jerry serve --project <project.yaml> --output-transport <stdout|fs> --output-format <jsonl|csv|pickle> [--output-view flat|raw] [--output-encoding <codec>] [--output-compression gzip] --limit N [--artifact-mode AUTO|FORCE|OFF] [--log-level LEVEL] [--visuals on|off] [--heartbeat-interval SECONDS] [--profile name]`
   - Applies postprocess selection and filtering before emitting. A configured dataset split routes a full pipeline serve to one fs output per fold role, named `<profile-or-filename>.<fold-id>.<role>.<ext>`; profile `include_outputs` can narrow the set using IDs such as `fold_0.train`. Preview emits one combined stage and cannot be combined with explicit `include_outputs`. `--limit` applies separately to each output.
   - Use `--output-transport fs --output-format jsonl --output-directory build/serve` (or `csv`, `pickle`) to write outputs under `<output-directory>/runs/<run_id>/dataset/`.
   - `--output-view` controls payload shape:
@@ -46,6 +46,9 @@ filtering.
     `raw`.
   - `csv` supports only `flat`; `pickle` supports only `raw`.
   - `--output-encoding` applies to fs `jsonl`/`csv` outputs (default `utf-8`).
+  - `--output-compression gzip` applies to fs `jsonl`/`csv` outputs, including
+    every preview stage and routed split output. Compression is never inferred
+    from the filename.
   - Set `--log-level DEBUG` (or set `observability.logging.level: DEBUG` in the serve profile) to increase log detail while previewing a stage.
   - Set `--heartbeat-interval 0` to disable logged pipeline heartbeats. Live progress remains enabled when visuals are on. The CLI value also controls the shared artifact prerequisite phase; profile `observability.heartbeat_interval_seconds` begins applying only when that profile runs.
   - When multiple serve profiles exist, add `--profile <name>` to select a
@@ -72,6 +75,8 @@ filtering.
     matrix operations require no YAML declarations.
   - `--limit N` caps samples for the matrix operation and is passed to custom
     runtime operations. Coverage is artifact-based and rejects `--limit`.
+  - `--output-compression gzip` is available for filesystem JSONL and CSV
+    inspection outputs.
   - Artifact mode precedence is CLI `--artifact-mode`, then
     `inspect.defaults.yaml`, then the built-in `AUTO`. It is command-wide and
     is not configured on individual inspect profiles.
@@ -91,11 +96,10 @@ filtering.
     profile order. The graph orders only the internal dependency jobs needed by
     each root; it never reorders the profiles. A selected dependency profile
     must be ordered before a selected dependent profile.
-- `jerry materialize [--profile <name>] [--output <path.jsonl>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
+- `jerry materialize [--profile <name>] [--output <path.jsonl|path.jsonl.gz>] [--overwrite|--no-overwrite] [--artifact-mode AUTO|FORCE|OFF] [--visuals on|off] [--heartbeat-interval SECONDS]`
   - Runs every enabled `profiles/materialize.<name>.yaml` file in configured
     order, or one profile selected by `--profile`.
-  - Checks every selected output and metadata file before the first profile
-    starts writing.
+  - Checks every selected output before the first profile starts writing.
   - Collects the selected streams' artifact requirements and prepares their
     union once. `--artifact-mode` overrides `materialize.defaults.yaml`; the
     built-in mode is `AUTO`.
@@ -105,6 +109,8 @@ filtering.
     profile uses its own `overwrite` setting or `materialize.defaults.yaml`.
   - `--output` overrides one selected profile and therefore requires
     `--profile`.
+  - The concrete output suffix selects compression: `.jsonl` writes plain
+    JSONL and `.jsonl.gz` writes gzip JSONL.
 - `jerry clean [--yes] [--older-than <age>]`
   - Lists stale sort spill directories by default.
   - Add `--yes` to remove them.
@@ -120,16 +126,20 @@ filtering.
 - `jerry inflow create`
   - Wizard to scaffold a complete source-backed stream (source YAML + parser/DTO + mapper + stream).
 - `jerry stream create [--identity]`
-  - Writes a source-backed or aligned stream configuration. It references an
-    existing, identity, or custom mapper; it does not create Python code.
+  - Writes a source-backed, broadcast, or aligned stream configuration. The
+    wizard selects a mapper for source-backed streams and a combiner for fan-in
+    streams; it does not create Python code.
     Use `jerry inflow create` when the source, DTO, parser, domain, or mapper
     must also be scaffolded.
+  - Broadcast streams select one partitioned primary stream, one unpartitioned
+    temporal stream, and a registered combine entry point. Matching is exact by
+    timestamp.
   - Aligned streams require at least two existing input streams and the name of
     a combine entry point already registered in `datapipeline.combiners`. The
     combine function receives one matching record from each input in the
     selected order and returns one record or `None`.
   - `--identity` applies only to source-backed streams.
-- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|pickle` (`pickle` requires `fs`)
+- `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl`
   - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).
 - `jerry domain create <name>` (also supports `-n/--name`)

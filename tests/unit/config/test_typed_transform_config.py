@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.config.dataset.feature import FeatureRecordConfig, SequenceConfig
+from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
 from datapipeline.config.streams import DerivedStreamConfig, SourceStreamConfig
 from datapipeline.config.transforms import (
     CollapseConfig,
@@ -10,7 +10,11 @@ from datapipeline.config.transforms import (
     EnsureTicksConfig,
     FillConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
+    Log1pConfig,
+    LogConfig,
     RollingConfig,
+    RollingSlopeConfig,
     ShiftTimeConfig,
 )
 
@@ -102,6 +106,39 @@ def test_streams_parse_builtins_into_typed_configs() -> None:
         {"operation": "rolling", "field": "close", "windwo": 20},
         {"operation": "rolling", "field": "close", "window": 2.5},
         {
+            "operation": "rolling_slope",
+            "x": "market_return",
+            "y": "stock_return",
+            "window": 20,
+        },
+        {
+            "operation": "rolling_slope",
+            "x": "market_return",
+            "y": "stock_return",
+            "window": 20,
+            "to": "beta",
+            "min_samples": 10,
+        },
+        {
+            "operation": "forward_sum",
+            "field": "return",
+            "window": 21,
+        },
+        {
+            "operation": "forward_sum",
+            "field": "return",
+            "window": 21,
+            "to": "future_return",
+            "min_samples": 1,
+        },
+        {"operation": "log", "field": "price"},
+        {
+            "operation": "log1p",
+            "field": "return",
+            "to": "log_return",
+            "base": 10,
+        },
+        {
             "operation": "fill",
             "field": "close",
             "window": 5,
@@ -125,6 +162,85 @@ def test_stream_config_rejects_a_record_only_transform_model() -> None:
         _stream(transforms=[ShiftTimeConfig(by="1h")])
 
 
+def test_stream_parses_strict_rolling_slope_config() -> None:
+    stream = _stream(
+        transforms=[
+            {
+                "operation": "rolling_slope",
+                "x": "market_return",
+                "y": "stock_return",
+                "window": 252,
+                "to": "beta",
+            }
+        ]
+    )
+
+    assert stream.transforms == [
+        RollingSlopeConfig(
+            x="market_return",
+            y="stock_return",
+            window=252,
+            to="beta",
+        )
+    ]
+
+
+def test_stream_parses_strict_forward_sum_config() -> None:
+    stream = _stream(
+        transforms=[
+            {
+                "operation": "forward_sum",
+                "field": "return",
+                "window": 21,
+                "to": "future_return_21",
+            }
+        ]
+    )
+
+    assert stream.transforms == [
+        ForwardSumConfig(
+            field="return",
+            window=21,
+            to="future_return_21",
+        )
+    ]
+
+
+def test_stream_parses_explicit_logarithm_configs() -> None:
+    stream = _stream(
+        transforms=[
+            {"operation": "log", "field": "price", "to": "log_price"},
+            {"operation": "log1p", "field": "return", "to": "log_return"},
+        ]
+    )
+
+    assert stream.transforms == [
+        LogConfig(field="price", to="log_price"),
+        Log1pConfig(field="return", to="log_return"),
+    ]
+
+
+@pytest.mark.parametrize("window", [0, True, 1.5])
+def test_forward_sum_requires_a_positive_integer_window(window: object) -> None:
+    with pytest.raises(ValidationError, match="window"):
+        ForwardSumConfig(
+            field="return",
+            window=window,
+            to="future_return",
+        )
+
+
+@pytest.mark.parametrize("window", [1, True, 2.5])
+def test_rolling_slope_requires_at_least_two_records(window: object) -> None:
+    with pytest.raises(ValidationError, match="window"):
+        RollingSlopeConfig(
+            x="market_return",
+            y="stock_return",
+            window=window,
+            to="beta",
+        )
+
+
 @pytest.mark.parametrize("cadence", [None, "", "ticks", "0m", "-1h"])
 def test_ensure_cadence_requires_a_positive_duration(cadence: object) -> None:
     with pytest.raises(ValidationError):
@@ -144,7 +260,7 @@ def test_ensure_cadence_requires_a_positive_duration(cadence: object) -> None:
 )
 def test_sequence_config_is_strict(sequence: object) -> None:
     with pytest.raises(ValidationError):
-        FeatureRecordConfig.model_validate(
+        VariableConfig.model_validate(
             {
                 "id": "close",
                 "stream": "prices.daily",
@@ -155,7 +271,7 @@ def test_sequence_config_is_strict(sequence: object) -> None:
 
 
 def test_feature_config_uses_explicit_scale_and_sequence_models() -> None:
-    config = FeatureRecordConfig.model_validate(
+    config = VariableConfig.model_validate(
         {
             "id": "close",
             "stream": "prices.daily",

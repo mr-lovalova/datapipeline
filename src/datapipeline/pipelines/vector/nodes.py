@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from itertools import groupby
 from typing import Any
 
-from datapipeline.domain.feature import FeatureRecord, FeatureSequence
+from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 
@@ -14,29 +14,33 @@ def _close_iterator(iterator) -> None:
 
 
 def vector_assemble_stage(
-    merged: Iterator[tuple[tuple, FeatureRecord | FeatureSequence]],
+    merged: Iterator[tuple[tuple, VariableRecord | VariableSequence]],
 ) -> Iterator[tuple[tuple, Vector]]:
     try:
         for group_key, group in groupby(merged, key=lambda item: item[0]):
-            feature_map: dict[str, list[Any]] = {}
+            variable_map: dict[str, list[Any]] = {}
             sequence_ids: set[str] = set()
-            for _, fr in group:
-                is_sequence = isinstance(fr, FeatureSequence)
-                if fr.id in feature_map and is_sequence != (fr.id in sequence_ids):
+            for _, variable in group:
+                is_sequence = isinstance(variable, VariableSequence)
+                if variable.id in variable_map and is_sequence != (
+                    variable.id in sequence_ids
+                ):
                     raise ValueError(
-                        f"Vector {fr.id!r} contains both scalar and sequence values."
+                        f"Vector {variable.id!r} contains both scalar and sequence values."
                     )
-                items = feature_map.setdefault(fr.id, [])
-                if isinstance(fr, FeatureSequence):
-                    sequence_ids.add(fr.id)
-                    items.extend(fr.values)
+                items = variable_map.setdefault(variable.id, [])
+                if isinstance(variable, VariableSequence):
+                    sequence_ids.add(variable.id)
+                    items.extend(variable.values)
                 else:
-                    items.append(fr.value)
+                    items.append(variable.value)
             values = {
-                feature_id: (
-                    items if feature_id in sequence_ids or len(items) != 1 else items[0]
+                variable_id: (
+                    items
+                    if variable_id in sequence_ids or len(items) != 1
+                    else items[0]
                 )
-                for feature_id, items in feature_map.items()
+                for variable_id, items in variable_map.items()
             }
             yield group_key, Vector(values=values)
     finally:

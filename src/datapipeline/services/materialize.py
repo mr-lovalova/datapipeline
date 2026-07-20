@@ -1,20 +1,39 @@
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 from datapipeline.execution.context import PipelineContext
-from datapipeline.io.writers.jsonl import JsonLinesFileWriter
+from datapipeline.io.compression import Compression
+from datapipeline.io.factory import writer_factory
+from datapipeline.io.output import OutputTarget
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.runtime import Runtime
 
 
-def materialize_stream_to_path(
+def resolve_materialize_output(output: Path) -> OutputTarget:
+    compression = _materialize_compression(output)
+    return OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=output.resolve(),
+        compression=compression,
+    )
+
+
+def materialize_stream(
     runtime: Runtime,
     stream_id: str,
-    output: Path,
+    output: OutputTarget,
     overwrite: bool = False,
 ) -> Path:
-    output_path = materialize_destination_path(output)
+    output_path = output.destination
+    if (
+        output.transport != "fs"
+        or output.format != "jsonl"
+        or output.view != "raw"
+        or output_path is None
+    ):
+        raise ValueError("materialize requires a raw JSONL filesystem output")
     artifacts_root = runtime.artifacts_root.resolve()
     if output_path.is_relative_to(artifacts_root):
         raise ValueError(
@@ -23,17 +42,18 @@ def materialize_stream_to_path(
     check_materialize_destination(output_path, overwrite)
 
     rows = run_stream_pipeline(PipelineContext(runtime), stream_id)
-    _write_rows(
-        rows,
-        output_path,
-        overwrite,
-    )
-    return output_path
-
-
-def materialize_destination_path(output: Path) -> Path:
-    validate_materialize_output_path(output)
-    return output.resolve()
+    try:
+        writer = writer_factory(output, overwrite=overwrite)
+        try:
+            for row in rows:
+                writer.write(row)
+            writer.close()
+        except BaseException:
+            writer.abort()
+            raise
+    finally:
+        rows.close()
+    return output_path.resolve()
 
 
 def check_materialize_destination(
@@ -44,21 +64,9 @@ def check_materialize_destination(
         raise FileExistsError(f"{path} already exists; pass --overwrite to replace it")
 
 
-def _write_rows(
-    rows: Iterable[Any],
-    output: Path,
-    overwrite: bool,
-) -> None:
-    writer = JsonLinesFileWriter(output, overwrite=overwrite)
-    try:
-        for row in rows:
-            writer.write(row)
-        writer.close()
-    except BaseException:
-        writer.abort()
-        raise
-
-
-def validate_materialize_output_path(path: Path) -> None:
-    if path.suffix != ".jsonl":
-        raise ValueError("materialize output must use a .jsonl path")
+def _materialize_compression(path: Path) -> Compression | None:
+    if path.name.endswith(".jsonl.gz"):
+        return "gzip"
+    if path.suffix == ".jsonl":
+        return None
+    raise ValueError("materialize output must use a .jsonl or .jsonl.gz path")

@@ -1,12 +1,13 @@
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.config.tasks import TicksTask
+from datapipeline.domain.value import normalize_data_value
 from datapipeline.execution.context import PipelineContext
+from datapipeline.execution.observability import OperationProgressTracker
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
+from datapipeline.io.normalization import json_text
 from datapipeline.io.sinks.files import AtomicTextFileSink
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
@@ -29,7 +30,7 @@ def _to_iso(ts: datetime) -> str:
 
 
 def _tick_row(record, grid_by: list[str]) -> tuple:
-    values = tuple(get_field(record, field) for field in grid_by)
+    values = tuple(normalize_data_value(get_field(record, field)) for field in grid_by)
     for field, value in zip(grid_by, values):
         if value is None:
             raise ValueError(f"Tick stream row is missing grid_by field '{field}'.")
@@ -100,7 +101,7 @@ def materialize_ticks(
         try:
             for tick in _unique_ticks(ordered_ticks):
                 rows += 1
-                sink.write_text(json.dumps(_json_tick_row(tick, task_cfg.grid_by)))
+                sink.write_text(json_text(_json_tick_row(tick, task_cfg.grid_by)))
                 sink.write_text("\n")
                 write_progress.advance()
             sink.close()

@@ -1,5 +1,6 @@
 from datapipeline.config.sources import SourceConfig
 from datapipeline.config.streams import (
+    BroadcastStreamConfig,
     DerivedStreamConfig,
     SourceStreamConfig,
     StreamConfig,
@@ -8,9 +9,13 @@ from datapipeline.config.transforms import (
     DeriveConfig,
     FillConfig,
     ForwardFillConfig,
+    ForwardSumConfig,
     LagConfig,
     LeadConfig,
+    Log1pConfig,
+    LogConfig,
     RollingConfig,
+    RollingSlopeConfig,
 )
 from datapipeline.domain.stream import canonical_record_order
 
@@ -54,10 +59,25 @@ def validate_stream_configs(
         for operation in stream.transforms:
             if isinstance(
                 operation,
-                (LagConfig, LeadConfig, FillConfig, ForwardFillConfig, RollingConfig),
+                (
+                    LagConfig,
+                    LeadConfig,
+                    FillConfig,
+                    ForwardFillConfig,
+                    RollingConfig,
+                ),
             ):
                 output_field = operation.field if operation.to is None else operation.to
-            elif isinstance(operation, DeriveConfig):
+            elif isinstance(
+                operation,
+                (
+                    DeriveConfig,
+                    ForwardSumConfig,
+                    LogConfig,
+                    Log1pConfig,
+                    RollingSlopeConfig,
+                ),
+            ):
                 output_field = operation.to
             else:
                 continue
@@ -77,6 +97,25 @@ def stream_partition_by(
         return stream.partition_by
     if isinstance(stream, DerivedStreamConfig):
         return stream_partition_by(streams, stream.from_.stream)
+    if isinstance(stream, BroadcastStreamConfig):
+        primary_partition = stream_partition_by(streams, stream.from_.stream)
+        if not primary_partition:
+            raise ValueError(
+                f"Broadcast stream '{stream_id}' primary input "
+                f"'{stream.from_.stream}' must have a non-empty partition_by"
+            )
+
+        broadcast_partition = stream_partition_by(
+            streams,
+            stream.from_.broadcast,
+        )
+        if broadcast_partition:
+            raise ValueError(
+                f"Broadcast stream '{stream_id}' broadcast input "
+                f"'{stream.from_.broadcast}' must have an empty partition_by; "
+                f"got {list(broadcast_partition)!r}"
+            )
+        return primary_partition
 
     input_partitions = [
         stream_partition_by(streams, input_stream)

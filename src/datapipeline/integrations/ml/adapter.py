@@ -5,10 +5,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
-from datapipeline.artifacts.models import VectorSchemaEntry
-from datapipeline.artifacts.registry import VECTOR_SCHEMA_SPEC
+from datapipeline.artifacts.models import VectorMetadataEntry
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     SplitConfig,
@@ -31,17 +30,14 @@ from datapipeline.services.runtime_compiler import compile_runtime
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
 
 
-def _schema_entry_columns(
-    entries: Sequence[VectorSchemaEntry],
+def _entry_columns(
+    entries: Sequence[VectorMetadataEntry],
     flatten_sequences: bool,
 ) -> list[str]:
     columns: list[str] = []
     for entry in entries:
         if flatten_sequences and entry.kind == "list":
-            assert entry.cadence is not None
-            columns.extend(
-                f"{entry.id}[{index}]" for index in range(entry.cadence.target)
-            )
+            columns.extend(f"{entry.id}[{index}]" for index in range(entry.length))
         else:
             columns.append(entry.id)
     return columns
@@ -75,7 +71,7 @@ def _normalize_group(
 class VectorAdapter:
     """Load a project once and provide ML-friendly iterators."""
 
-    dataset: FeatureDatasetConfig
+    dataset: DatasetConfig
     runtime: Runtime
     output_id: str | None = None
 
@@ -156,16 +152,13 @@ class VectorAdapter:
         flatten_sequences: bool = False,
     ) -> tuple[list[str], list[str]]:
         context = PipelineContext(self.runtime)
-        schema = context.require_artifact(VECTOR_SCHEMA_SPEC)
         postprocess = build_postprocess_plan(context)
-        feature_by_id = {entry.id: entry for entry in schema.features}
-        target_by_id = {entry.id: entry for entry in schema.targets}
-        feature_columns = _schema_entry_columns(
-            [feature_by_id[identifier] for identifier in postprocess.feature_ids],
+        feature_columns = _entry_columns(
+            postprocess.feature_entries,
             flatten_sequences,
         )
-        target_columns = _schema_entry_columns(
-            [target_by_id[identifier] for identifier in postprocess.target_ids],
+        target_columns = _entry_columns(
+            postprocess.target_entries,
             flatten_sequences,
         )
         if flatten_sequences:
@@ -174,7 +167,7 @@ class VectorAdapter:
                 if column in seen:
                     raise ValueError(
                         f"Flattened row column {column!r} is produced by multiple "
-                        "postprocessed schema entries."
+                        "postprocessed metadata entries."
                     )
                 seen.add(column)
         return feature_columns, target_columns

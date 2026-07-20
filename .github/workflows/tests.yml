@@ -129,7 +129,7 @@ jobs:
           test -f smoke-plugin/your-dataset/.env.example
           test -f smoke-plugin/your-dataset/project.yaml
           test -f smoke-plugin/your-dataset/dataset.yaml
-          test -f smoke-plugin/your-dataset/profiles/build.schema.yaml
+          test ! -e smoke-plugin/your-dataset/profiles/build.schema.yaml
           test -f smoke-plugin/your-dataset/profiles/serve.defaults.yaml
           test -f smoke-plugin/your-dataset/profiles/serve.dataset.yaml
           test ! -e smoke-plugin/your-interim-data-builder

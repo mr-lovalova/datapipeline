@@ -4,7 +4,6 @@ from datapipeline.cli.workspace import WorkspaceContext
 from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.orchestration import run_profiles
 from datapipeline.profiles.request_builder import build_materialize_run_request
-from datapipeline.services.materialize import validate_materialize_output_path
 from datapipeline.services.path_policy import resolve_workspace_path
 
 logger = logging.getLogger(__name__)
@@ -27,17 +26,14 @@ def handle(
         logger.error("--output requires --profile")
         raise SystemExit(2)
 
-    output_path = None
-    try:
-        if output is not None:
-            output_path = resolve_workspace_path(
-                output,
-                workspace.root if workspace is not None else None,
-            )
-            validate_materialize_output_path(output_path)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        raise SystemExit(2) from None
+    output_path = (
+        resolve_workspace_path(
+            output,
+            workspace.root if workspace is not None else None,
+        )
+        if output is not None
+        else None
+    )
 
     request = build_materialize_run_request(
         project=project,

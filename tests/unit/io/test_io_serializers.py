@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from datapipeline.domain.sample import Sample
-from datapipeline.domain.feature import FeatureRecord
+from datapipeline.domain.variable import VariableRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.vector import Vector
 from datapipeline.io.serializers import (
@@ -33,17 +33,31 @@ def test_record_json_serializer_emits_plain_payload() -> None:
     }
 
 
-def test_record_csv_serializer_flattens_nested_payload() -> None:
-    record = TemporalRecord(datetime(2024, 7, 4, tzinfo=timezone.utc))
-    feature = FeatureRecord("feature_a", record, 7.0)
+def test_variable_csv_serializer_flattens_payload() -> None:
+    time = datetime(2024, 7, 4, tzinfo=timezone.utc)
+    variable = VariableRecord("feature_a", time, 7.0)
     serializer = csv_row_serializer()
 
-    row = serializer(feature)
+    row = serializer(variable)
 
     assert row["id"] == "feature_a"
-    assert row["record.time"] == datetime(2024, 7, 4, tzinfo=timezone.utc)
+    assert row["time"] == time
     assert row["value"] == 7.0
     assert "kind" not in row
+
+
+def test_variable_json_serializer_emits_only_projected_fields() -> None:
+    time = datetime(2024, 7, 4, tzinfo=timezone.utc)
+    variable = VariableRecord("feature_a", time, 7.0, ("AAPL",))
+
+    payload = json.loads(json_line_serializer()(variable))
+
+    assert payload == {
+        "id": "feature_a",
+        "time": "2024-07-04 00:00:00+00:00",
+        "value": 7.0,
+        "entity_key": ["AAPL"],
+    }
 
 
 def test_temporal_record_serializer_includes_mapped_fields() -> None:
@@ -176,10 +190,32 @@ def test_serializers_reject_arbitrary_objects() -> None:
         csv_row_serializer()(Unsupported())
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_json_serializer_rejects_non_finite_numbers(value: float) -> None:
-    with pytest.raises(ValueError, match="Out of range float values"):
-        json_line_serializer()(value)
+def test_serializers_normalize_nan_as_missing() -> None:
+    value = float("nan")
+
+    assert json.loads(json_line_serializer()({"value": value})) == {"value": None}
+    assert json.loads(json_line_serializer(view="flat")({"value": value})) == {
+        "value": None
+    }
+    assert csv_row_serializer()({"value": value}) == {"value": None}
+    assert pickle_serializer()({"value": value}) == {"value": None}
+    assert text_line_serializer()({"value": value}) == '{"value": null}\n'
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf")])
+@pytest.mark.parametrize(
+    "serializer",
+    [
+        json_line_serializer(),
+        json_line_serializer(view="flat"),
+        csv_row_serializer(),
+        pickle_serializer(),
+        text_line_serializer(),
+    ],
+)
+def test_serializers_reject_infinity(value: float, serializer) -> None:
+    with pytest.raises(ValueError, match="must not contain infinity"):
+        serializer({"value": value})
 
 
 def test_json_serializer_rejects_non_string_mapping_keys() -> None:

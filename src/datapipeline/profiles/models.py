@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Literal, Sequence
 
 from datapipeline.artifacts.settings import BuildSettings
@@ -44,7 +43,7 @@ class RuntimeJob:
 class MaterializeJob:
     name: str
     stream: str
-    output: Path
+    output: OutputTarget
     overwrite: bool
     observability: ObservabilitySettings
 

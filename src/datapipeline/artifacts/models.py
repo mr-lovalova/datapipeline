@@ -1,13 +1,14 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.utils.time import CADENCE_PATTERN
 
 
 WindowMode = Literal["union", "intersection", "strict", "relaxed"]
+VECTOR_METADATA_VERSION: Final = 2
 
 
 class Window(BaseModel):
@@ -80,61 +81,6 @@ class SampleMetadata(BaseModel):
         return self
 
 
-class VectorSchemaCadence(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    target: int = Field(strict=True, gt=0)
-
-
-class VectorSchemaEntry(BaseModel):
-    """One feature or target entry in build/schema.json."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    id: str = Field(min_length=1)
-    kind: Literal["scalar", "list"]
-    cadence: VectorSchemaCadence | None = None
-
-    @model_validator(mode="after")
-    def _validate_cadence(self) -> "VectorSchemaEntry":
-        if self.kind == "scalar" and self.cadence is not None:
-            raise ValueError("scalar schema entries cannot define cadence")
-        if self.kind == "list" and self.cadence is None:
-            raise ValueError("list schema entries must define cadence")
-        return self
-
-
-class VectorSchemaArtifact(BaseModel):
-    """Typed contract for build/schema.json."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: int = Field(strict=True, ge=2, le=2)
-    features: tuple[VectorSchemaEntry, ...]
-    targets: tuple[VectorSchemaEntry, ...]
-
-    @field_validator("features", "targets")
-    @classmethod
-    def _validate_unique_ids(
-        cls,
-        entries: tuple[VectorSchemaEntry, ...],
-    ) -> tuple[VectorSchemaEntry, ...]:
-        identifiers = [entry.id for entry in entries]
-        if len(identifiers) != len(set(identifiers)):
-            raise ValueError("schema entry ids must be unique")
-        return entries
-
-    @model_validator(mode="after")
-    def _validate_shared_id_space(self) -> Self:
-        feature_ids = {entry.id for entry in self.features}
-        target_ids = {entry.id for entry in self.targets}
-        if feature_ids & target_ids:
-            raise ValueError(
-                "schema entry ids must be unique across features and targets"
-            )
-        return self
-
-
 class _VectorMetadataEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -173,21 +119,13 @@ class ScalarVectorMetadataEntry(_VectorMetadataEntry):
 class ListVectorMetadataEntry(_VectorMetadataEntry):
     kind: Literal["list"]
     element_types: tuple[str, ...] = ()
-    lengths: dict[str, int] = Field(default_factory=dict)
-    cadence: VectorSchemaCadence
+    length: int = Field(strict=True, gt=0)
     observed_elements: int = Field(strict=True, ge=0)
 
     @model_validator(mode="after")
     def _validate_observed_elements(self) -> Self:
         non_null_count = self.present_count - self.null_count
-        expected_lengths = (
-            {str(self.cadence.target): non_null_count} if non_null_count else {}
-        )
-        if self.lengths != expected_lengths:
-            raise ValueError(
-                "metadata list lengths must match the fixed schema cadence"
-            )
-        maximum = non_null_count * self.cadence.target
+        maximum = non_null_count * self.length
         if self.observed_elements > maximum:
             raise ValueError(
                 "metadata observed_elements cannot exceed present sequence capacity"
@@ -213,7 +151,7 @@ class VectorMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = VECTOR_METADATA_VERSION
     generated_at: datetime | None = None
     window: Window | None = None
     meta: dict[str, Any] | None = None

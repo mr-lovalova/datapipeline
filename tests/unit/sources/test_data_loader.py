@@ -1,7 +1,9 @@
+import gzip
 from urllib.parse import parse_qsl, urlparse
 
 import pytest
 
+import datapipeline.sources.adapters.fs as fs_adapter
 import datapipeline.sources.adapters.http as http_adapter
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
@@ -11,6 +13,11 @@ from datapipeline.sources.factory import build_loader
 from datapipeline.sources.ports import SourceResource, SourceTransport
 
 
+def _write_gzip(path, text: str) -> None:
+    with gzip.open(path, "wt", encoding="utf-8", newline="") as stream:
+        stream.write(text)
+
+
 def test_fs_path_selects_file_or_glob_transport(tmp_path) -> None:
     (tmp_path / "rows.jsonl").write_text("", encoding="utf-8")
     file_loader = build_loader("fs", "jsonl", path=str(tmp_path / "rows.jsonl"))
@@ -18,6 +25,91 @@ def test_fs_path_selects_file_or_glob_transport(tmp_path) -> None:
 
     assert isinstance(file_loader.transport, FsFileTransport)
     assert isinstance(glob_loader.transport, FsGlobTransport)
+
+
+def test_fs_file_loader_decompresses_gzip_explicitly(tmp_path) -> None:
+    path = tmp_path / "rows.data"
+    _write_gzip(path, '{"value":1}\n{"value":2}\n')
+
+    loader = build_loader(
+        "fs",
+        "jsonl",
+        path=str(path),
+        compression="gzip",
+    )
+
+    assert list(loader.load()) == [{"value": 1}, {"value": 2}]
+    assert loader.transport.compression == "gzip"
+
+
+def test_fs_glob_loader_decompresses_each_gzip_file(tmp_path) -> None:
+    _write_gzip(tmp_path / "01.data", '{"value":1}\n')
+    _write_gzip(tmp_path / "02.data", '{"value":2}\n')
+
+    loader = build_loader(
+        "fs",
+        "jsonl",
+        path=str(tmp_path / "*.data"),
+        compression="gzip",
+    )
+
+    assert list(loader.load()) == [{"value": 1}, {"value": 2}]
+    assert loader.transport.compression == "gzip"
+
+
+def test_fs_csv_loader_decompresses_gzip(tmp_path) -> None:
+    path = tmp_path / "rows.data"
+    _write_gzip(path, "value;label\n1;one\n")
+
+    loader = build_loader(
+        "fs",
+        "csv",
+        path=str(path),
+        compression="gzip",
+    )
+
+    assert list(loader.load()) == [{"value": "1", "label": "one"}]
+
+
+def test_fs_loader_does_not_infer_compression_from_suffix(tmp_path) -> None:
+    path = tmp_path / "rows.jsonl.gz"
+    _write_gzip(path, '{"value":1}\n')
+
+    loader = build_loader("fs", "jsonl", path=str(path))
+
+    with pytest.raises(UnicodeDecodeError):
+        list(loader.load())
+
+
+def test_fs_gzip_loader_closes_file_after_partial_read(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "rows.data"
+    _write_gzip(path, '{"value":1}\n{"value":2}\n')
+
+    class TrackedStream:
+        def __init__(self):
+            self.stream = gzip.open(path, "rb")
+            self.closed = False
+
+        def read(self, size):
+            return self.stream.read(size)
+
+        def close(self):
+            self.closed = True
+            self.stream.close()
+
+    tracked = TrackedStream()
+    monkeypatch.setattr(fs_adapter.gzip, "open", lambda *args, **kwargs: tracked)
+    rows = build_loader(
+        "fs",
+        "jsonl",
+        path=str(path),
+        compression="gzip",
+    ).load()
+
+    assert next(rows) == {"value": 1}
+    rows.close()
+
+    assert tracked.closed
 
 
 def test_fs_glob_requires_at_least_one_file(tmp_path) -> None:
@@ -44,6 +136,38 @@ def test_loader_rejects_misspelled_option(tmp_path) -> None:
             "csv",
             path=str(tmp_path / "rows.csv"),
             delimeter=",",
+        )
+
+
+def test_loader_rejects_gzip_for_json(tmp_path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="gzip compression is supported only for csv and jsonl formats",
+    ):
+        build_loader(
+            "fs",
+            "json",
+            path=str(tmp_path / "rows.gz"),
+            compression="gzip",
+        )
+
+
+def test_loader_rejects_pickle_format(tmp_path) -> None:
+    with pytest.raises(ValueError, match="unsupported format for IO loader: pickle"):
+        build_loader(
+            "fs",
+            "pickle",
+            path=str(tmp_path / "rows.pkl"),
+        )
+
+
+def test_loader_rejects_compression_for_http() -> None:
+    with pytest.raises(ValueError, match="compression is supported only for fs"):
+        build_loader(
+            "http",
+            "jsonl",
+            url="https://example.test/rows.jsonl.gz",
+            compression="gzip",
         )
 
 

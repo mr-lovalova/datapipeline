@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
+from datapipeline.io.compression import Compression
 
 Transport = Literal["fs", "stdout"]
 Format = Literal["csv", "jsonl", "pickle", "txt", "html"]
@@ -20,6 +21,7 @@ class ServeOutputConfig(BaseModel):
     directory: Path | None = Field(default=None)
     filename: str | None = Field(default=None)
     encoding: str | None = Field(default=None)
+    compression: Compression | None = None
 
     @field_validator("filename", mode="before")
     @classmethod
@@ -64,6 +66,8 @@ class ServeOutputConfig(BaseModel):
                 raise ValueError("stdout outputs do not support filenames")
             if self.encoding is not None:
                 raise ValueError("stdout outputs do not support encoding")
+            if self.compression is not None:
+                raise ValueError("stdout outputs do not support compression")
             if self.format not in set(OUTPUT_STDOUT_FORMATS):
                 raise ValueError(
                     f"stdout output supports {', '.join(repr(x) for x in OUTPUT_STDOUT_FORMATS)} formats"
@@ -74,6 +78,8 @@ class ServeOutputConfig(BaseModel):
             raise ValueError("csv output supports only view='flat'")
         if self.format == "pickle" and self.view not in {None, "raw"}:
             raise ValueError("pickle output supports only view='raw'")
+        if self.compression is not None and self.format not in {"jsonl", "csv"}:
+            raise ValueError("gzip compression supports only jsonl and csv output")
         if self.format in {"txt", "html"} and self.view is not None:
             raise ValueError(f"{self.format} output does not support view")
         if self.transport == "fs":

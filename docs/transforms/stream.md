@@ -5,17 +5,19 @@ Ordered transforms run after canonical ordering. Configure them under
 
 Transforms that depend on history operate within a partition. A source-backed
 stream declares `partition_by` as the complete identity of an independent
-series, such as `[security_id]` or `[security_id, metric]`. Derived and aligned
-streams inherit that identity. Dataset `sample.keys` select which partition
-fields identify output rows. Remaining partition fields suffix feature IDs in
-their declared order.
+series, such as `[security_id]` or `[security_id, metric]`. Derived, broadcast,
+and aligned streams inherit that identity. Dataset `sample.keys` select which
+partition fields identify output rows. Remaining partition fields suffix
+variable IDs in their declared order.
 
 ## Field-Writing Transforms
 
-Field-writing transforms accept `field` and optional `to`. If `to` is omitted,
-the transform writes back to `field`. They cannot write `time` or a resolved
-`partition_by` field because those fields define canonical record order.
-Identity changes belong in a map or combine function, before the ordering stage.
+Most single-field transforms accept `field` and optional `to`. If `to` is
+omitted, the transform writes back to `field`. `log`, `log1p`, `forward_sum`,
+and multi-input transforms such as `derive` and `rolling_slope` require `to`.
+Transforms cannot write `time` or a resolved `partition_by` field because those
+fields define canonical record order. Identity changes belong in a map or
+combine function, before the ordering stage.
 
 ```yaml
 transforms:
@@ -30,6 +32,18 @@ transforms:
 - `where`: filter ordered records using the record `where` operator language.
 - `lag` / `lead`: copy a prior or future field value into `to` by `periods`
   within each partition.
+- `forward_sum`: write the sum of exactly the next `window` partition records
+  to the required `to` field. The current record is excluded. A complete window
+  containing `None` or `NaN` produces `None`, as do the final `window` records;
+  partial sums are never emitted. Nonnumeric or infinite values fail.
+- `log`: write the natural logarithm of `field` to `to`; values must be greater
+  than zero.
+- `log1p`: write the natural logarithm of one plus `field` to `to`; values must
+  be greater than `-1`. This operation preserves precision for returns near
+  zero and is not implemented as `log(1 + value)`.
+
+Both logarithms preserve `None` and `NaN` as missing and reject other
+nonnumeric or infinite values.
 - `derive`: write `to` from binary arithmetic on `left` and exactly one of
   `right_field` or `right_value`. Operators: `add`, `sub`, `mul`, `div`.
 - `collapse`: keep the `first` or `last` adjacent record for each partition and
@@ -42,6 +56,32 @@ transforms:
   a rolling window. Missing ticks occupy a window position but do not count
   toward `min_samples`, which defaults to `window`. Values must be finite;
   `None` and `NaN` are treated as missing.
+- `rolling_slope`: compute the least-squares slope of `y` on `x` over a strict
+  rolling window. `x`, `y`, `to`, and `window` are required, and `window` must
+  be at least two. The current record is included. A missing pair clears the
+  window (`None` and `NaN` are missing); nonnumeric or infinite inputs and zero
+  `x` variance fail explicitly.
+
+`rolling_slope` needs consecutive records, not merely consecutive values. Put
+`ensure_ticks` or `ensure_cadence` first when absent timestamps must reset the
+window. To exclude the current record, lag both inputs explicitly:
+
+```yaml
+transforms:
+  - { operation: lag, field: stock_return, periods: 1, to: stock_return_lag_1 }
+  - { operation: lag, field: market_return, periods: 1, to: market_return_lag_1 }
+  - { operation: rolling_slope, x: market_return_lag_1, y: stock_return_lag_1, window: 252, to: beta }
+```
+
+`forward_sum` also counts records rather than inferred sessions. Use
+`ensure_ticks` first for an exchange-session grid, or `ensure_cadence` for a
+fixed-duration series:
+
+```yaml
+transforms:
+  - { operation: ensure_ticks, artifact: model_grid }
+  - { operation: forward_sum, field: market_excess_return, window: 21, to: future_market_excess_return_21 }
+```
 
 ```yaml
 transforms:

@@ -100,6 +100,14 @@ class LeadConfig(_TransformConfig):
     to: NonEmptyString | None = None
 
 
+class ForwardSumConfig(_TransformConfig):
+    operation: Literal["forward_sum"] = "forward_sum"
+
+    field: NonEmptyString
+    window: PositiveInt
+    to: NonEmptyString
+
+
 class EnsureCadenceConfig(_TransformConfig):
     operation: Literal["ensure_cadence"] = "ensure_cadence"
 
@@ -169,6 +177,29 @@ class RollingConfig(_TransformConfig):
         return self
 
 
+class RollingSlopeConfig(_TransformConfig):
+    operation: Literal["rolling_slope"] = "rolling_slope"
+
+    x: NonEmptyString
+    y: NonEmptyString
+    window: Annotated[int, Field(strict=True, ge=2)]
+    to: NonEmptyString
+
+
+class LogConfig(_TransformConfig):
+    operation: Literal["log"] = "log"
+
+    field: NonEmptyString
+    to: NonEmptyString
+
+
+class Log1pConfig(_TransformConfig):
+    operation: Literal["log1p"] = "log1p"
+
+    field: NonEmptyString
+    to: NonEmptyString
+
+
 class DeriveConfig(_TransformConfig):
     operation: Literal["derive"] = "derive"
 
@@ -205,12 +236,16 @@ TransformConfig = Annotated[
     | DedupeConfig
     | LagConfig
     | LeadConfig
+    | ForwardSumConfig
     | EnsureCadenceConfig
     | EnsureTicksConfig
     | FillConfig
     | ForwardFillConfig
     | CollapseConfig
     | RollingConfig
+    | RollingSlopeConfig
+    | LogConfig
+    | Log1pConfig
     | DeriveConfig,
     Field(discriminator="operation"),
 ]

@@ -23,9 +23,12 @@ demo.report = "my_datapipeline.operations:run_report"
 
 Each extension follows the contract of its entry-point group. A stream `map`
 receives an iterator and returns an iterable. An aligned stream `combine`
-receives one matching record from each input and returns one record or `None`.
-Combiners belong to `datapipeline.combiners`, not the iterator-oriented
-`datapipeline.mappers` group.
+receives one matching record from each configured input. A broadcast stream
+`combine` receives the partitioned primary record followed by its exact-time
+unpartitioned record. Both return one record or `None`. Combiner inputs are
+read-only; a broadcast record object is reused across primary partitions at its
+timestamp. Combiners belong to `datapipeline.combiners`, not the
+iterator-oriented `datapipeline.mappers` group.
 
 A custom runtime operation receives exactly three positional arguments:
 
@@ -50,12 +53,14 @@ def run_report(
 `runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `RoutedRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
-using the profile output. Dataset split routing, preview, throttle, and
+using the profile output. A routed output's `output_for_row` callback returns a
+string output ID present in its `targets` mapping, or `None` to drop that row;
+any other result fails the operation. Dataset split routing, preview, throttle, and
 `include_outputs` belong to the built-in dataset operation and are not passed to
 plugins.
 
 Preprocess and ordered transforms are validated built-in operations rather than
-plugin entry points. Feature shaping and postprocess policies are fixed pipeline
+plugin entry points. Variable shaping and postprocess policies are fixed pipeline
 stages. See [Transforms](transforms/index.md) for their explicit configuration.
 
 ---

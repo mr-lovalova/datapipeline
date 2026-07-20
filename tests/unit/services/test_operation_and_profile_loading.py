@@ -107,7 +107,10 @@ def test_operation_task_rejects_non_serializable_options() -> None:
 def test_artifact_tasks_load_configs(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "schema.yaml").write_text("output: schema.json\n", encoding="utf-8")
+    (config_dir / "schema.yaml").write_text(
+        ("kind: artifact\nentrypoint: plugin.artifact.schema\noutput: schema.json\n"),
+        encoding="utf-8",
+    )
     (config_dir / "scaler.yaml").write_text(
         "output: stats.pkl\n",
         encoding="utf-8",
@@ -117,12 +120,14 @@ def test_artifact_tasks_load_configs(tmp_path):
 
     assert {task.id for task in tasks} == {
         "scaler",
-        "vector_inputs",
+        "variable_records",
         "metadata",
-        "schema",
         "stats",
+        "schema",
     }
     schema = next(task for task in tasks if task.id == "schema")
+    assert type(schema) is ArtifactTask
+    assert schema.entrypoint == "plugin.artifact.schema"
     assert schema.output == "schema.json"
     scaler = next(task for task in tasks if task.id == "scaler")
     assert scaler.output == "stats.pkl"
@@ -137,9 +142,8 @@ def test_core_operations_load_without_configuration(tmp_path):
 
     assert [task.id for task in artifact_tasks] == [
         "scaler",
-        "vector_inputs",
+        "variable_records",
         "metadata",
-        "schema",
         "stats",
     ]
     assert [task.id for task in runtime_tasks] == [
@@ -147,10 +151,25 @@ def test_core_operations_load_without_configuration(tmp_path):
         "coverage",
         "matrix",
     ]
-    task = next(task for task in artifact_tasks if task.id == "vector_inputs")
-    assert task.id == "vector_inputs"
-    assert task.entrypoint == "core.artifact.vector_inputs"
-    assert task.output == "build/vector_inputs/manifest.json"
+    task = next(task for task in artifact_tasks if task.id == "variable_records")
+    assert task.id == "variable_records"
+    assert task.entrypoint == "core.artifact.variable_records"
+    assert task.output == "build/variable_records/manifest.json"
+
+
+def test_v5_vector_inputs_override_is_not_a_core_operation(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "vector_inputs.yaml").write_text(
+        "output: build/vector_inputs/manifest.json\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Custom operation 'vector_inputs' must set kind to artifact or runtime",
+    ):
+        _tasks(project_yaml)
 
 
 def test_ticks_artifact_task_loads_arbitrary_id(tmp_path):
@@ -231,8 +250,8 @@ def test_artifact_operation_rejects_empty_output(
 ) -> None:
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "schema.yaml").write_text(
-        f"output: {output!r}\n",
+    (config_dir / "snapshot.yaml").write_text(
+        (f"kind: artifact\nentrypoint: plugin.artifact.snapshot\noutput: {output!r}\n"),
         encoding="utf-8",
     )
 
@@ -243,11 +262,11 @@ def test_artifact_operation_rejects_empty_output(
 def test_core_operation_rejects_entrypoint_override(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "schema.yaml").write_text(
+    (config_dir / "metadata.yaml").write_text(
         (
             "entrypoint: core.artifact.ticks\n"
             "stream: reference.stream\n"
-            "output: build/schema_ticks.jsonl\n"
+            "output: build/metadata_ticks.jsonl\n"
         ),
         encoding="utf-8",
     )
@@ -576,17 +595,17 @@ def test_build_profiles_load_and_respect_enabled(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "build.fast.yaml").write_text(
-        "enabled: true\nmode: auto\noperation: schema\n",
+        "enabled: true\nmode: auto\noperation: metadata\n",
         encoding="utf-8",
     )
     (config_dir / "build.full.yaml").write_text(
-        "enabled: false\nmode: force\noperation: metadata\n",
+        "enabled: false\nmode: force\noperation: stats\n",
         encoding="utf-8",
     )
 
     tasks = _build_profiles(project_yaml)
     assert [task.name for task in tasks] == ["fast", "full"]
-    assert tasks[0].operation == "schema"
+    assert tasks[0].operation == "metadata"
     assert tasks[0].enabled is True
     assert tasks[1].enabled is False
 
@@ -637,6 +656,31 @@ def test_materialize_profiles_load_and_normalize_fields(tmp_path):
     assert profile.observability.visuals == "ON"
 
 
+def test_materialize_profile_accepts_gzip_output(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        "stream: adv.20\noutput: data/features/adv/20.jsonl.gz\n",
+        encoding="utf-8",
+    )
+
+    profile = _materialize_profiles(project_yaml)[0]
+
+    assert profile.output == Path("data/features/adv/20.jsonl.gz")
+
+
+def test_materialize_profile_rejects_compression_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.adv-20.yaml").write_text(
+        "stream: adv.20\noutput: data/features/adv/20.jsonl.gz\ncompression: gzip\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_profiles(project_yaml)
+
+
 @pytest.mark.parametrize("field", ["stream", "output"])
 def test_materialize_profile_requires_nonempty_paths(tmp_path, field):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
@@ -660,7 +704,7 @@ def test_materialize_profile_requires_jsonl_output(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="output must use a .jsonl path"):
+    with pytest.raises(ValueError, match="output must use a .jsonl or .jsonl.gz path"):
         _materialize_profiles(project_yaml)
 
 
@@ -709,6 +753,18 @@ def test_materialize_defaults_apply_overwrite_and_observability(tmp_path):
     assert merged.observability is not None
     assert merged.observability.visuals == "OFF"
     assert merged.observability.heartbeat_interval_seconds == 30
+
+
+def test_materialize_defaults_reject_compression_field(tmp_path):
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    profiles_dir = _profile_kind_dir(project_yaml)
+    (profiles_dir / "materialize.defaults.yaml").write_text(
+        "compression: gzip\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        _materialize_defaults(project_yaml)
 
 
 def test_materialize_artifact_mode_is_defaults_only(tmp_path):
@@ -1037,9 +1093,8 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
     "entrypoint",
     [
         "core.artifact.scaler",
-        "core.artifact.vector_inputs",
+        "core.artifact.variable_records",
         "core.artifact.metadata",
-        "core.artifact.schema",
         "core.artifact.stats",
     ],
 )
@@ -1138,8 +1193,12 @@ def test_runtime_operation_rejects_output_formats_field(tmp_path):
 def test_duplicate_operation_filenames_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "schema.yaml").write_text("output: schema-a.json\n", encoding="utf-8")
-    (config_dir / "schema.yml").write_text("output: schema-b.json\n", encoding="utf-8")
+    (config_dir / "snapshot.yaml").write_text(
+        "output: snapshot-a.json\n", encoding="utf-8"
+    )
+    (config_dir / "snapshot.yml").write_text(
+        "output: snapshot-b.json\n", encoding="utf-8"
+    )
 
     with pytest.raises(ValueError, match="Duplicate operation ids"):
         _artifact_tasks(project_yaml)
@@ -1182,7 +1241,7 @@ def test_duplicate_build_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "build.nightly.yaml").write_text(
-        "operation: schema\n",
+        "operation: stats\n",
         encoding="utf-8",
     )
     (config_dir / "build.nightly.yml").write_text(
@@ -1278,8 +1337,8 @@ def test_profile_filename_prefix_is_required(tmp_path):
 def test_profile_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     profiles_root = _profiles_dir(project_yaml)
-    (profiles_root / "build.schema.yaml").write_text(
-        "operation: schema\noutput: should-not-exist\n",
+    (profiles_root / "build.metadata.yaml").write_text(
+        "operation: metadata\noutput: should-not-exist\n",
         encoding="utf-8",
     )
 

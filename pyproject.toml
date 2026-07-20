@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jerry-thomas"
-version = "5.0.7"
+version = "6.0.0"
 description = "Jerry-Thomas: a stream-first, plugin-friendly data pipeline (mixology-themed CLI)"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -89,8 +89,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
-"core.artifact.vector_inputs" = "datapipeline.operations.artifacts.vector_inputs:materialize_vector_inputs"
-"core.artifact.schema" = "datapipeline.operations.artifacts.schema:materialize_vector_schema"
+"core.artifact.variable_records" = "datapipeline.operations.artifacts.variable_records:materialize_variable_records"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
@@ -103,19 +102,25 @@ testpaths = ["tests"]
 [tool.mutmut]
 source_paths = ["src/datapipeline/"]
 only_mutate = [
+  "src/datapipeline/alignment/broadcast.py",
   "src/datapipeline/alignment/engine.py",
+  "src/datapipeline/domain/value.py",
   "src/datapipeline/operations/artifacts/utils.py",
   "src/datapipeline/pipelines/dataset/split.py",
-  "src/datapipeline/pipelines/feature/projector.py",
+  "src/datapipeline/pipelines/variable/projector.py",
   "src/datapipeline/pipelines/sort.py",
   "src/datapipeline/pipelines/vector/keygen.py",
-  "src/datapipeline/transforms/vector/ensure_schema.py",
+  "src/datapipeline/transforms/rolling_slope.py",
+  "src/datapipeline/transforms/stream/forward_sum.py",
+  "src/datapipeline/transforms/stream/logarithm.py",
+  "src/datapipeline/transforms/vector/normalize.py",
   "src/datapipeline/transforms/vector/scaler.py",
 ]
 pytest_add_cli_args = ["-q", "-W", "error"]
 pytest_add_cli_args_test_selection = [
   "tests/unit/alignment/",
   "tests/unit/artifact_build/",
+  "tests/unit/io/",
   "tests/unit/pipeline/",
   "tests/unit/transforms/",
   "tests/integration/",

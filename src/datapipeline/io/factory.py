@@ -12,7 +12,12 @@ from datapipeline.io.writers.jsonl import JsonLinesFileWriter
 from datapipeline.io.writers.pickle_writer import PickleFileWriter
 
 
-def writer_factory(target: OutputTarget) -> Writer:
+def writer_factory(target: OutputTarget, overwrite: bool = True) -> Writer:
+    if target.compression is not None and (
+        target.transport != "fs" or target.format not in {"jsonl", "csv"}
+    ):
+        raise ValueError("gzip compression supports only fs jsonl and csv output")
+
     if target.transport == "stdout":
         if target.format == "jsonl":
             return LineWriter(StdoutTextSink(), json_line_serializer(target.view))
@@ -30,20 +35,28 @@ def writer_factory(target: OutputTarget) -> Writer:
             destination,
             view=target.view,
             encoding=text_encoding,
+            overwrite=overwrite,
+            compression=target.compression,
         )
     if target.format == "csv":
         if target.view != "flat":
             raise ValueError("csv output supports only view='flat'")
-        return CsvFileWriter(destination, encoding=text_encoding)
+        return CsvFileWriter(
+            destination,
+            encoding=text_encoding,
+            overwrite=overwrite,
+            compression=target.compression,
+        )
     if target.format == "pickle":
         if target.view != "raw":
             raise ValueError("pickle output supports only view='raw'")
-        return PickleFileWriter(destination)
+        return PickleFileWriter(destination, overwrite=overwrite)
     if target.format == "txt":
         return LineWriter(
             AtomicTextFileSink(
                 destination,
                 encoding=text_encoding,
+                overwrite=overwrite,
             ),
             text_line_serializer(),
         )

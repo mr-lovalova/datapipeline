@@ -15,11 +15,23 @@ features:
   - id: humidity_partitioned
     stream: metrics.humidity
     field: value
+  - id: humidity_adjusted
+    stream: metrics.humidity.adjusted
+    field: value
+  - id: humidity_slope
+    stream: metrics.humidity.adjusted
+    field: slope
 
 targets:
   - id: power_target
     stream: targets.power
     field: value
+  - id: power_future_2
+    stream: targets.power
+    field: future_2
+  - id: power_log1p
+    stream: targets.power
+    field: log1p_value
 
 postprocess:
   samples:

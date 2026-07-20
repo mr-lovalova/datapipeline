@@ -29,6 +29,6 @@ class MaterializeProfile(Profile):
         output = str(value).strip() if value is not None else ""
         if not output:
             raise ValueError("output must be set")
-        if Path(output).suffix != ".jsonl":
-            raise ValueError("output must use a .jsonl path")
+        if not output.endswith((".jsonl", ".jsonl.gz")):
+            raise ValueError("output must use a .jsonl or .jsonl.gz path")
         return Path(output)

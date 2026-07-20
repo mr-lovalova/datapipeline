@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from datapipeline.cli.output_options import build_cli_output_config
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig, SampleConfig
+from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
@@ -34,7 +34,7 @@ def _definition(
 ):
     return pipeline_definition(
         project_path,
-        dataset=FeatureDatasetConfig(
+        dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),
             split=split,
         ),
@@ -1068,8 +1068,8 @@ def test_build_profile_rejects_runtime_output_fields():
         BuildProfile.model_validate(
             {
                 "cmd": "build",
-                "name": "schema",
-                "operation": "schema",
+                "name": "metadata",
+                "operation": "metadata",
                 "output": {
                     "transport": "fs",
                     "format": "jsonl",

@@ -1,3 +1,4 @@
+import gzip
 import json
 import logging
 from pathlib import Path
@@ -74,6 +75,42 @@ class _IterFailureRows:
         self.closed = True
 
 
+def test_runtime_output_requires_a_representation() -> None:
+    with pytest.raises(ValueError, match="requires rows, payload, or render_html"):
+        RuntimeOutput()
+
+
+def test_runtime_output_rejects_rows_and_payload() -> None:
+    with pytest.raises(ValueError, match="cannot define both rows and payload"):
+        RuntimeOutput(rows=(), payload={})
+
+
+def test_runtime_output_allows_rows_and_html_representations() -> None:
+    output = RuntimeOutput(rows=(), render_html=lambda: "<html></html>")
+
+    assert output.rows == ()
+    assert output.render_html is not None
+
+
+def test_html_only_runtime_output_rejects_non_html_target(tmp_path: Path) -> None:
+    destination = tmp_path / "output.jsonl"
+
+    with pytest.raises(ValueError, match="does not support a non-HTML representation"):
+        persist_runtime_result(
+            RuntimeOutput(render_html=lambda: "<html></html>"),
+            target=OutputTarget(
+                transport="fs",
+                format="jsonl",
+                view="raw",
+                encoding="utf-8",
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert not destination.exists()
+
+
 def test_persist_artifact_output_requires_declared_existing_file(tmp_path) -> None:
     runtime = SimpleNamespace(
         artifacts_root=tmp_path,
@@ -134,7 +171,7 @@ def test_persist_artifact_output_validates_companion_files(tmp_path) -> None:
             relative_path="manifest.json",
             companion_paths=("manifest.shards/000000.jsonl.gz",),
         ),
-        artifact_key="vector_inputs",
+        artifact_key="variable_records",
         expected_relative_path="manifest.json",
         runtime=runtime,
     )
@@ -159,7 +196,7 @@ def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
                 relative_path="manifest.json",
                 companion_paths=("../outside.jsonl.gz",),
             ),
-            artifact_key="vector_inputs",
+            artifact_key="variable_records",
             expected_relative_path="manifest.json",
             runtime=runtime,
         )
@@ -175,7 +212,7 @@ def test_persist_artifact_output_rejects_case_colliding_companion(tmp_path) -> N
                 relative_path="manifest.json",
                 companion_paths=("MANIFEST.json",),
             ),
-            artifact_key="vector_inputs",
+            artifact_key="variable_records",
             expected_relative_path="manifest.json",
             runtime=runtime,
         )
@@ -613,8 +650,7 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
     rows = [
         {"output": "train", "value": 1},
         {"output": "val", "value": 2},
-        {"output": "test", "value": 3},
-        {"output": None, "value": 4},
+        {"output": None, "value": 3},
     ]
     results: list[tuple[str, Path]] = []
     monkeypatch.setattr(
@@ -647,6 +683,69 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
     ]
 
 
+def test_routed_runtime_output_rejects_unknown_output_id(tmp_path) -> None:
+    targets = {
+        output_id: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / f"{output_id}.jsonl",
+        )
+        for output_id in ("train", "val")
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="unknown output ID 'test'",
+    ):
+        persist_runtime_result(
+            RoutedRuntimeOutput(
+                rows=iter(({"output": "train"}, {"output": "test"})),
+                targets=targets,
+                output_for_row=lambda row: row["output"],
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_routed_runtime_output_writes_gzip_targets(tmp_path) -> None:
+    targets = {
+        output_id: OutputTarget(
+            transport="fs",
+            format="jsonl",
+            view="raw",
+            encoding="utf-8",
+            destination=tmp_path / f"{output_id}.jsonl.gz",
+            compression="gzip",
+        )
+        for output_id in ("train", "validation")
+    }
+    rows = [
+        {"output": "train", "value": 1},
+        {"output": "validation", "value": 2},
+    ]
+
+    persist_runtime_result(
+        RoutedRuntimeOutput(
+            rows=iter(rows),
+            targets=targets,
+            output_for_row=lambda row: row["output"],
+        ),
+        target=None,
+        logger=logging.getLogger(__name__),
+    )
+
+    for output_id, expected in (("train", rows[:1]), ("validation", rows[1:])):
+        destination = targets[output_id].destination
+        assert destination is not None
+        with gzip.open(destination, "rt", encoding="utf-8") as stream:
+            assert [json.loads(line) for line in stream] == expected
+
+
 def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
     train_path = tmp_path / "train.jsonl"
     val_path = tmp_path / "val.jsonl"
@@ -665,7 +764,7 @@ def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
         destination=val_path,
     )
     rows = [
-        {"split": "ignored", "value": 0},
+        {"split": None, "value": 0},
         {"split": "train", "value": 1},
         {"split": "train", "value": 2},
         {"split": "val", "value": 3},

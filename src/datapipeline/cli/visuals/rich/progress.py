@@ -71,7 +71,10 @@ class _ProgressRowColumn(ProgressColumn):
             cells.append(self._bar.render(task))
         if status:
             row.add_column(overflow="ellipsis")
-            cells.append(Text(status, no_wrap=True, overflow="ellipsis"))
+            status = status.copy()
+            status.no_wrap = True
+            status.overflow = "ellipsis"
+            cells.append(status)
         row.add_row(*cells)
         return row
 
@@ -123,7 +126,7 @@ class _ExecutionProgress:
         self._operation_task = self._progress.add_task(
             f"Operation {event.name}",
             total=None,
-            status="",
+            status=Text(),
         )
 
     def _update_operation(self, event: OperationProgress) -> None:
@@ -131,10 +134,15 @@ class _ExecutionProgress:
             raise RuntimeError("Cannot update operation progress before it starts")
         if self._operation_name != event.name:
             raise RuntimeError("Operation progress updated out of order")
+        status = Text.assemble(
+            f"last report: {event.step} · ",
+            (f"{event.completed:,}", "cyan"),
+            f" {event.unit}",
+        )
         self._progress.update(
             self._operation_task,
             completed=event.completed,
-            status=f"last report: {event.step} · {event.completed:,} {event.unit}",
+            status=status,
         )
 
     def _finish_operation(self, event: OperationFinished) -> None:
@@ -151,7 +159,7 @@ class _ExecutionProgress:
         self._pipeline_task = self._progress.add_task(
             f"[{event.pipeline_name}]",
             total=None,
-            status="",
+            status=Text(),
         )
 
     def _finish_pipeline(self, event: PipelineFinished) -> None:
@@ -166,10 +174,11 @@ class _ExecutionProgress:
         if self._pipeline_name is None:
             raise RuntimeError("Cannot start node progress before its root pipeline")
         label = f"[{event.pipeline_name}/{event.node_name}]"
+        status = Text.assemble(("0", "cyan"), " out")
         self._node_tasks[event.node_index] = self._progress.add_task(
             label,
             total=None,
-            status="0 out",
+            status=status,
             visible=self._debug,
         )
         self._open_nodes.append(event.node_index)
@@ -221,7 +230,7 @@ class _ExecutionProgress:
         task_id: TaskID,
         completed: int,
         total: int | None,
-        status: str,
+        status: Text,
     ) -> None:
         task = next(task for task in self._progress.tasks if task.id == task_id)
         task.total = total
@@ -239,18 +248,25 @@ class _ExecutionProgress:
         self._visible_node = None
 
 
-def _progress_status(snapshot: ProgressSnapshot) -> str:
+def _progress_status(snapshot: ProgressSnapshot) -> Text:
     resource = snapshot.resource
-    parts = [snapshot.phase] if snapshot.phase else []
+    parts: list[Text] = []
+    if snapshot.phase:
+        parts.append(Text(snapshot.phase))
     if resource is not None:
-        parts.append(f"{resource.index}/{resource.total} {resource.label}")
+        parts.append(
+            Text.assemble(
+                (f"{resource.index}/{resource.total}", "cyan"),
+                f" {resource.label}",
+            )
+        )
     if snapshot.detail:
-        parts.append(snapshot.detail)
+        parts.append(Text(snapshot.detail))
     count = f"{snapshot.completed:,}"
     if snapshot.total is not None:
         count = f"{count}/{snapshot.total:,}"
-    parts.append(f"{count} {snapshot.unit}")
-    return " · ".join(parts)
+    parts.append(Text.assemble((count, "cyan"), f" {snapshot.unit}"))
+    return Text(" · ").join(parts)
 
 
 class _RichExecutionRenderer:

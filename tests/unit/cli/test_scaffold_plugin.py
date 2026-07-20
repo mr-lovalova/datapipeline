@@ -106,8 +106,7 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
         "build.defaults.yaml",
         "build.metadata.yaml",
         "build.scaler.yaml",
-        "build.schema.yaml",
-        "build.vector_inputs.yaml",
+        "build.variable_records.yaml",
         "inspect.coverage.yaml",
         "inspect.defaults.yaml",
         "inspect.matrix.yaml",
@@ -118,7 +117,6 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
     demo_profiles = _TEMPLATES_ROOT / "demo_skeleton" / "demo" / "profiles"
 
     assert {path.name for path in dataset_profiles.glob("*.yaml")} == {
-        "build.schema.yaml",
         "inspect.coverage.yaml",
         "inspect.matrix.yaml",
         "serve.dataset.yaml",
@@ -132,7 +130,6 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
         for profile in profile_specs(project)
     ] == [
         ("serve", "dataset", "dataset"),
-        ("build", "schema", "schema"),
         ("inspect", "coverage", "coverage"),
         ("inspect", "matrix", "matrix"),
     ]
@@ -149,7 +146,7 @@ def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path) -> None:
     assert not (plugin_root / "reference").exists()
     assert not (plugin_root / "your-interim-data-builder").exists()
     assert not (dataset_root / "operations").exists()
-    assert (dataset_root / "profiles" / "build.schema.yaml").is_file()
+    assert not (dataset_root / "profiles" / "build.schema.yaml").exists()
     assert (dataset_root / "profiles" / "inspect.coverage.yaml").is_file()
     assert (dataset_root / "profiles" / "inspect.matrix.yaml").is_file()
     assert (dataset_root / "profiles" / "serve.dataset.yaml").is_file()
@@ -161,6 +158,7 @@ def test_scaffold_plugin_normalizes_hyphenated_name(tmp_path: Path) -> None:
 
     pyproject = (plugin_root / "pyproject.toml").read_text()
     assert 'name = "test-datapipeline"' in pyproject
+    assert '"jerry-thomas>=6.0.0"' in pyproject
     assert '[project.entry-points."datapipeline.combiners"]' in pyproject
 
     readme = (plugin_root / "README.md").read_text()

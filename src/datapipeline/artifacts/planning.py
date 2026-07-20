@@ -7,15 +7,14 @@ from types import MappingProxyType
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     SCALER_STATISTICS,
-    VECTOR_INPUTS,
+    VARIABLE_RECORDS,
     VECTOR_METADATA,
-    VECTOR_SCHEMA,
     VECTOR_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
 )
 from datapipeline.build.state import BuildState
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.preview import PREVIEW_STAGES, PreviewStage
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
@@ -24,7 +23,6 @@ from datapipeline.config.tasks import (
     MatrixTask,
     OperationTask,
     PipelineTask,
-    StatsTask,
     TicksTask,
 )
 from datapipeline.config.transforms import EnsureTicksConfig
@@ -89,7 +87,7 @@ class ArtifactGraph:
     def from_tasks(
         cls,
         task_configs: Iterable[ArtifactTask],
-        dataset: FeatureDatasetConfig | None = None,
+        dataset: DatasetConfig | None = None,
         streams: StreamsConfig | None = None,
     ) -> "ArtifactGraph":
         if (dataset is None) != (streams is None):
@@ -115,35 +113,19 @@ class ArtifactGraph:
             tasks_by_output[destination_key] = task.id
 
         definitions = list(ARTIFACT_DEFINITIONS)
-        stats_task = tasks_by_id.get("stats")
-        if isinstance(stats_task, StatsTask) and stats_task.stage == "assembled":
-            definitions = [
-                replace(
-                    definition,
-                    dependencies=(VECTOR_METADATA,),
-                )
-                if definition.key == VECTOR_STATS
-                else definition
-                for definition in definitions
-            ]
-
         built_in_keys = {definition.key for definition in definitions}
         if dataset is not None and streams is not None:
             scaler_streams = {
-                config.stream
-                for config in (*dataset.features, *dataset.targets)
-                if config.scale
+                config.stream for config in dataset.variables if config.scale
             }
-            vector_streams = {
-                config.stream for config in (*dataset.features, *dataset.targets)
-            }
+            input_streams = {config.stream for config in dataset.variables}
             scaler_ticks = required_tick_artifacts(
                 scaler_streams,
                 streams,
                 tasks_by_id,
             )
-            vector_ticks = required_tick_artifacts(
-                vector_streams,
+            input_ticks = required_tick_artifacts(
+                input_streams,
                 streams,
                 tasks_by_id,
             )
@@ -153,10 +135,10 @@ class ArtifactGraph:
                     dependencies=(
                         *definition.dependencies,
                         *(scaler_ticks if definition.key == SCALER_STATISTICS else ()),
-                        *(vector_ticks if definition.key == VECTOR_INPUTS else ()),
+                        *(input_ticks if definition.key == VARIABLE_RECORDS else ()),
                     ),
                 )
-                if definition.key in {SCALER_STATISTICS, VECTOR_INPUTS}
+                if definition.key in {SCALER_STATISTICS, VARIABLE_RECORDS}
                 else definition
                 for definition in definitions
             ]
@@ -206,29 +188,22 @@ class ArtifactGraph:
         declared = set(task.requires)
         dataset_tick_artifacts = {
             dependency
-            for dependency in self.definition(VECTOR_INPUTS).dependencies
+            for dependency in self.definition(VARIABLE_RECORDS).dependencies
             if isinstance(self.tasks_by_id.get(dependency), TicksTask)
         }
         if isinstance(task, PipelineTask):
             if preview is None:
-                return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
+                return declared | {VECTOR_METADATA}
             if preview not in PREVIEW_STAGES:
                 expected = ", ".join(PREVIEW_STAGES)
                 raise ValueError(f"preview must be one of: {expected}")
-            if preview in {"input", "canonical", "records"}:
+            if preview in {"input", "canonical", "records", "variables"}:
                 return declared | dataset_tick_artifacts
-            if preview == "features":
-                return declared | dataset_tick_artifacts
-            if preview == "samples":
-                return declared | {VECTOR_METADATA}
-            return declared | {VECTOR_METADATA, VECTOR_SCHEMA}
+            return declared | {VECTOR_METADATA}
         if isinstance(task, CoverageTask):
             return declared | {VECTOR_STATS}
         if isinstance(task, MatrixTask):
-            required = {VECTOR_METADATA}
-            if task.options.stage == "postprocessed":
-                required.add(VECTOR_SCHEMA)
-            return declared | required
+            return declared | {VECTOR_METADATA}
         return declared
 
     def runtime_dependency_closure(
@@ -236,7 +211,7 @@ class ArtifactGraph:
         task: OperationTask,
         *,
         preview: PreviewStage | None,
-        dataset: FeatureDatasetConfig | None,
+        dataset: DatasetConfig | None,
     ) -> tuple[str, ...]:
         roots = self.runtime_requirements(task, preview=preview)
         if (
@@ -257,7 +232,7 @@ class ArtifactGraph:
         if self.requires_dataset(keys):
             if dataset is None:
                 raise ValueError(
-                    f"Runtime operation '{task.id}' requires a feature dataset to "
+                    f"Runtime operation '{task.id}' requires dataset configuration to "
                     "resolve artifact dependencies."
                 )
             inactive_declared = {
@@ -296,7 +271,7 @@ class ArtifactGraph:
     def active_dependency_closure(
         self,
         roots: Iterable[str],
-        dataset: FeatureDatasetConfig,
+        dataset: DatasetConfig,
     ) -> tuple[str, ...]:
         root_keys = set(roots)
         for key in root_keys:
@@ -501,7 +476,7 @@ def required_tick_artifacts(
 
 def build_artifact_graph(
     task_configs: Iterable[ArtifactTask],
-    dataset: FeatureDatasetConfig | None = None,
+    dataset: DatasetConfig | None = None,
     streams: StreamsConfig | None = None,
 ) -> ArtifactGraph:
     return ArtifactGraph.from_tasks(task_configs, dataset, streams)

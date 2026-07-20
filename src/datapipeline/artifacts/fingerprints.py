@@ -5,24 +5,24 @@ import stat
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from datapipeline.artifacts.models import VECTOR_METADATA_VERSION
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    SchemaTask,
     StatsTask,
     TicksTask,
-    VectorInputsTask,
+    VariableRecordsTask,
 )
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 # Increment when Jerry's core artifact semantics change without a config change.
-ARTIFACT_CACHE_VERSION = 5
+ARTIFACT_CACHE_VERSION = 6
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -144,7 +144,7 @@ def _stream_config_closure(
 
 def _artifact_inputs(
     task: ArtifactTask,
-    dataset: FeatureDatasetConfig,
+    dataset: DatasetConfig,
     streams: StreamsConfig,
 ) -> tuple[dict[str, object], set[str]]:
     if isinstance(task, TicksTask):
@@ -152,9 +152,7 @@ def _artifact_inputs(
         return {"streams": stream_config}, source_ids
 
     if isinstance(task, ScalerTask):
-        scaled = tuple(
-            config for config in (*dataset.features, *dataset.targets) if config.scale
-        )
+        scaled = tuple(config for config in dataset.variables if config.scale)
         stream_config, source_ids = _stream_config_closure(
             (config.stream for config in scaled),
             streams,
@@ -178,10 +176,10 @@ def _artifact_inputs(
             source_ids,
         )
 
-    if isinstance(task, VectorInputsTask):
-        vectors = (*dataset.features, *dataset.targets)
+    if isinstance(task, VariableRecordsTask):
+        input_configs = dataset.variables
         stream_config, source_ids = _stream_config_closure(
-            (config.stream for config in vectors),
+            (config.stream for config in input_configs),
             streams,
         )
         return (
@@ -205,7 +203,10 @@ def _artifact_inputs(
     if isinstance(task, StatsTask) and task.stage == "postprocessed":
         return {"postprocess": dataset.postprocess.model_dump(mode="json")}, set()
 
-    if isinstance(task, (MetadataTask, SchemaTask, StatsTask)):
+    if isinstance(task, MetadataTask):
+        return {"metadata_format_version": VECTOR_METADATA_VERSION}, set()
+
+    if isinstance(task, StatsTask):
         return {}, set()
 
     # Plugin artifacts receive the full Runtime and declare no input contract.
@@ -243,7 +244,7 @@ def _artifact_digest(
 
 def calculate_artifact_hashes(
     project: ProjectManifest,
-    dataset: FeatureDatasetConfig,
+    dataset: DatasetConfig,
     streams: StreamsConfig,
     artifact_operations: tuple[ArtifactTask, ...],
 ) -> ArtifactHashes:

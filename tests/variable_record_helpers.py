@@ -1,30 +1,30 @@
 import shutil
 from collections.abc import Sequence
 
-from datapipeline.artifacts.specs import VECTOR_INPUTS
-from datapipeline.config.dataset.feature import FeatureRecordConfig
+from datapipeline.artifacts.variable_records import (
+    VARIABLE_RECORDS_MANIFEST_VERSION,
+    variable_record_to_row,
+    write_variable_rows,
+)
+from datapipeline.artifacts.specs import VARIABLE_RECORDS
+from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.feature.pipeline import run_feature_pipeline
+from datapipeline.pipelines.variable.pipeline import run_variable_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.services.path_policy import sanitize_path_segment
 from datapipeline.utils.json_artifact import write_json_artifact
-from datapipeline.vector_inputs.store import (
-    VECTOR_INPUTS_MANIFEST_VERSION,
-    feature_record_to_vector_input_row,
-    write_vector_input_rows,
-)
 
 
-def register_vector_inputs(
+def register_variable_records(
     runtime: Runtime,
-    features: Sequence[FeatureRecordConfig],
+    features: Sequence[VariableConfig],
     cadence: str,
     *,
-    targets: Sequence[FeatureRecordConfig] = (),
+    targets: Sequence[VariableConfig] = (),
     sample_keys: Sequence[str] = (),
 ) -> None:
-    relative_path = "build/vector_inputs/manifest.json"
+    relative_path = "build/variable_records/manifest.json"
     manifest_path = runtime.artifacts_root / relative_path
     root = manifest_path.parent
     shutil.rmtree(root, ignore_errors=True)
@@ -49,7 +49,7 @@ def register_vector_inputs(
     write_json_artifact(
         manifest_path,
         {
-            "version": VECTOR_INPUTS_MANIFEST_VERSION,
+            "version": VARIABLE_RECORDS_MANIFEST_VERSION,
             "format": "jsonl.gz",
             "cadence": cadence,
             "sample_keys": list(sample_keys),
@@ -58,14 +58,14 @@ def register_vector_inputs(
             "targets": target_shards,
         },
     )
-    runtime.artifacts.register(VECTOR_INPUTS, relative_path=relative_path)
+    runtime.artifacts.register(VARIABLE_RECORDS, relative_path=relative_path)
 
 
 def _write_shards(
     context: PipelineContext,
     root,
     directory: str,
-    configs: Sequence[FeatureRecordConfig],
+    configs: Sequence[VariableConfig],
     cadence: str,
     sample_key_contract: SampleKeyContract,
 ) -> list[dict[str, object]]:
@@ -73,7 +73,7 @@ def _write_shards(
     for cfg in configs:
         file_name = f"{sanitize_path_segment(cfg.id)}.jsonl.gz"
         relative_path = f"{directory}/{file_name}"
-        stream = run_feature_pipeline(
+        stream = run_variable_pipeline(
             context,
             cfg,
             sample_keys=sample_key_contract.fields,
@@ -84,12 +84,12 @@ def _write_shards(
             def rows():
                 for item in stream:
                     sample_key_contract.validate(item.entity_key)
-                    yield feature_record_to_vector_input_row(item)
+                    yield variable_record_to_row(item)
 
-            written = write_vector_input_rows(root / relative_path, rows())
+            written = write_variable_rows(root / relative_path, rows())
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
                 closer()
-        shards.append({"id": cfg.id, "path": relative_path, "rows": written.rows})
+        shards.append({"id": cfg.id, "path": relative_path, "rows": written})
     return shards

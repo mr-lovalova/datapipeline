@@ -1,32 +1,31 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from datapipeline.config.dataset.dataset import FeatureDatasetConfig
+from datapipeline.config.dataset.dataset import DatasetConfig
 
 SCALER_STATISTICS = "scaler"
-VECTOR_SCHEMA = "schema"
 VECTOR_METADATA = "metadata"
 VECTOR_STATS = "stats"
-VECTOR_INPUTS = "vector_inputs"
+VARIABLE_RECORDS = "variable_records"
 
 
 @dataclass(frozen=True)
 class ArtifactDefinition:
     key: str
     dependencies: tuple[str, ...] = ()
-    required_if: Callable[[FeatureDatasetConfig], bool] | None = None
+    required_if: Callable[[DatasetConfig], bool] | None = None
 
     def requires_dataset(self) -> bool:
         return self.required_if is not None
 
-    def is_required_for(self, dataset: FeatureDatasetConfig) -> bool:
+    def is_required_for(self, dataset: DatasetConfig) -> bool:
         if self.required_if is None:
             return True
         return self.required_if(dataset)
 
 
-def dataset_requires_scaler(dataset: FeatureDatasetConfig) -> bool:
-    return any(config.scale for config in (*dataset.features, *dataset.targets))
+def dataset_requires_scaler(dataset: DatasetConfig) -> bool:
+    return any(config.scale for config in dataset.variables)
 
 
 ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
@@ -35,18 +34,14 @@ ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
         required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
-        key=VECTOR_INPUTS,
+        key=VARIABLE_RECORDS,
     ),
     ArtifactDefinition(
         key=VECTOR_METADATA,
-        dependencies=(VECTOR_INPUTS,),
-    ),
-    ArtifactDefinition(
-        key=VECTOR_SCHEMA,
-        dependencies=(VECTOR_METADATA,),
+        dependencies=(VARIABLE_RECORDS,),
     ),
     ArtifactDefinition(
         key=VECTOR_STATS,
-        dependencies=(VECTOR_METADATA, VECTOR_SCHEMA),
+        dependencies=(VECTOR_METADATA,),
     ),
 )

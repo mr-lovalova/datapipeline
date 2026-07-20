@@ -3,6 +3,7 @@ from pathlib import Path
 from unicodedata import normalize
 
 from datapipeline.config.profiles import Format, ServeOutputConfig, Transport, View
+from datapipeline.io.compression import Compression
 from datapipeline.io.runs import RunPaths
 from datapipeline.services.path_policy import (
     resolve_relative_to_base,
@@ -22,6 +23,11 @@ def _format_suffix(fmt: Format) -> str:
     return suffix_map[fmt]
 
 
+def _output_suffix(fmt: Format, compression: Compression | None) -> str:
+    suffix = _format_suffix(fmt)
+    return f"{suffix}.gz" if compression == "gzip" else suffix
+
+
 def _default_view_for_format(fmt: Format) -> View:
     if fmt == "csv":
         return "flat"
@@ -32,8 +38,11 @@ def _resolve_view(fmt: Format, configured_view: View | None) -> View:
     return configured_view or _default_view_for_format(fmt)
 
 
-def _default_filename_for_format(fmt: Format) -> str:
-    suffix = _format_suffix(fmt)
+def _default_filename_for_format(
+    fmt: Format,
+    compression: Compression | None,
+) -> str:
+    suffix = _output_suffix(fmt, compression)
     return f"vectors{suffix}"
 
 
@@ -46,25 +55,15 @@ class OutputTarget:
     view: View
     encoding: str | None
     destination: Path | None
+    compression: Compression | None = None
     run: RunPaths | None = None
-
-    def for_feature(self, feature_id: str) -> "OutputTarget":
-        if self.transport != "fs" or self.destination is None:
-            return self
-        safe_feature = sanitize_path_segment(str(feature_id), default="feature")
-        dest = self.destination
-        suffix = _format_suffix(self.format)
-        stem = dest.name.removesuffix(suffix)
-        new_name = f"{stem}.{safe_feature}{suffix}"
-        new_path = dest.with_name(new_name)
-        return replace(self, destination=new_path)
 
     def for_output(self, output_id: str) -> "OutputTarget":
         if self.transport != "fs" or self.destination is None:
             return self
         safe_output_id = sanitize_path_segment(output_id)
         dest = self.destination
-        suffix = _format_suffix(self.format)
+        suffix = _output_suffix(self.format, self.compression)
         stem = dest.name.removesuffix(suffix)
         new_name = f"{stem}.{safe_output_id}{suffix}"
         new_path = dest.with_name(new_name)
@@ -117,6 +116,7 @@ def resolve_output_target(
             view=_resolve_view(config.format, config.view),
             encoding=None,
             destination=None,
+            compression=None,
             run=None,
         )
 
@@ -132,16 +132,21 @@ def resolve_output_target(
         base_dest_dir = directory
         if profile_name:
             base_dest_dir = base_dest_dir / sanitize_path_segment(profile_name)
-    suffix = _format_suffix(config.format)
+    suffix = _output_suffix(config.format, config.compression)
+    format_suffix = _format_suffix(config.format)
+    compressed_suffix = f"{format_suffix}.gz"
     filename_stem = config.filename or (
         sanitize_path_segment(profile_name) if profile_name else None
     )
     if filename_stem:
-        if Path(filename_stem).suffix == suffix:
-            raise OutputResolutionError(f"filename must omit the '{suffix}' extension")
+        for extension in (compressed_suffix, format_suffix):
+            if filename_stem.endswith(extension):
+                raise OutputResolutionError(
+                    f"filename must omit the '{extension}' extension"
+                )
         filename = f"{filename_stem}{suffix}"
     else:
-        filename = _default_filename_for_format(config.format)
+        filename = _default_filename_for_format(config.format, config.compression)
     dest_path = (base_dest_dir / filename).resolve()
 
     return OutputTarget(
@@ -150,5 +155,6 @@ def resolve_output_target(
         view=_resolve_view(config.format, config.view),
         encoding=config.encoding,
         destination=dest_path,
+        compression=config.compression,
         run=run_paths,
     )

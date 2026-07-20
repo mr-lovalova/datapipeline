@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from datapipeline.io.compression import Compression
+
 
 _EntryPoint = Annotated[
     str,
@@ -46,7 +48,7 @@ class EntryPointConfig(BaseModel):
 class _DecodedSourceArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format: Literal["csv", "json", "jsonl", "pickle"]
+    format: Literal["csv", "json", "jsonl"]
     encoding: _SourceInputPath = "utf-8"
     delimiter: _CsvDelimiter = ";"
     error_prefixes: tuple[str, ...] = ()
@@ -54,8 +56,6 @@ class _DecodedSourceArgs(BaseModel):
 
     @model_validator(mode="after")
     def validate_format_options(self) -> Self:
-        if self.format == "pickle" and "encoding" in self.model_fields_set:
-            raise ValueError("encoding is not valid for the pickle format")
         if self.format != "csv" and "delimiter" in self.model_fields_set:
             raise ValueError("delimiter is only valid for the csv format")
         if self.format != "csv" and "error_prefixes" in self.model_fields_set:
@@ -68,11 +68,19 @@ class _DecodedSourceArgs(BaseModel):
 class FsSourceArgs(_DecodedSourceArgs):
     transport: Literal["fs"]
     path: _SourceInputPath
+    compression: Compression | None = None
+
+    @model_validator(mode="after")
+    def validate_compression(self) -> Self:
+        if self.compression == "gzip" and self.format not in {"csv", "jsonl"}:
+            raise ValueError(
+                "gzip compression is supported only for csv and jsonl formats"
+            )
+        return self
 
 
 class HttpSourceArgs(_DecodedSourceArgs):
     transport: Literal["http"]
-    format: Literal["csv", "json", "jsonl"]
     url: _SourceInputPath
     headers: dict[str, str] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
