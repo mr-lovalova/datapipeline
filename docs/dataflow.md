@@ -13,8 +13,8 @@ jerry.yaml: default_dataset
         -> streams/*.yaml: from.source|from.stream|from.broadcast|from.align, id
           -> dataset.yaml: stream: <streams.id>, field: <record_field>
             -> jerry serve
-              -> runs/<run_id>/dataset/<profile>.jsonl|csv|...
-              -> runs/<run_id>/dataset/<profile>.<fold>.<role>.jsonl|csv|... when dataset.split is configured
+              -> runs/<run_id>/dataset/<profile>.jsonl|csv|parquet|...
+              -> runs/<run_id>/dataset/<profile>.<fold>.<role>.jsonl|csv|parquet|... when dataset.split is configured
 ```
 
 ## 1) Workspace selects dataset project
@@ -75,6 +75,9 @@ Expected behavior:
 - Standard glob characters in an fs `args.path` select matching files.
 - Gzip CSV/JSONL inputs set `args.compression: gzip` explicitly; a `.gz` suffix
   alone does not enable decompression.
+- Local Parquet inputs set `format: parquet`. Jerry reads files and sorted globs
+  in bounded row batches; the configured parser still owns domain conversion.
+  Parquet sources do not use text encoding or external compression options.
 
 ## 4) Stream id links canonical records to dataset
 

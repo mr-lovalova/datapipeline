@@ -1,11 +1,14 @@
 import logging
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from functools import partial
 from itertools import islice
 from typing import TypeVar
 
-from datapipeline.artifacts.specs import dataset_requires_scaler
+from datapipeline.artifacts.models import VectorMetadataEntry
+from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
+from datapipeline.artifacts.specs import VARIABLE_RECORDS, dataset_requires_scaler
+from datapipeline.artifacts.variable_records import load_variable_records_manifest
 from datapipeline.config.dataset.variable import VariableConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
@@ -17,8 +20,11 @@ from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.io.output import OutputTarget, output_destination_key
+from datapipeline.io.dataset_table import DatasetTable
 from datapipeline.operations.persistence import (
+    DatasetTableOutput,
     RoutedRuntimeOutput,
+    RoutedDatasetTableOutput,
     RuntimeOutput,
     RuntimeOutputBatch,
 )
@@ -28,6 +34,7 @@ from datapipeline.pipelines.dataset.pipeline import (
     run_dataset_pipeline,
     run_scaled_dataset_pipeline,
 )
+from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.variable.pipeline import run_variable_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
@@ -46,7 +53,7 @@ T = TypeVar("T")
 _RECORD_PREVIEWS = {"input", "canonical", "records"}
 
 
-def limit_items(items: Iterator[object], limit: int | None) -> Iterator[object]:
+def limit_items(items: Iterator[T], limit: int | None) -> Iterator[T]:
     if limit is None:
         yield from items
     else:
@@ -97,6 +104,23 @@ def _sample_output(
     throttle_ms: float | None,
 ) -> RuntimeOutput:
     return _runtime_output(throttle_vectors(stream, throttle_ms), target, limit)
+
+
+def _parquet_sample_output(
+    stream: Iterator[Sample],
+    target: OutputTarget,
+    limit: int | None,
+    throttle_ms: float | None,
+    table: DatasetTable,
+) -> DatasetTableOutput:
+    return DatasetTableOutput(
+        rows=limit_items(
+            _managed_items(throttle_vectors(stream, throttle_ms)),
+            limit,
+        ),
+        table=table,
+        target=target,
+    )
 
 
 def _preview_plan(
@@ -162,6 +186,10 @@ def _serve_preview(
     throttle_ms: float | None,
     preview: PreviewStage,
 ) -> RuntimeOutputBatch:
+    if target.format == "parquet" and preview not in {"samples", "postprocess"}:
+        raise ValueError(
+            "Parquet preview supports only the 'samples' and 'postprocess' stages."
+        )
     if preview in {"samples", "postprocess"}:
         runtime.window_bounds = resolve_window_bounds(runtime, True)
         dataset_pipeline = build_dataset_pipeline(
@@ -178,6 +206,23 @@ def _serve_preview(
             else dataset_pipeline
         )
         sample_stream = run_pipeline(context, selected_pipeline)
+        if target.format == "parquet":
+            table = (
+                _assembled_dataset_table(context, sample_keys)
+                if preview == "samples"
+                else _postprocessed_dataset_table(context, sample_keys)
+            )
+            return RuntimeOutputBatch(
+                outputs=(
+                    _parquet_sample_output(
+                        sample_stream,
+                        target,
+                        limit,
+                        throttle_ms,
+                        table,
+                    ),
+                ),
+            )
         return RuntimeOutputBatch(
             outputs=(_sample_output(sample_stream, target, limit, throttle_ms),),
         )
@@ -246,6 +291,23 @@ def _serve_dataset(
         rectangular=True,
         sample_keys=sample_keys,
     )
+    if target.format == "parquet":
+        return RuntimeOutputBatch(
+            outputs=(
+                _parquet_sample_output(
+                    vectors,
+                    target,
+                    limit,
+                    throttle_ms,
+                    _served_dataset_table(
+                        context,
+                        sample_keys,
+                        feature_cfgs,
+                        target_cfgs,
+                    ),
+                ),
+            ),
+        )
     return RuntimeOutputBatch(
         outputs=(_sample_output(vectors, target, limit, throttle_ms),),
     )
@@ -272,7 +334,17 @@ def _serve_fold_outputs(
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
     labeler = build_labeler(split_cfg)
-    outputs: list[RoutedRuntimeOutput] = []
+    outputs: list[RoutedRuntimeOutput | RoutedDatasetTableOutput] = []
+    table = (
+        _served_dataset_table(
+            context,
+            sample_keys,
+            feature_cfgs,
+            target_cfgs,
+        )
+        if target.format == "parquet"
+        else None
+    )
     for fold, labels_by_output in _selected_fold_outputs(split_cfg, output_ids):
         outputs_by_label = {
             label: output_id
@@ -290,22 +362,102 @@ def _serve_fold_outputs(
             sample_keys=sample_keys,
         )
         rows = throttle_vectors(_managed_items(samples), throttle_ms)
-        outputs.append(
-            RoutedRuntimeOutput(
-                rows=rows,
-                targets={
-                    output_id: target.for_output(output_id)
-                    for output_id in labels_by_output
-                },
-                output_for_row=partial(
-                    _fold_output_for_sample,
-                    labeler,
-                    outputs_by_label,
-                ),
-                limit_per_output=limit,
-            )
+        output_targets = {
+            output_id: target.for_output(output_id) for output_id in labels_by_output
+        }
+        output_for_row = partial(
+            _fold_output_for_sample,
+            labeler,
+            outputs_by_label,
         )
+        if table is not None:
+            outputs.append(
+                RoutedDatasetTableOutput(
+                    rows=rows,
+                    table=table,
+                    targets=output_targets,
+                    output_for_row=output_for_row,
+                    limit_per_output=limit,
+                )
+            )
+        else:
+            outputs.append(
+                RoutedRuntimeOutput(
+                    rows=rows,
+                    targets=output_targets,
+                    output_for_row=output_for_row,
+                    limit_per_output=limit,
+                )
+            )
     return RuntimeOutputBatch(outputs=tuple(outputs))
+
+
+def _assembled_dataset_table(
+    context: PipelineContext,
+    sample_keys: list[str],
+) -> DatasetTable:
+    metadata = context.require_artifact(VECTOR_METADATA_SPEC)
+    return _dataset_table(
+        context,
+        sample_keys,
+        metadata.features,
+        metadata.targets,
+    )
+
+
+def _postprocessed_dataset_table(
+    context: PipelineContext,
+    sample_keys: list[str],
+) -> DatasetTable:
+    plan = build_postprocess_plan(context)
+    return _dataset_table(
+        context,
+        sample_keys,
+        plan.feature_entries,
+        plan.target_entries,
+    )
+
+
+def _served_dataset_table(
+    context: PipelineContext,
+    sample_keys: list[str],
+    feature_cfgs: list[VariableConfig],
+    target_cfgs: list[VariableConfig],
+) -> DatasetTable:
+    plan = build_postprocess_plan(context)
+    return _dataset_table(
+        context,
+        sample_keys,
+        plan.feature_entries,
+        plan.target_entries,
+        scaled_feature_ids=tuple(cfg.id for cfg in feature_cfgs if cfg.scale),
+        scaled_target_ids=tuple(cfg.id for cfg in target_cfgs if cfg.scale),
+    )
+
+
+def _dataset_table(
+    context: PipelineContext,
+    sample_keys: list[str],
+    feature_entries: Sequence[VectorMetadataEntry],
+    target_entries: Sequence[VectorMetadataEntry],
+    scaled_feature_ids: tuple[str, ...] = (),
+    scaled_target_ids: tuple[str, ...] = (),
+) -> DatasetTable:
+    manifest = load_variable_records_manifest(
+        context.resolve_artifact_path(VARIABLE_RECORDS)
+    )
+    if manifest.sample_keys != tuple(sample_keys):
+        raise RuntimeError(
+            "Variable records sample keys do not match the dataset table contract."
+        )
+    return DatasetTable(
+        sample_keys,
+        manifest.sample_key_types,
+        feature_entries,
+        target_entries,
+        scaled_feature_ids,
+        scaled_target_ids,
+    )
 
 
 def _fold_output_for_sample(

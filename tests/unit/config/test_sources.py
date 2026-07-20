@@ -1,6 +1,6 @@
 import pytest
 
-from datapipeline.config.sources import SourceConfig
+from datapipeline.config.sources import FsSourceArgs, HttpSourceArgs, SourceConfig
 
 
 def source_config(**overrides: object) -> SourceConfig:
@@ -121,10 +121,105 @@ def test_core_fs_source_rejects_gzip_for_json() -> None:
         )
 
 
+def test_core_fs_source_accepts_parquet_without_text_options() -> None:
+    source = source_config(
+        loader={
+            "entrypoint": "core.io",
+            "args": {
+                "transport": "fs",
+                "format": "parquet",
+                "path": "records/*.parquet",
+            },
+        }
+    )
+
+    assert source.loader.args.model_dump(exclude_unset=True) == {
+        "transport": "fs",
+        "format": "parquet",
+        "path": "records/*.parquet",
+    }
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("encoding", "utf-8"),
+        ("delimiter", ","),
+        ("error_prefixes", ["#"]),
+        ("array_field", "rows"),
+        ("compression", "gzip"),
+    ],
+)
+def test_core_fs_parquet_source_rejects_text_options(
+    option: str,
+    value: object,
+) -> None:
+    with pytest.raises(ValueError):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "parquet",
+                    "path": "records.parquet",
+                    option: value,
+                },
+            }
+        )
+
+
+def test_core_http_source_rejects_parquet() -> None:
+    with pytest.raises(ValueError, match="csv.*json.*jsonl"):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "http",
+                    "format": "parquet",
+                    "url": "https://example.test/records.parquet",
+                },
+            }
+        )
+
+
+def test_core_parquet_source_config_round_trips() -> None:
+    source = source_config(
+        loader={
+            "entrypoint": "core.io",
+            "args": {
+                "transport": "fs",
+                "format": "parquet",
+                "path": "records.parquet",
+            },
+        }
+    )
+
+    assert SourceConfig.model_validate(source.model_dump()) == source
+
+
+def test_existing_source_argument_models_remain_directly_constructible() -> None:
+    assert (
+        FsSourceArgs(
+            transport="fs",
+            format="jsonl",
+            path="records.jsonl",
+        ).format
+        == "jsonl"
+    )
+    assert (
+        HttpSourceArgs(
+            transport="http",
+            format="json",
+            url="https://example.test/records.json",
+        ).format
+        == "json"
+    )
+
+
 def test_core_io_source_rejects_pickle_format() -> None:
     with pytest.raises(
         ValueError,
-        match="Input should be 'csv', 'json' or 'jsonl'",
+        match="expected tags.*parquet",
     ):
         source_config(
             loader={

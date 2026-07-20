@@ -80,6 +80,22 @@ def test_default_loader_config_rejects_pickle_format() -> None:
         default_loader_config("fs", "pickle")
 
 
+def test_default_loader_config_builds_valid_parquet_source() -> None:
+    loader_ep, loader_args = default_loader_config("fs", "parquet")
+
+    assert loader_ep == "core.io"
+    assert loader_args == {
+        "transport": "fs",
+        "format": "parquet",
+        "path": "<PATH OR GLOB>",
+    }
+
+
+def test_default_loader_config_rejects_http_parquet() -> None:
+    with pytest.raises(ValueError, match="HTTP sources do not support parquet"):
+        default_loader_config("http", "parquet")
+
+
 def test_default_loader_config_rejects_unknown_transport() -> None:
     with pytest.raises(ValueError, match="Unsupported source transport"):
         default_loader_config("unknown", None)

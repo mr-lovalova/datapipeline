@@ -1,13 +1,16 @@
 import gzip
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import pyarrow.parquet as parquet
 
 import datapipeline.operations.persistence as persistence
 from datapipeline.artifacts.registry import ArtifactRegistry
+from datapipeline.artifacts.models import ScalarVectorMetadataEntry
 from datapipeline.cli.visuals.execution import make_operation_observer
 from datapipeline.cli.visuals.execution_context import (
     reset_current_execution_event_handler,
@@ -19,8 +22,13 @@ from datapipeline.execution.observability import (
     operation_scope,
 )
 from datapipeline.io.output import OutputTarget
+from datapipeline.io.dataset_table import DatasetTable
+from datapipeline.domain.sample import Sample
+from datapipeline.domain.vector import Vector
 from datapipeline.operations.persistence import (
     ArtifactOutput,
+    DatasetTableOutput,
+    RoutedDatasetTableOutput,
     RoutedRuntimeOutput,
     RuntimeOutput,
     RuntimeOutputBatch,
@@ -73,6 +81,31 @@ class _IterFailureRows:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _dataset_table() -> DatasetTable:
+    return DatasetTable(
+        sample_keys=("ticker",),
+        sample_key_types=("string",),
+        feature_entries=(
+            ScalarVectorMetadataEntry(
+                id="price",
+                base_id="price",
+                kind="scalar",
+                present_count=2,
+                null_count=0,
+                value_types=("float",),
+            ),
+        ),
+        target_entries=(),
+    )
+
+
+def _dataset_sample(day: int, ticker: str, price: object) -> Sample:
+    return Sample(
+        key=(datetime(2024, 1, day, tzinfo=timezone.utc), ticker),
+        features=Vector(values={"price": price}),
+    )
 
 
 def test_runtime_output_requires_a_representation() -> None:
@@ -790,3 +823,97 @@ def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
     ]
     assert train_rows == [{"split": "train", "value": 1}]
     assert val_rows == [{"split": "val", "value": 3}]
+
+
+def test_dataset_table_output_persists_parquet_rows(tmp_path) -> None:
+    destination = tmp_path / "samples.parquet"
+    target = OutputTarget(
+        transport="fs",
+        format="parquet",
+        view="flat",
+        encoding=None,
+        destination=destination,
+    )
+
+    persist_runtime_result(
+        DatasetTableOutput(
+            rows=iter(
+                (
+                    _dataset_sample(1, "AAPL", 10.0),
+                    _dataset_sample(2, "MSFT", 20.0),
+                )
+            ),
+            table=_dataset_table(),
+        ),
+        target=target,
+        logger=logging.getLogger(__name__),
+    )
+
+    result = parquet.read_table(destination)
+    assert result.column_names == [
+        "sample.time",
+        "sample.ticker",
+        "features.price",
+    ]
+    assert result.column("features.price").to_pylist() == [10.0, 20.0]
+
+
+def test_routed_dataset_table_output_persists_each_parquet_output(tmp_path) -> None:
+    targets = {
+        output_id: OutputTarget(
+            transport="fs",
+            format="parquet",
+            view="flat",
+            encoding=None,
+            destination=tmp_path / f"{output_id}.parquet",
+        )
+        for output_id in ("train", "validation")
+    }
+    samples = (
+        _dataset_sample(1, "AAPL", 10.0),
+        _dataset_sample(2, "MSFT", 20.0),
+    )
+
+    persist_runtime_result(
+        RoutedDatasetTableOutput(
+            rows=iter(samples),
+            table=_dataset_table(),
+            targets=targets,
+            output_for_row=lambda sample: (
+                "train" if sample.key[1] == "AAPL" else "validation"
+            ),
+        ),
+        target=None,
+        logger=logging.getLogger(__name__),
+    )
+
+    assert parquet.read_table(targets["train"].destination).column(
+        "sample.ticker"
+    ).to_pylist() == ["AAPL"]
+    assert parquet.read_table(targets["validation"].destination).column(
+        "sample.ticker"
+    ).to_pylist() == ["MSFT"]
+
+
+def test_dataset_table_projection_failure_preserves_destination(tmp_path) -> None:
+    destination = tmp_path / "samples.parquet"
+    destination.write_bytes(b"previous")
+
+    with pytest.raises(TypeError, match="features.price.*requires float"):
+        persist_runtime_result(
+            DatasetTableOutput(
+                rows=iter((_dataset_sample(1, "AAPL", "wrong"),)),
+                table=_dataset_table(),
+            ),
+            target=OutputTarget(
+                transport="fs",
+                format="parquet",
+                view="flat",
+                encoding=None,
+                destination=destination,
+            ),
+            logger=logging.getLogger(__name__),
+        )
+
+    assert destination.read_bytes() == b"previous"
+    assert list(tmp_path.iterdir()) == [destination]

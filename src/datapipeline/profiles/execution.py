@@ -51,6 +51,16 @@ def plan_runtime_job(
     graph: ArtifactGraph,
     definition: PipelineDefinition,
 ) -> RuntimeJobPlan:
+    if job.output.format == "parquet" and not isinstance(job.task, PipelineTask):
+        raise ValueError("Parquet output is supported only by the dataset operation.")
+    if job.output.format == "parquet" and job.preview not in {
+        None,
+        "samples",
+        "postprocess",
+    }:
+        raise ValueError(
+            "Parquet dataset previews support only 'samples' and 'postprocess'."
+        )
     if isinstance(job.task, CoverageTask) and job.limit is not None:
         raise ValueError("The coverage operation does not support a record limit.")
     if not isinstance(job.task, PipelineTask) and job.preview is not None:

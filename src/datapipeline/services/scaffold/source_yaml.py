@@ -18,19 +18,22 @@ DEFAULT_TEMPORAL_RECORD_PARSER_EP = "core.temporal_record"
 
 
 def _loader_args(transport: str, fmt: str | None) -> dict[str, object]:
-    if fmt not in {None, "csv", "json", "jsonl"}:
+    if fmt not in {None, "csv", "json", "jsonl", "parquet"}:
         raise ValueError(f"Unsupported source format: {fmt!r}")
     if transport == "fs":
         args: dict[str, object] = {
             "transport": "fs",
-            "format": fmt or "<FORMAT (csv|json|jsonl)>",
+            "format": fmt or "<FORMAT (csv|json|jsonl|parquet)>",
             "path": "<PATH OR GLOB>",
-            "encoding": "utf-8",
         }
+        if fmt != "parquet":
+            args["encoding"] = "utf-8"
         if fmt == "csv":
             args["delimiter"] = ","
         return args
     if transport == "http":
+        if fmt == "parquet":
+            raise ValueError("HTTP sources do not support parquet format")
         args = {
             "transport": "http",
             "format": fmt or "<FORMAT (json|jsonl|csv)>",

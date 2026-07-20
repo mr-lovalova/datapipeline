@@ -81,6 +81,15 @@ def test_fs_loader_does_not_infer_compression_from_suffix(tmp_path) -> None:
         list(loader.load())
 
 
+def test_explicit_empty_encoding_is_not_replaced_with_default(tmp_path) -> None:
+    path = tmp_path / "rows.jsonl"
+    path.write_text('{"value":1}\n', encoding="utf-8")
+    loader = build_loader("fs", "jsonl", path=str(path), encoding="")
+
+    with pytest.raises(LookupError):
+        list(loader.load())
+
+
 def test_fs_gzip_loader_closes_file_after_partial_read(tmp_path, monkeypatch) -> None:
     path = tmp_path / "rows.data"
     _write_gzip(path, '{"value":1}\n{"value":2}\n')

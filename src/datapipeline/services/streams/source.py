@@ -5,6 +5,7 @@ from typing import Any
 from datapipeline.config.sources import (
     CoreIoLoaderConfig,
     EntryPointConfig,
+    FsParquetSourceArgs,
     FsSourceArgs,
     SourceConfig,
 )
@@ -21,7 +22,7 @@ def build_source(config: SourceConfig, project_yaml: Path) -> Source:
     if isinstance(config.loader, CoreIoLoaderConfig):
         loader_args = normalize_args(config.loader.args.model_dump(exclude_unset=True))
         if (
-            isinstance(config.loader.args, FsSourceArgs)
+            isinstance(config.loader.args, (FsSourceArgs, FsParquetSourceArgs))
             and not Path(config.loader.args.path).is_absolute()
         ):
             loader_args["path"] = resolve_relative_fs_loader_path(

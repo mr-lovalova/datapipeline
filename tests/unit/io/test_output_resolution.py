@@ -382,6 +382,57 @@ def test_resolve_output_target_txt_uses_txt_suffix(tmp_path):
     assert target.encoding == "utf-8"
 
 
+def test_resolve_output_target_parquet_uses_flat_binary_output(tmp_path):
+    out_dir = tmp_path / "outputs"
+    config = ServeOutputConfig(
+        transport="fs",
+        format="parquet",
+        directory=out_dir,
+    )
+
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=config,
+        default=None,
+        base_path=Path("."),
+        profile_name="research",
+    )
+
+    assert target.destination == (out_dir / "research" / "research.parquet").resolve()
+    assert target.view == "flat"
+    assert target.encoding is None
+    assert (
+        target.for_output("fold_0.train").destination
+        == (out_dir / "research" / "research.fold_0.train.parquet").resolve()
+    )
+
+
+def test_parquet_output_rejects_raw_view_encoding_and_gzip(tmp_path):
+    with pytest.raises(ValueError, match="parquet output supports only view='flat'"):
+        ServeOutputConfig(
+            transport="fs",
+            format="parquet",
+            view="raw",
+            directory=tmp_path,
+        )
+    with pytest.raises(ValueError, match="parquet output does not support encoding"):
+        ServeOutputConfig(
+            transport="fs",
+            format="parquet",
+            encoding="utf-8",
+            directory=tmp_path,
+        )
+    with pytest.raises(
+        ValueError, match="gzip compression supports only jsonl and csv"
+    ):
+        ServeOutputConfig(
+            transport="fs",
+            format="parquet",
+            compression="gzip",
+            directory=tmp_path,
+        )
+
+
 def test_html_output_rejects_view_and_encoding(tmp_path):
     out_dir = tmp_path / "outputs"
     out_dir.mkdir()

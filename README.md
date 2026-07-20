@@ -22,6 +22,8 @@ for custom loaders, parsers, mappers, and stream combiners.
 
 - Materialize canonical time-series datasets from disparate sources.
 - Preview and debug each stage of the pipeline without writing ad-hoc scripts.
+- Export schema-aware Parquet tables for fast Pandas, Polars, and Arrow research,
+  and read local Parquet sources without loading whole files into memory.
 - Enforce coverage/quality gates and publish metadata and scaler statistics for
   downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O,
