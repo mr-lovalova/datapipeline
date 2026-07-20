@@ -24,6 +24,7 @@ def add_source_command(sub, common: argparse.ArgumentParser) -> None:
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"
             "  fs NDJSON:     -t fs  -f jsonl\n"
+            "  fs Parquet:    -t fs  -f parquet\n"
             "  HTTP JSON:     -t http -f json\n"
             "  Synthetic:     -t synthetic"
         ),

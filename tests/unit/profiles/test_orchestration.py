@@ -167,12 +167,13 @@ def _runtime_job(
     preview: PreviewStage | None = None,
     heartbeat_interval_seconds: float | None = None,
     output_ids: tuple[str, ...] = (),
+    output: OutputTarget | None = None,
 ) -> RuntimeJob:
     return RuntimeJob(
         name=name,
         task=task,
         runtime=runtime,
-        output=_output(),
+        output=_output() if output is None else output,
         observability=_observability(heartbeat_interval_seconds),
         limit=limit,
         throttle_ms=None,
@@ -902,6 +903,47 @@ def test_coverage_operation_rejects_limit_before_planning(tmp_path: Path) -> Non
     )
 
     with pytest.raises(ValueError, match="coverage operation does not support"):
+        plan_runtime_job(job, SimpleNamespace(), SimpleNamespace())
+
+
+def test_parquet_output_rejects_non_dataset_operation_before_planning(
+    tmp_path: Path,
+) -> None:
+    job = _runtime_job(
+        "matrix",
+        MatrixTask(id="matrix"),
+        _runtime(tmp_path),
+        output=OutputTarget(
+            transport="fs",
+            format="parquet",
+            view="flat",
+            encoding=None,
+            destination=tmp_path / "matrix.parquet",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="only by the dataset operation"):
+        plan_runtime_job(job, SimpleNamespace(), SimpleNamespace())
+
+
+def test_parquet_output_rejects_record_preview_before_planning(
+    tmp_path: Path,
+) -> None:
+    job = _runtime_job(
+        "dataset",
+        PipelineTask(id="dataset"),
+        _runtime(tmp_path),
+        preview="records",
+        output=OutputTarget(
+            transport="fs",
+            format="parquet",
+            view="flat",
+            encoding=None,
+            destination=tmp_path / "records.parquet",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="only 'samples' and 'postprocess'"):
         plan_runtime_job(job, SimpleNamespace(), SimpleNamespace())
 
 

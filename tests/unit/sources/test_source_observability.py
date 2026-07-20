@@ -1,3 +1,6 @@
+import pyarrow as arrow
+import pyarrow.parquet as parquet
+
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.data_loader import DataLoader
@@ -8,6 +11,7 @@ from datapipeline.sources.observability import (
     source_summary,
 )
 from datapipeline.sources.synthetic.time.loader import make_time_loader
+from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.parsers.identity import IdentityParser
 
 
@@ -118,6 +122,54 @@ def test_file_loader_uses_file_name_and_csv_rows() -> None:
         snapshot.resource.total,
         snapshot.resource.label,
     ) == (1, 1, '"demo.csv"')
+
+
+def test_parquet_glob_uses_file_progress_and_row_units(tmp_path) -> None:
+    first = tmp_path / "01.parquet"
+    second = tmp_path / "02.parquet"
+    parquet.write_table(arrow.Table.from_pylist([{"n": 1}]), first)
+    parquet.write_table(arrow.Table.from_pylist([{"n": 2}]), second)
+    loader = ParquetLoader(str(tmp_path / "*.parquet"))
+    source = Source(loader, IdentityParser())
+
+    assert source_summary(source) == (
+        "transport=fs.glob count=2 first=01.parquet last=02.parquet"
+    )
+    progress = source_progress(source)
+    assert progress is not None
+    initial = progress(0)
+    assert initial.unit == "rows"
+    assert initial.resource is not None
+    assert (
+        initial.resource.index,
+        initial.resource.total,
+        initial.resource.label,
+    ) == (1, 2, '"01.parquet"')
+
+    rows = source.stream()
+    assert next(rows) == {"n": 1}
+    assert progress(1).resource == initial.resource
+    assert next(rows) == {"n": 2}
+    second_progress = progress(2)
+    assert second_progress.resource is not None
+    assert (
+        second_progress.resource.index,
+        second_progress.resource.total,
+        second_progress.resource.label,
+    ) == (2, 2, '"02.parquet"')
+    rows.close()
+
+
+def test_parquet_file_uses_file_summary(tmp_path) -> None:
+    path = tmp_path / "rows.parquet"
+    parquet.write_table(arrow.Table.from_pylist([{"n": 1}]), path)
+    source = Source(ParquetLoader(str(path)), IdentityParser())
+
+    assert source_summary(source) == "transport=fs.file file=rows.parquet"
+    progress = source_progress(source)
+    assert progress is not None
+    assert progress(0).resource is not None
+    assert progress(0).resource.label == '"rows.parquet"'
 
 
 def test_compressed_fs_source_summaries_include_compression(tmp_path) -> None:

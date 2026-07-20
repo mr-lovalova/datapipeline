@@ -9,6 +9,7 @@ from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.models.source import Source
+from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.sources.ports import SourceTransport
 
 
@@ -22,7 +23,23 @@ def source_progress(
     transport = loader.transport if isinstance(loader, DataLoader) else None
     resources_by_id: dict[str, ProgressResource] = {}
     resource: ProgressResource | None = None
-    if isinstance(transport, FsGlobTransport):
+    if isinstance(loader, ParquetLoader) and loader.is_glob:
+        files = list(loader.files)
+        total = len(files)
+        root = _glob_root(files)
+        resources_by_id = {
+            path: ProgressResource(
+                index,
+                total,
+                f'"{_relative_label(path, root)}"',
+            )
+            for index, path in enumerate(files, start=1)
+        }
+        resource = resources_by_id[files[0]]
+    elif isinstance(loader, ParquetLoader):
+        name = Path(loader.path).name or loader.path
+        resource = ProgressResource(1, 1, f'"{name}"')
+    elif isinstance(transport, FsGlobTransport):
         files = transport.files
         total = len(files)
         root = _glob_root(files)
@@ -63,6 +80,19 @@ def source_summary(stream_source: RecordStream[object]) -> str | None:
     if not isinstance(stream_source, Source):
         return None
     loader = stream_source.loader
+    if isinstance(loader, ParquetLoader):
+        files = list(loader.files)
+        if not loader.is_glob:
+            return f"transport=fs.file file={Path(loader.path).name or loader.path}"
+        total = len(files)
+        root = _glob_root(files)
+        if total == 1:
+            return f"transport=fs.glob count=1 file={_relative_label(files[0], root)}"
+        return (
+            f"transport=fs.glob count={total} "
+            f"first={_relative_label(files[0], root)} "
+            f"last={_relative_label(files[-1], root)}"
+        )
     if not isinstance(loader, DataLoader):
         return None
     return _transport_source_summary(loader.transport)

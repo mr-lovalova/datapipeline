@@ -120,6 +120,21 @@ def test_source_create_rejects_pickle_format(caplog) -> None:
     assert "Unsupported source format: 'pickle'" in caplog.text
 
 
+def test_source_create_rejects_http_parquet(caplog) -> None:
+    with pytest.raises(SystemExit) as exc:
+        source.handle(
+            subcmd="create",
+            provider="demo",
+            dataset="weather",
+            transport="http",
+            format="parquet",
+            parser="identity",
+        )
+
+    assert exc.value.code == 2
+    assert "HTTP sources do not support parquet" in caplog.text
+
+
 def test_interactive_parser_menu_can_select_temporal_record(monkeypatch) -> None:
     monkeypatch.setattr(source.sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(source, "list_parsers", lambda root=None: {})

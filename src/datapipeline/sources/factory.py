@@ -12,6 +12,8 @@ from datapipeline.sources.decoders import (
     JsonLinesDecoder,
 )
 from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.models.loader import BaseDataLoader
+from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.sources.ports import SourceTransport
 
 
@@ -22,6 +24,7 @@ TRANSPORT_HTTP = "http"
 FORMAT_CSV = "csv"
 FORMAT_JSON = "json"
 FORMAT_JSONL = "jsonl"
+FORMAT_PARQUET = "parquet"
 
 
 def build_loader(
@@ -32,15 +35,29 @@ def build_loader(
     url: str | None = None,
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, Any] | None = None,
-    encoding: str = DEFAULT_ENCODING,
+    encoding: str | None = None,
     delimiter: str | None = None,
     error_prefixes: Sequence[str] | None = None,
     array_field: str | None = None,
     timeout_seconds: float | None = None,
     compression: Compression | None = None,
-) -> DataLoader:
+) -> BaseDataLoader:
     transport = transport.lower()
     format = format.lower()
+
+    if format == FORMAT_PARQUET:
+        if transport != TRANSPORT_FS:
+            raise ValueError("parquet input supports only fs transport")
+        if not path:
+            raise ValueError("fs transport requires 'path'")
+        if any(
+            option is not None
+            for option in (encoding, delimiter, error_prefixes, array_field)
+        ):
+            raise ValueError("parquet input does not support text decoding options")
+        if compression is not None:
+            raise ValueError("parquet input does not support external compression")
+        return ParquetLoader(path)
 
     if compression not in {None, "gzip"}:
         raise ValueError(f"unsupported compression: {compression}")
@@ -70,17 +87,21 @@ def build_loader(
     else:
         raise ValueError(f"unsupported transport: {transport}")
 
+    text_encoding = DEFAULT_ENCODING if encoding is None else encoding
     decoder: Decoder
     if format == FORMAT_CSV:
         decoder = CsvDecoder(
             delimiter=delimiter or DEFAULT_CSV_DELIMITER,
-            encoding=encoding,
+            encoding=text_encoding,
             error_prefixes=error_prefixes,
         )
     elif format == FORMAT_JSON:
-        decoder = JsonDecoder(encoding=encoding, array_field=array_field)
+        decoder = JsonDecoder(
+            encoding=text_encoding,
+            array_field=array_field,
+        )
     elif format == FORMAT_JSONL:
-        decoder = JsonLinesDecoder(encoding=encoding)
+        decoder = JsonLinesDecoder(encoding=text_encoding)
     else:
         raise ValueError(f"unsupported format for IO loader: {format}")
 

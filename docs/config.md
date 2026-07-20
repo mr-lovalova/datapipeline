@@ -102,9 +102,9 @@ operation: dataset # core runtime operation
 # include_outputs: [holdout.train, holdout.test] # optional fold outputs
 output:
   transport: fs # stdout | fs; configured split output requires fs
-  format: jsonl
+  format: jsonl # jsonl | csv | parquet | pickle
   directory: runs
-  # view: raw # optional; csv defaults to flat; jsonl/pickle default to raw
+  # view: raw # optional; csv/parquet default to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
   # compression: gzip # optional; fs jsonl/csv only
 limit: 100 # cap vectors per output
@@ -129,10 +129,15 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   _Configuration & Resolution Order_). Filesystem runs write under
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
   split outputs use `<profile>.<fold-id>.<role>.<ext>`.
-- `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout` and `pickle`.
+- `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout`, `parquet`, and `pickle`.
 - `output.compression: gzip` writes fs `jsonl`/`csv` outputs with a `.gz`
   suffix. This applies unchanged to full dataset, split, inspect, and preview
   outputs; Jerry does not infer compression from a filename.
+- Dataset Parquet output is filesystem-only and schema-aware. It uses bounded
+  Zstandard-compressed row groups and the stable columns `sample.time`,
+  `sample.<key>`, `features.<id>`, and `targets.<id>`; fixed sequences expand
+  to numbered columns. It is supported for full datasets and the `samples` and
+  `postprocess` preview stages. Install `jerry-thomas[parquet]` to enable it.
 - Output values use `None` as the canonical missing value. A transient floating
   `NaN` is emitted as null (`None` in pickle and an empty CSV cell); positive
   and negative infinity fail the output operation.
@@ -364,7 +369,8 @@ loader:
 - `id`: the source alias; referenced by source-backed streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
 - `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http,
-  accepts CSV, JSON, and JSONL, and is configured via `loader.args`.
+  accepts CSV, JSON, JSONL, and local filesystem Parquet, and is configured via
+  `loader.args`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
   to track custom-loader inputs for artifact freshness. Local `core.io`
   filesystem paths are tracked automatically. The list is order-insensitive;
@@ -373,6 +379,9 @@ loader:
   every matching file in sorted order; a path without them loads one file.
 - Filesystem CSV and JSONL sources may set `compression: gzip`. Compression is
   explicit and is not inferred from a `.gz` suffix.
+- Filesystem Parquet sources use bounded row batches and preserve native scalar,
+  list, null, date, and datetime values for the parser. They do not accept text
+  decoding options or external compression.
 - Built-in CSV decoding requires a non-empty, unique header and the same number
   of fields in every record. Built-in JSON and JSONL decoding reject duplicate
   object keys, non-standard numeric constants, and numbers outside the finite

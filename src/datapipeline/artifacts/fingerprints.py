@@ -9,7 +9,12 @@ from datapipeline.artifacts.models import VECTOR_METADATA_VERSION
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import DatasetConfig
-from datapipeline.config.sources import CoreIoLoaderConfig, FsSourceArgs, SourceConfig
+from datapipeline.config.sources import (
+    CoreIoLoaderConfig,
+    FsParquetSourceArgs,
+    FsSourceArgs,
+    SourceConfig,
+)
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
@@ -85,7 +90,10 @@ def _source_input_patterns(
     project: ProjectManifest,
 ) -> Iterable[tuple[Path, bool]]:
     loader = source.loader
-    if isinstance(loader, CoreIoLoaderConfig) and isinstance(loader.args, FsSourceArgs):
+    if isinstance(loader, CoreIoLoaderConfig) and isinstance(
+        loader.args,
+        (FsSourceArgs, FsParquetSourceArgs),
+    ):
         yield (
             _project_source_path(project, loader.args.path),
             glob.has_magic(loader.args.path),

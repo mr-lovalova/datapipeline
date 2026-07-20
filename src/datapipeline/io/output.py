@@ -16,6 +16,7 @@ def _format_suffix(fmt: Format) -> str:
     suffix_map = {
         "jsonl": ".jsonl",
         "csv": ".csv",
+        "parquet": ".parquet",
         "pickle": ".pkl",
         "txt": ".txt",
         "html": ".html",
@@ -29,7 +30,7 @@ def _output_suffix(fmt: Format, compression: Compression | None) -> str:
 
 
 def _default_view_for_format(fmt: Format) -> View:
-    if fmt == "csv":
+    if fmt in {"csv", "parquet"}:
         return "flat"
     return "raw"
 

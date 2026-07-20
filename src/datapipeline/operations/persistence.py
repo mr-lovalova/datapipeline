@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from datapipeline.build.state import ArtifactFileFingerprint
+from datapipeline.domain.sample import Sample
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import (
     OperationProgressTracker,
     emit_file_result,
 )
 from datapipeline.io.factory import writer_factory
+from datapipeline.io.factory import dataset_writer_factory
+from datapipeline.io.dataset_table import DatasetTable
 from datapipeline.io.normalization import json_text, raw_payload
 from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.io.protocols import Writer
@@ -55,8 +58,29 @@ class RoutedRuntimeOutput:
 
 
 @dataclass(frozen=True)
+class DatasetTableOutput:
+    rows: Iterable[Sample]
+    table: DatasetTable
+    target: OutputTarget | None = None
+
+
+@dataclass(frozen=True)
+class RoutedDatasetTableOutput:
+    rows: Iterable[Sample]
+    table: DatasetTable
+    targets: Mapping[str, OutputTarget]
+    output_for_row: Callable[[Sample], str | None]
+    limit_per_output: int | None = None
+
+
+RuntimeOutputItem = (
+    RuntimeOutput | RoutedRuntimeOutput | DatasetTableOutput | RoutedDatasetTableOutput
+)
+
+
+@dataclass(frozen=True)
 class RuntimeOutputBatch:
-    outputs: Sequence[RuntimeOutput | RoutedRuntimeOutput]
+    outputs: Sequence[RuntimeOutputItem]
     on_complete: Callable[[bool], None] | None = None
 
 
@@ -232,8 +256,43 @@ def _persist_runtime_output(
         logger.info("Output: stdout")
 
 
+def _persist_dataset_table_output(
+    result: DatasetTableOutput,
+    *,
+    target: OutputTarget | None,
+    heartbeat_interval_seconds: float | None,
+    logger: logging.Logger,
+) -> None:
+    writer = None
+    try:
+        with _runtime_rows(result.rows, logger) as rows:
+            effective_target = result.target or target
+            if effective_target is None:
+                raise ValueError("Runtime operation requires profile output target.")
+            writer = dataset_writer_factory(effective_target, result.table)
+            progress = OperationProgressTracker(
+                "write_output",
+                "rows",
+                resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
+            )
+            for row in rows:
+                writer.write(row)
+                progress.advance()
+        writer.close()
+    except BaseException:
+        if writer is not None:
+            try:
+                writer.abort()
+            except BaseException:
+                logger.debug("Failed to abort dataset table writer", exc_info=True)
+        raise
+
+    if effective_target.destination is not None:
+        emit_file_result("Output", effective_target.destination)
+
+
 def _planned_routed_targets(
-    result: RoutedRuntimeOutput,
+    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
 ) -> list[tuple[str, OutputTarget, Path]]:
     if not result.targets:
         raise ValueError("Routed runtime output requires at least one target.")
@@ -257,7 +316,7 @@ def _planned_routed_targets(
 
 
 def _route_runtime_rows(
-    result: RoutedRuntimeOutput,
+    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
     rows: Iterator[Any],
     writers: Mapping[str, Writer],
     counts: dict[str, int],
@@ -288,8 +347,8 @@ def _route_runtime_rows(
             break
 
 
-def _persist_routed_runtime_output(
-    result: RoutedRuntimeOutput,
+def _persist_routed_output(
+    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
     *,
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
@@ -300,7 +359,11 @@ def _persist_routed_runtime_output(
     try:
         with _runtime_rows(result.rows, logger) as rows:
             for output_id, target, destination in _planned_routed_targets(result):
-                writers[output_id] = writer_factory(target)
+                writers[output_id] = (
+                    dataset_writer_factory(target, result.table)
+                    if isinstance(result, RoutedDatasetTableOutput)
+                    else writer_factory(target)
+                )
                 counts[output_id] = 0
                 destinations[output_id] = destination
 
@@ -329,7 +392,7 @@ def _persist_routed_runtime_output(
 
 
 def _close_pending_runtime_outputs(
-    outputs: Sequence[RuntimeOutput | RoutedRuntimeOutput],
+    outputs: Sequence[RuntimeOutputItem],
     logger: logging.Logger,
 ) -> None:
     for output in outputs:
@@ -355,9 +418,16 @@ def _persist_runtime_batch(
     try:
         for output in result.outputs:
             attempted += 1
-            if isinstance(output, RoutedRuntimeOutput):
-                _persist_routed_runtime_output(
+            if isinstance(output, (RoutedDatasetTableOutput, RoutedRuntimeOutput)):
+                _persist_routed_output(
                     output,
+                    heartbeat_interval_seconds=heartbeat_interval_seconds,
+                    logger=logger,
+                )
+            elif isinstance(output, DatasetTableOutput):
+                _persist_dataset_table_output(
+                    output,
+                    target=target,
                     heartbeat_interval_seconds=heartbeat_interval_seconds,
                     logger=logger,
                 )
@@ -394,10 +464,18 @@ def persist_runtime_result(
 ) -> None:
     if result is None:
         return
-    if not isinstance(result, RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch):
+    if not isinstance(
+        result,
+        RuntimeOutput
+        | RoutedRuntimeOutput
+        | DatasetTableOutput
+        | RoutedDatasetTableOutput
+        | RuntimeOutputBatch,
+    ):
         raise TypeError(
             "Runtime operation must return RuntimeOutput, RoutedRuntimeOutput, "
-            "RuntimeOutputBatch, or None."
+            "DatasetTableOutput, RoutedDatasetTableOutput, RuntimeOutputBatch, "
+            "or None."
         )
     if isinstance(result, RuntimeOutputBatch):
         _persist_runtime_batch(
@@ -408,9 +486,18 @@ def persist_runtime_result(
         )
         return
 
-    if isinstance(result, RoutedRuntimeOutput):
-        _persist_routed_runtime_output(
+    if isinstance(result, (RoutedDatasetTableOutput, RoutedRuntimeOutput)):
+        _persist_routed_output(
             result,
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+            logger=logger,
+        )
+        return
+
+    if isinstance(result, DatasetTableOutput):
+        _persist_dataset_table_output(
+            result,
+            target=target,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
             logger=logger,
         )

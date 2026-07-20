@@ -8,7 +8,7 @@ from datapipeline.config.options import OUTPUT_STDOUT_FORMATS, OUTPUT_VIEWS
 from datapipeline.io.compression import Compression
 
 Transport = Literal["fs", "stdout"]
-Format = Literal["csv", "jsonl", "pickle", "txt", "html"]
+Format = Literal["csv", "jsonl", "parquet", "pickle", "txt", "html"]
 View = Literal["flat", "raw"]
 
 
@@ -76,6 +76,8 @@ class ServeOutputConfig(BaseModel):
             raise ValueError("fs outputs require a directory")
         if self.format == "csv" and self.view not in {None, "flat"}:
             raise ValueError("csv output supports only view='flat'")
+        if self.format == "parquet" and self.view not in {None, "flat"}:
+            raise ValueError("parquet output supports only view='flat'")
         if self.format == "pickle" and self.view not in {None, "raw"}:
             raise ValueError("pickle output supports only view='raw'")
         if self.compression is not None and self.format not in {"jsonl", "csv"}:
@@ -83,7 +85,7 @@ class ServeOutputConfig(BaseModel):
         if self.format in {"txt", "html"} and self.view is not None:
             raise ValueError(f"{self.format} output does not support view")
         if self.transport == "fs":
-            if self.format in {"pickle", "html"}:
+            if self.format in {"parquet", "pickle", "html"}:
                 if self.encoding is not None:
                     raise ValueError(f"{self.format} output does not support encoding")
             elif self.format in {"jsonl", "csv", "txt"}:

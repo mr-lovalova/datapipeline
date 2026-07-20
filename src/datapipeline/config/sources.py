@@ -79,6 +79,14 @@ class FsSourceArgs(_DecodedSourceArgs):
         return self
 
 
+class FsParquetSourceArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    transport: Literal["fs"]
+    format: Literal["parquet"]
+    path: _SourceInputPath
+
+
 class HttpSourceArgs(_DecodedSourceArgs):
     transport: Literal["http"]
     url: _SourceInputPath
@@ -93,8 +101,13 @@ class HttpSourceArgs(_DecodedSourceArgs):
     ) = None
 
 
+_FsSourceArgs: TypeAlias = Annotated[
+    FsSourceArgs | FsParquetSourceArgs,
+    Field(discriminator="format"),
+]
+
 _CoreIoSourceArgs: TypeAlias = Annotated[
-    FsSourceArgs | HttpSourceArgs,
+    _FsSourceArgs | HttpSourceArgs,
     Field(discriminator="transport"),
 ]
 

@@ -618,14 +618,20 @@ def _single_stream_catalog() -> StreamsConfig:
     )
 
 
+@pytest.mark.parametrize(
+    ("source_format", "suffix"),
+    [("jsonl", ".jsonl"), ("parquet", ".parquet")],
+)
 def test_core_artifact_hashes_track_only_referenced_source_closure(
     tmp_path: Path,
+    source_format: str,
+    suffix: str,
 ) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     data = tmp_path / "data"
     data.mkdir()
-    used = data / "used.jsonl"
-    unused = data / "unused.jsonl"
+    used = data / f"used{suffix}"
+    unused = data / f"unused{suffix}"
     used.write_text("{}\n", encoding="utf-8")
     unused.write_text("{}\n", encoding="utf-8")
     dataset = DatasetConfig(
@@ -642,8 +648,8 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
                         "entrypoint": "core.io",
                         "args": {
                             "transport": "fs",
-                            "format": "jsonl",
-                            "path": f"data/{source_id}.jsonl",
+                            "format": source_format,
+                            "path": f"data/{source_id}{suffix}",
                         },
                     },
                 }

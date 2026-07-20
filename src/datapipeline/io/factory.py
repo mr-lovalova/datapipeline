@@ -1,4 +1,5 @@
 from datapipeline.io.protocols import Writer
+from datapipeline.io.dataset_table import DatasetTable
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.serializers import (
     json_line_serializer,
@@ -10,6 +11,7 @@ from datapipeline.io.writers.base import LineWriter
 from datapipeline.io.writers.csv_writer import CsvFileWriter
 from datapipeline.io.writers.jsonl import JsonLinesFileWriter
 from datapipeline.io.writers.pickle_writer import PickleFileWriter
+from datapipeline.io.writers.parquet import ParquetFileWriter
 
 
 def writer_factory(target: OutputTarget, overwrite: bool = True) -> Writer:
@@ -62,3 +64,26 @@ def writer_factory(target: OutputTarget, overwrite: bool = True) -> Writer:
         )
 
     raise ValueError(f"Unsupported fs format '{target.format}'")
+
+
+def dataset_writer_factory(
+    target: OutputTarget,
+    table: DatasetTable,
+    overwrite: bool = True,
+) -> Writer:
+    if target.format != "parquet":
+        raise ValueError("Dataset table output requires parquet format.")
+    destination = target.destination
+    if target.transport != "fs" or destination is None:
+        raise ValueError("parquet output requires an fs destination")
+    if target.view != "flat":
+        raise ValueError("parquet output supports only view='flat'")
+    if target.encoding is not None or target.compression is not None:
+        raise ValueError(
+            "parquet output does not support text encoding or gzip compression"
+        )
+    return ParquetFileWriter(
+        destination,
+        table,
+        overwrite=overwrite,
+    )

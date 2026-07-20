@@ -36,7 +36,7 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-format",
         choices=OUTPUT_FORMATS,
-        help="output format (jsonl/csv/pickle) for serve runs",
+        help="output format (jsonl/csv/parquet/pickle) for serve runs",
     )
     parser.add_argument(
         "--output-directory",
@@ -54,7 +54,10 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-view",
         choices=OUTPUT_VIEWS,
-        help="output representation view (jsonl: raw|flat, csv: flat, pickle: raw)",
+        help=(
+            "output representation view "
+            "(jsonl: raw|flat, csv/parquet: flat, pickle: raw)"
+        ),
     )
     parser.add_argument(
         "--profile",

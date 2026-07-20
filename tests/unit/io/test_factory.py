@@ -6,11 +6,14 @@ from dataclasses import dataclass
 
 import pytest
 
-from datapipeline.io.factory import writer_factory
+from datapipeline.artifacts.models import ScalarVectorMetadataEntry
+from datapipeline.io.dataset_table import DatasetTable
+from datapipeline.io.factory import dataset_writer_factory, writer_factory
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.sinks.files import AtomicTextFileSink
 from datapipeline.io.sinks.stdout import StdoutTextSink
 from datapipeline.io.writers.base import LineWriter
+from datapipeline.io.writers.parquet import ParquetFileWriter
 
 
 def _stdout_target(format_: str = "jsonl") -> OutputTarget:
@@ -150,10 +153,72 @@ def test_writer_factory_fs_pickle_writes_raw_payload(tmp_path) -> None:
         assert pickle.load(fh) == {"value": 2}
 
 
+def test_dataset_writer_factory_builds_parquet_writer(tmp_path) -> None:
+    table = DatasetTable(
+        (),
+        (),
+        (
+            ScalarVectorMetadataEntry(
+                id="price",
+                base_id="price",
+                kind="scalar",
+                present_count=1,
+                null_count=0,
+                value_types=("float",),
+            ),
+        ),
+        (),
+    )
+
+    writer = dataset_writer_factory(
+        OutputTarget(
+            transport="fs",
+            format="parquet",
+            view="flat",
+            encoding=None,
+            destination=tmp_path / "samples.parquet",
+        ),
+        table,
+    )
+
+    assert isinstance(writer, ParquetFileWriter)
+    writer.abort()
+
+
+def test_plain_writer_factory_rejects_parquet_without_dataset_schema(
+    tmp_path,
+) -> None:
+    with pytest.raises(ValueError, match="Unsupported fs format 'parquet'"):
+        writer_factory(
+            OutputTarget(
+                transport="fs",
+                format="parquet",
+                view="flat",
+                encoding=None,
+                destination=tmp_path / "samples.parquet",
+            )
+        )
+
+
+def test_dataset_writer_factory_rejects_non_parquet_target(tmp_path) -> None:
+    with pytest.raises(ValueError, match="requires parquet format"):
+        dataset_writer_factory(
+            OutputTarget(
+                transport="fs",
+                format="jsonl",
+                view="flat",
+                encoding="utf-8",
+                destination=tmp_path / "samples.jsonl",
+            ),
+            DatasetTable((), (), (), ()),
+        )
+
+
 @pytest.mark.parametrize(
     ("format_", "view", "message"),
     [
         ("csv", "raw", "csv output supports only view='flat'"),
+        ("parquet", "raw", "Unsupported fs format 'parquet'"),
         ("pickle", "flat", "pickle output supports only view='raw'"),
     ],
 )
