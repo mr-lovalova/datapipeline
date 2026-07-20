@@ -23,7 +23,7 @@ for custom loaders, parsers, mappers, and stream combiners.
 - Materialize canonical time-series datasets from disparate sources.
 - Preview and debug each stage of the pipeline without writing ad-hoc scripts.
 - Export schema-aware Parquet tables for fast Pandas, Polars, and Arrow research,
-  and read local Parquet sources without loading whole files into memory.
+  then reingest derived Parquet variables through Jerry's normal validation.
 - Enforce coverage/quality gates and publish metadata and scaler statistics for
   downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O,
@@ -183,6 +183,8 @@ These live under `lib/<plugin>/src/<package>/`:
 - [Transforms](docs/transforms/index.md): preprocess, ordered, variable, and postprocess stages.
 - [Artifacts](docs/artifacts.md): dependencies, freshness, splitting, and serving.
 - [Python integrations](docs/python.md): iterator, Pandas, and Torch APIs.
+- [Research workflow](docs/research.md): export samples to Parquet, derive a
+  variable with Polars, and reingest it into Jerry.
 - [Extending](docs/extending.md): plugin entry points and contracts.
 - [Architecture](docs/architecture.md): runtime and pipeline design.
 
