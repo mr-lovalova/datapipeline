@@ -22,6 +22,7 @@ from datapipeline.domain.sample_key import (
 )
 from datapipeline.domain.variable import VariableRecord, VariableSequence
 from datapipeline.io.sinks.files import GzipBinarySink
+from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
 VARIABLE_RECORDS_MANIFEST_VERSION: Final = 6
@@ -206,9 +207,13 @@ def load_variable_records_manifest(path: Path) -> VariableRecordsManifest:
     return manifest
 
 
-def prune_variable_record_cache(manifest_path: Path) -> tuple[Path, ...]:
+def prune_variable_record_cache(
+    manifest_path: Path,
+    artifacts_root: Path,
+) -> tuple[Path, ...]:
     """Remove generations unreachable from the current manifest."""
 
+    manifest_path = resolve_artifact_output_path(manifest_path, artifacts_root)
     if not manifest_path.is_file():
         return ()
     manifest = load_variable_records_manifest(manifest_path)

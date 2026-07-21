@@ -10,9 +10,10 @@ import pytest
 
 from datapipeline.artifacts.variable_records import (
     VARIABLE_RECORDS_MANIFEST_VERSION,
-    variable_record_to_row,
     load_variable_records_manifest,
     open_variable_records,
+    prune_variable_record_cache,
+    variable_record_to_row,
     write_variable_rows,
 )
 from datapipeline.domain.variable import VariableRecord, VariableSequence
@@ -322,6 +323,29 @@ def _valid_manifest() -> dict[str, Any]:
         ],
         "targets": [],
     }
+
+
+def test_cache_pruning_rejects_symlinked_manifest_parent(tmp_path: Path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    artifacts_root.mkdir()
+    outside = tmp_path / "outside"
+    cache_root = outside / "manifest.shards"
+    stale = cache_root / "stale"
+    stale.mkdir(parents=True)
+    sentinel = stale / "keep"
+    sentinel.write_text("keep", encoding="utf-8")
+    payload = _valid_manifest()
+    payload["features"][0]["path"] = "manifest.shards/current/features/000000.jsonl.gz"
+    (outside / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    (artifacts_root / "build").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="must stay under artifacts root"):
+        prune_variable_record_cache(
+            artifacts_root / "build/manifest.json",
+            artifacts_root,
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
 @pytest.mark.parametrize(

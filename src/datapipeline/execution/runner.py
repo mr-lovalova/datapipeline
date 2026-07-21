@@ -78,9 +78,7 @@ class _RunProgress:
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            if self._thread.is_alive():
-                raise RuntimeError("Pipeline progress thread did not stop")
+            self._thread.join()
         if self._thread_error is not None:
             raise RuntimeError("Pipeline progress failed") from self._thread_error
 
@@ -313,17 +311,25 @@ def _run_observed(
                 error_message = _error_message(exc)
 
         if started:
-            observer(
-                PipelineFinished(
-                    pipeline_name=pipeline.name,
-                    node_count=pipeline.node_count,
-                    output_items=progress.output_items,
-                    elapsed_seconds=time.perf_counter() - start_time,
-                    status=status,
-                    error_type=error_type,
-                    error_message=error_message,
+            try:
+                observer(
+                    PipelineFinished(
+                        pipeline_name=pipeline.name,
+                        node_count=pipeline.node_count,
+                        output_items=progress.output_items,
+                        elapsed_seconds=time.perf_counter() - start_time,
+                        status=status,
+                        error_type=error_type,
+                        error_message=error_message,
+                    )
                 )
-            )
+            except BaseException:
+                if (
+                    not pipeline_failed
+                    and close_error is None
+                    and progress_error is None
+                ):
+                    raise
         if not pipeline_failed and close_error is not None:
             raise close_error
         if not pipeline_failed and progress_error is not None:
@@ -519,17 +525,21 @@ def _observed_node(
             progress.clear(context)
 
         if started:
-            observer(
-                NodeFinished(
-                    pipeline_name=pipeline_name,
-                    node_name=node.name,
-                    node_index=node_index,
-                    output_items=output_items,
-                    elapsed_seconds=time.perf_counter() - start_time,
-                    status=status,
-                    error_type=error_type,
-                    error_message=error_message,
+            try:
+                observer(
+                    NodeFinished(
+                        pipeline_name=pipeline_name,
+                        node_name=node.name,
+                        node_index=node_index,
+                        output_items=output_items,
+                        elapsed_seconds=time.perf_counter() - start_time,
+                        status=status,
+                        error_type=error_type,
+                        error_message=error_message,
+                    )
                 )
-            )
+            except BaseException:
+                if not node_failed and close_error is None:
+                    raise
         if not node_failed and close_error is not None:
             raise close_error

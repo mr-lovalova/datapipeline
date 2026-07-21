@@ -1,3 +1,4 @@
+import codecs
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Self, TypeAlias
 
@@ -34,7 +35,12 @@ _SourceInputPath = Annotated[
 
 _CsvDelimiter = Annotated[
     str,
-    StringConstraints(min_length=1, max_length=1),
+    StringConstraints(min_length=1, max_length=1, pattern=r'[^\r\n"]'),
+]
+
+_CsvErrorPrefix = Annotated[
+    str,
+    StringConstraints(min_length=1, pattern=r".*\S.*"),
 ]
 
 
@@ -51,8 +57,19 @@ class _DecodedSourceArgs(BaseModel):
     format: Literal["csv", "json", "jsonl"]
     encoding: _SourceInputPath = "utf-8"
     delimiter: _CsvDelimiter = ";"
-    error_prefixes: tuple[str, ...] = ()
+    error_prefixes: tuple[_CsvErrorPrefix, ...] = ()
     array_field: _SourceInputPath | None = None
+
+    @field_validator("encoding")
+    @classmethod
+    def validate_encoding(cls, encoding: str) -> str:
+        try:
+            decoded = codecs.getincrementaldecoder(encoding)().decode(b"", final=True)
+        except (LookupError, TypeError, ValueError) as exc:
+            raise ValueError(f"unsupported text encoding {encoding!r}") from exc
+        if not isinstance(decoded, str):
+            raise ValueError(f"unsupported text encoding {encoding!r}")
+        return encoding
 
     @model_validator(mode="after")
     def validate_format_options(self) -> Self:

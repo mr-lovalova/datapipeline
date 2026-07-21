@@ -51,7 +51,9 @@ class DatasetConfig(BaseModel):
         return (*self.features, *self.targets)
 
     @model_validator(mode="after")
-    def validate_unique_variable_ids(self) -> Self:
+    def validate_variables(self) -> Self:
+        if self.targets and not self.features:
+            raise ValueError("datasets with targets must define at least one feature")
         seen: set[str] = set()
         for config in self.variables:
             if config.id in seen:

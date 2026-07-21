@@ -61,6 +61,25 @@ def test_normalize_features_reuses_validated_sequence() -> None:
     assert output.features.values["history"] is history
 
 
+@pytest.mark.parametrize("missing", [None, float("nan")])
+def test_normalize_features_expands_null_sequence(missing: object) -> None:
+    sample = make_vector(0, {"history": missing})
+
+    [output] = NormalizeFeaturesTransform([_sequence("history", 2)]).apply(
+        iter([sample])
+    )
+
+    assert output.features.values == {"history": [None, None]}
+
+
+def test_normalize_features_normalizes_null_scalar() -> None:
+    sample = make_vector(0, {"value": float("nan")})
+
+    [output] = NormalizeFeaturesTransform([_scalar("value")]).apply(iter([sample]))
+
+    assert output.features.values == {"value": None}
+
+
 def test_normalize_features_rejects_unknown_ids() -> None:
     transform = NormalizeFeaturesTransform([_scalar("known")])
 
@@ -86,6 +105,13 @@ def test_normalize_features_preserves_scalar_values(value: object) -> None:
     [output] = transform.apply(iter([make_vector(0, {"value": value})]))
 
     assert output.features.values == {"value": value}
+
+
+def test_normalize_features_rejects_list_for_scalar() -> None:
+    transform = NormalizeFeaturesTransform([_scalar("value")])
+
+    with pytest.raises(TypeError, match="must contain a scalar"):
+        list(transform.apply(iter([make_vector(0, {"value": [1.0]})])))
 
 
 def test_normalize_targets_creates_missing_target_vector() -> None:

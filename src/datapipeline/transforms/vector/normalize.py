@@ -4,6 +4,7 @@ from typing import Any
 from datapipeline.artifacts.models import VectorMetadataEntry
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
+from datapipeline.transforms.utils import is_missing
 
 
 class _VectorNormalizer:
@@ -27,11 +28,15 @@ class _VectorNormalizer:
 
         normalized: dict[str, Any] = {}
         for entry in self.entries:
-            if entry.id not in values:
-                normalized[entry.id] = self._missing_value(entry)
+            value = values.get(entry.id)
+            if is_missing(value):
+                normalized[entry.id] = (
+                    None if entry.kind == "scalar" else [None] * entry.length
+                )
                 continue
-            value = values[entry.id]
             if entry.kind == "scalar":
+                if isinstance(value, list):
+                    raise TypeError(f"Vector id {entry.id!r} must contain a scalar.")
                 normalized[entry.id] = value
                 continue
             if not isinstance(value, list):
@@ -43,12 +48,6 @@ class _VectorNormalizer:
                 )
             normalized[entry.id] = value
         return normalized
-
-    @staticmethod
-    def _missing_value(entry: VectorMetadataEntry) -> Any:
-        if entry.kind == "scalar":
-            return None
-        return [None] * entry.length
 
 
 class NormalizeFeaturesTransform:

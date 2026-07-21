@@ -287,8 +287,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
         artifact_hash=definition.artifact_hashes.for_artifact("custom_snapshot"),
         files=(ArtifactFileFingerprint.from_path("build/custom.json", output),),
     )
-    state_path = runtime.artifacts_root / "_system" / "build" / "state.json"
-    save_build_state(state, state_path)
+    save_build_state(state, runtime.artifacts_root)
 
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     assert runtime.artifacts.has("custom_snapshot")

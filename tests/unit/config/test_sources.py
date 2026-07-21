@@ -86,6 +86,73 @@ def test_core_io_source_rejects_options_for_another_format() -> None:
         )
 
 
+@pytest.mark.parametrize("delimiter", ["\n", "\r", '"'])
+def test_core_csv_source_rejects_invalid_delimiter(delimiter: str) -> None:
+    with pytest.raises(ValueError, match="string_pattern_mismatch"):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "csv",
+                    "path": "prices.csv",
+                    "delimiter": delimiter,
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "encoding",
+    ["not-a-codec", "base64_codec", "rot_13", "undefined", "uu_codec"],
+)
+def test_core_text_source_rejects_non_text_encoding(encoding: str) -> None:
+    with pytest.raises(ValueError, match="unsupported text encoding"):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "jsonl",
+                    "path": "prices.jsonl",
+                    "encoding": encoding,
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize("prefix", ["", "   "])
+def test_core_csv_source_rejects_blank_error_prefix(prefix: str) -> None:
+    with pytest.raises(ValueError):
+        source_config(
+            loader={
+                "entrypoint": "core.io",
+                "args": {
+                    "transport": "fs",
+                    "format": "csv",
+                    "path": "prices.csv",
+                    "error_prefixes": [prefix],
+                },
+            }
+        )
+
+
+def test_core_csv_source_preserves_error_prefix_whitespace() -> None:
+    source = source_config(
+        loader={
+            "entrypoint": "core.io",
+            "args": {
+                "transport": "fs",
+                "format": "csv",
+                "path": "prices.csv",
+                "error_prefixes": ["ERROR "],
+            },
+        }
+    )
+
+    assert source.loader.args.error_prefixes == ("ERROR ",)
+
+
 @pytest.mark.parametrize("format_", ["csv", "jsonl"])
 def test_core_fs_source_accepts_gzip_compression(format_: str) -> None:
     source = source_config(

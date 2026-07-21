@@ -507,6 +507,61 @@ def test_progress_failure_does_not_mask_pipeline_failure(
     assert observer.pipeline_events[-1].error_type == "ValueError"
 
 
+def test_progress_stop_waits_without_an_arbitrary_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timeouts: list[float | None] = []
+    thread = threading.Thread()
+
+    def record_timeout(timeout: float | None = None) -> None:
+        timeouts.append(timeout)
+
+    monkeypatch.setattr(thread, "join", record_timeout)
+    progress = pipeline_runner._RunProgress(lambda _event: None, "slow", 1.0)
+    progress._thread = thread
+
+    progress.stop()
+
+    assert timeouts == [None]
+
+
+def test_finish_observer_failures_do_not_mask_pipeline_failure(
+    tmp_path: Path,
+) -> None:
+    finished: list[type[PipelineEvent]] = []
+
+    def observer(event: PipelineEvent) -> None:
+        if isinstance(event, (NodeFinished, PipelineFinished)):
+            finished.append(type(event))
+            raise RuntimeError("observer failed")
+
+    def fail() -> Iterator[int]:
+        raise ValueError("source failed")
+        yield
+
+    pipeline = Pipeline(name="failure", nodes=(SourceNode("source", fail),))
+
+    with pytest.raises(ValueError, match="source failed"):
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
+
+    assert finished == [NodeFinished, PipelineFinished]
+
+
+@pytest.mark.parametrize("event_type", [NodeFinished, PipelineFinished])
+def test_finish_observer_failure_is_reported_after_success(
+    tmp_path: Path,
+    event_type: type[PipelineEvent],
+) -> None:
+    def observer(event: PipelineEvent) -> None:
+        if isinstance(event, event_type):
+            raise RuntimeError("observer failed")
+
+    pipeline = Pipeline(name="success", nodes=(SourceNode("source", lambda: [1]),))
+
+    with pytest.raises(RuntimeError, match="observer failed"):
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
+
+
 def test_live_progress_samples_emitted_items(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

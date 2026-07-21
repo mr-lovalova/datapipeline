@@ -1731,7 +1731,10 @@ def test_changed_variable_records_rebuild_retains_previous_generation(
     assert list(open_variable_records(first_path)) == first_rows
     assert len(list(open_variable_records(second_path))) == 2
 
-    assert prune_variable_record_cache(manifest_path) == (first_path.parent.parent,)
+    assert prune_variable_record_cache(
+        manifest_path,
+        runtime.artifacts_root,
+    ) == (first_path.parent.parent,)
     assert not first_path.exists()
     assert second_path.is_file()
 
@@ -1761,7 +1764,7 @@ def test_variable_records_rebuild_replaces_a_corrupt_generation(
     rebuilt_path = manifest_path.parent / rebuilt.features[0].path
     assert rebuilt_path != shard_path
     assert len(list(open_variable_records(rebuilt_path))) == 1
-    removed = prune_variable_record_cache(manifest_path)
+    removed = prune_variable_record_cache(manifest_path, runtime.artifacts_root)
     assert removed == (shard_path.parent.parent,)
 
 

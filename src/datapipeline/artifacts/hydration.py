@@ -49,10 +49,7 @@ def hydrate_runtime_artifacts_for_pipeline(
     *,
     graph: ArtifactGraph | None = None,
 ) -> tuple[str, ...]:
-    state_path = (
-        definition.project.artifacts_root / "_system" / "build" / "state.json"
-    ).resolve()
-    state = load_build_state(state_path)
+    state = load_build_state(definition.project.artifacts_root)
     if state is None:
         runtime.artifacts.clear()
         return ()

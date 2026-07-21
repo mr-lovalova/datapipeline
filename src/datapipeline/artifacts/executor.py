@@ -53,7 +53,6 @@ class BuildPlan:
     artifacts: tuple[str, ...]
     jobs: tuple[ArtifactBuildJob, ...]
     artifact_hashes: ArtifactHashes
-    state_path: Path
     previous_state: BuildState | None
     graph: ArtifactGraph
 
@@ -125,10 +124,7 @@ def _plan_build(
     except ValueError as exc:
         raise ArtifactResolutionError(str(exc)) from exc
 
-    state_path = (
-        definition.project.artifacts_root / "_system" / "build" / "state.json"
-    ).resolve()
-    previous_state = load_build_state(state_path)
+    previous_state = load_build_state(definition.project.artifacts_root)
     resolved = resolved_artifacts if resolved_artifacts is not None else set()
     freshness = graph.freshness(
         keys=selected_keys | resolved,
@@ -201,7 +197,6 @@ def _plan_build(
         artifacts=expanded_artifacts,
         jobs=jobs,
         artifact_hashes=artifact_hashes,
-        state_path=state_path,
         previous_state=previous_state,
         graph=graph,
     )
@@ -284,7 +279,7 @@ def _execute_build_jobs(
                 files=result.files,
                 meta=result.meta,
             )
-            save_build_state(current_state, plan.state_path)
+            save_build_state(current_state, runtime.artifacts_root)
             runtime.artifacts.register(
                 job.task.id,
                 relative_path=result.relative_path,
@@ -340,13 +335,10 @@ def run_build_if_needed(
     )
     if isinstance(plan, SkippedBuild):
         if plan.artifacts:
-            state_path = (
-                definition.project.artifacts_root / "_system" / "build" / "state.json"
-            ).resolve()
             hydrate_runtime_artifacts(
                 runtime=runtime,
                 graph=graph,
-                state=load_build_state(state_path),
+                state=load_build_state(definition.project.artifacts_root),
                 artifact_hashes=definition.artifact_hashes,
                 artifact_keys=plan.artifacts,
             )

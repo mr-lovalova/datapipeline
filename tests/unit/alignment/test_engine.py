@@ -348,6 +348,58 @@ def test_align_streams_closes_every_input_after_an_alignment_error() -> None:
     assert closed == {"left", "right"}
 
 
+def test_alignment_error_survives_input_cleanup_failures() -> None:
+    closed: set[str] = set()
+
+    def records(stream_id: str, days: list[int], fail_close: bool = False):
+        try:
+            for day in days:
+                yield _record("A", day, stream_id)
+        finally:
+            closed.add(stream_id)
+            if fail_close:
+                raise OSError(f"could not close {stream_id}")
+
+    with pytest.raises(ValueError, match="Alignment input 'left' is not ordered"):
+        list(
+            align_streams(
+                [
+                    ("left", records("left", [2, 1], fail_close=True)),
+                    ("right", records("right", [2, 3])),
+                ],
+                partition_by=("id_",),
+            )
+        )
+
+    assert closed == {"left", "right"}
+
+
+def test_early_close_surfaces_cleanup_failure_and_closes_every_input() -> None:
+    closed: set[str] = set()
+
+    def records(stream_id: str, fail_close: bool = False):
+        try:
+            yield _record("A", 1, stream_id)
+        finally:
+            closed.add(stream_id)
+            if fail_close:
+                raise OSError(f"could not close {stream_id}")
+
+    aligned = align_streams(
+        [
+            ("left", records("left", fail_close=True)),
+            ("right", records("right")),
+        ],
+        partition_by=("id_",),
+    )
+    next(aligned)
+
+    with pytest.raises(OSError, match="could not close left"):
+        aligned.close()
+
+    assert closed == {"left", "right"}
+
+
 def test_align_streams_requires_at_least_two_inputs() -> None:
     class Records:
         def __init__(self) -> None:

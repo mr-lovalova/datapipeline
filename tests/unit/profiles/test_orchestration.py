@@ -1373,7 +1373,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
     )
     save_build_state(
         state,
-        artifacts_root / "_system" / "build" / "state.json",
+        artifacts_root,
     )
     runtime = SimpleNamespace(
         execution=ExecutionConfig(),

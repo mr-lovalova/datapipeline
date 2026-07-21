@@ -22,6 +22,16 @@ def test_dataset_loads_sample_cadence_and_keys() -> None:
     assert dataset.sample.keys == ["security_id"]
 
 
+def test_dataset_rejects_targets_without_features() -> None:
+    with pytest.raises(ValidationError, match="must define at least one feature"):
+        DatasetConfig.model_validate(
+            {
+                "sample": {"cadence": "1d"},
+                "targets": [{"id": "return", "stream": "returns", "field": "value"}],
+            }
+        )
+
+
 def test_dataset_owns_split_and_postprocess_policy() -> None:
     dataset = DatasetConfig.model_validate(
         {

@@ -220,13 +220,15 @@ def test_load_build_state_invalidates_previous_cache_version(
     tmp_path: Path,
     version: int,
 ) -> None:
-    state_path = tmp_path / "state.json"
+    artifacts_root = tmp_path / "artifacts"
+    state_path = artifacts_root / "_system/build/state.json"
+    state_path.parent.mkdir(parents=True)
     state_path.write_text(
         f'{{"version": {version}, "artifacts": {{}}}}',
         encoding="utf-8",
     )
 
-    assert load_build_state(state_path) is None
+    assert load_build_state(artifacts_root) is None
 
 
 def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
@@ -316,7 +318,6 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
                     VECTOR_METADATA: "artifact-hash-1",
                 }
             ),
-            state_path=Path("state.json"),
             previous_state=None,
             graph=build_artifact_graph([task]),
         ),
@@ -414,7 +415,7 @@ def test_v5_vector_inputs_state_is_not_reused(tmp_path: Path) -> None:
         ),
         "current",
     )
-    save_build_state(previous_state, _build_state_path(definition))
+    save_build_state(previous_state, definition.project.artifacts_root)
 
     plan = build_exec._plan_build(
         definition=definition,
@@ -443,7 +444,7 @@ def test_plan_skips_current_dependency(tmp_path: Path) -> None:
         variable_records,
         definition.artifact_hashes.for_artifact(variable_records.id),
     )
-    save_build_state(state, _build_state_path(definition))
+    save_build_state(state, definition.project.artifacts_root)
 
     plan = build_exec._plan_build(
         definition=definition,
@@ -480,7 +481,7 @@ def test_runtime_operation_change_keeps_artifact_plan_current(
         task,
         first.artifact_hashes.for_artifact(task.id),
     )
-    save_build_state(state, _build_state_path(first))
+    save_build_state(state, first.project.artifacts_root)
 
     runtime_operation.write_text(
         "kind: runtime\nentrypoint: plugin.report\noptions: {threshold: 2}\n",
@@ -528,7 +529,7 @@ def test_plan_rejects_resolved_artifact_that_became_stale(
         first,
         "stale-artifact-hash",
     )
-    save_build_state(state, _build_state_path(definition))
+    save_build_state(state, definition.project.artifacts_root)
 
     with pytest.raises(RuntimeError, match="earlier build profile became stale"):
         build_exec._plan_build(
@@ -593,7 +594,7 @@ def test_stale_dependency_rebuilds_current_dependent(
         metadata,
         definition.artifact_hashes.for_artifact(metadata.id),
     )
-    save_build_state(state, _build_state_path(definition))
+    save_build_state(state, definition.project.artifacts_root)
 
     plan = build_exec._plan_build(
         definition=definition,
@@ -647,7 +648,6 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
     graph = build_artifact_graph([variable_records, metadata])
-    state_path = tmp_path / "artifacts/_system/build/state.json"
     previous_state = BuildState()
     previous_state.register(
         VECTOR_METADATA,
@@ -662,7 +662,7 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             ),
         ),
     )
-    save_build_state(previous_state, state_path)
+    save_build_state(previous_state, definition.project.artifacts_root)
 
     def build(runtime, task):
         if task.id == VECTOR_METADATA:
@@ -692,7 +692,6 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
                 VECTOR_METADATA: "artifact-hash-1",
             }
         ),
-        state_path=state_path,
         previous_state=previous_state,
         graph=graph,
     )
@@ -706,7 +705,7 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
             settings=_build_settings(),
         )
 
-    state = load_build_state(state_path)
+    state = load_build_state(definition.project.artifacts_root)
     assert state is not None
     assert list(state.artifacts) == [VARIABLE_RECORDS]
     assert outputs == [
@@ -726,7 +725,6 @@ def test_execute_build_failure_preserves_previous_persisted_state(
     variable_records = VariableRecordsTask(id="variable_records")
     metadata = MetadataTask(id="metadata")
     graph = build_artifact_graph([variable_records, metadata])
-    state_path = tmp_path / "artifacts/_system/build/state.json"
     previous_state = BuildState()
     previous_state.register(
         VECTOR_METADATA,
@@ -741,7 +739,7 @@ def test_execute_build_failure_preserves_previous_persisted_state(
             ),
         ),
     )
-    save_build_state(previous_state, state_path)
+    save_build_state(previous_state, definition.project.artifacts_root)
 
     def fail_build(runtime, task):
         raise RuntimeError("variable records failed")
@@ -762,7 +760,6 @@ def test_execute_build_failure_preserves_previous_persisted_state(
                 VECTOR_METADATA: "artifact-hash-1",
             }
         ),
-        state_path=state_path,
         previous_state=previous_state,
         graph=graph,
     )
@@ -775,7 +772,7 @@ def test_execute_build_failure_preserves_previous_persisted_state(
             settings=_build_settings(),
         )
 
-    persisted = load_build_state(state_path)
+    persisted = load_build_state(definition.project.artifacts_root)
     assert persisted is not None
     assert list(persisted.artifacts) == [VECTOR_METADATA]
 
@@ -820,7 +817,6 @@ def test_execute_build_rejects_symlink_escape_before_calling_runner(
         artifacts=(task.id,),
         jobs=(build_exec.ArtifactBuildJob(task, (task.id,)),),
         artifact_hashes=ArtifactHashes({task.id: "artifact-hash-1"}),
-        state_path=artifacts_root / "_system/build/state.json",
         previous_state=None,
         graph=graph,
     )
@@ -877,7 +873,6 @@ def test_execute_build_preflights_every_output_before_running_any_job(
         artifact_hashes=ArtifactHashes(
             {first.id: "artifact-hash-1", second.id: "artifact-hash-2"}
         ),
-        state_path=artifacts_root / "_system/build/state.json",
         previous_state=None,
         graph=graph,
     )
@@ -948,7 +943,6 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         artifact_hashes=ArtifactHashes(
             {key: "artifact-hash-1" for key in graph.tasks_by_id}
         ),
-        state_path=tmp_path / "artifacts/_system/build/state.json",
         previous_state=previous_state,
         graph=graph,
     )
@@ -1031,7 +1025,7 @@ def test_build_rejects_source_drift_before_registering_result(
         definition.artifact_hashes.for_artifact(task.id),
     )
     state_path = _build_state_path(definition)
-    save_build_state(previous_state, state_path)
+    save_build_state(previous_state, definition.project.artifacts_root)
     persisted_state = state_path.read_bytes()
     runtime = _runtime(definition.project.artifacts_root)
 
@@ -1072,7 +1066,7 @@ def test_build_accepts_unchanged_local_sources(monkeypatch, tmp_path: Path) -> N
         runtime=runtime,
     )
 
-    state = load_build_state(_build_state_path(definition))
+    state = load_build_state(definition.project.artifacts_root)
     assert state is not None
     assert state.artifacts[VARIABLE_RECORDS].artifact_hash == (
         definition.artifact_hashes.for_artifact(VARIABLE_RECORDS)
@@ -1098,7 +1092,7 @@ def test_run_build_hydrates_current_dependencies_before_job(
             task,
             definition.artifact_hashes.for_artifact(task.id),
         )
-    save_build_state(state, _build_state_path(definition))
+    save_build_state(state, definition.project.artifacts_root)
     runtime = _runtime(definition.project.artifacts_root)
 
     def build(runtime, task):
@@ -1138,7 +1132,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
             task,
             definition.artifact_hashes.for_artifact(task.id),
         )
-    save_build_state(state, _build_state_path(definition))
+    save_build_state(state, definition.project.artifacts_root)
     built: list[str] = []
 
     def build(runtime, task):
@@ -1186,7 +1180,6 @@ def test_run_build_keeps_loaded_definition_when_config_changes(
         artifacts=(task.id,),
         jobs=(),
         artifact_hashes=ArtifactHashes({task.id: "current"}),
-        state_path=tmp_path / "state.json",
         previous_state=None,
         graph=graph,
     )

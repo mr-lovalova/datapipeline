@@ -5,9 +5,11 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.utils.json_artifact import write_json_artifact
 
 BUILD_STATE_VERSION = 7
+_BUILD_STATE_PATH = Path("_system/build/state.json")
 
 
 class ArtifactFileFingerprint(BaseModel):
@@ -81,7 +83,8 @@ class BuildState(BaseModel):
         )
 
 
-def load_build_state(path: Path) -> BuildState | None:
+def load_build_state(artifacts_root: Path) -> BuildState | None:
+    path = resolve_artifact_output_path(_BUILD_STATE_PATH, artifacts_root)
     if not path.exists():
         return None
     with path.open("r", encoding="utf-8") as fh:
@@ -91,5 +94,6 @@ def load_build_state(path: Path) -> BuildState | None:
     return BuildState.model_validate(data)
 
 
-def save_build_state(state: BuildState, path: Path) -> None:
+def save_build_state(state: BuildState, artifacts_root: Path) -> None:
+    path = resolve_artifact_output_path(_BUILD_STATE_PATH, artifacts_root)
     write_json_artifact(path, state.model_dump())

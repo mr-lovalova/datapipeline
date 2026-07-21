@@ -84,7 +84,7 @@ def _prune_variable_record_caches(request: ProfileRunRequest) -> None:
     root = request.definition.project.artifacts_root
     for task in request.definition.artifact_operations:
         if isinstance(task, VariableRecordsTask):
-            prune_variable_record_cache(root / task.output)
+            prune_variable_record_cache(root / task.output, root)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:
