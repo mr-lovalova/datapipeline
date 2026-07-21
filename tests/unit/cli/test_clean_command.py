@@ -1,3 +1,5 @@
+import pytest
+
 from datapipeline.cli.command_router import execute_command
 from datapipeline.cli.parser_builder import build_parser
 
@@ -36,10 +38,11 @@ def test_clean_command_dispatches(monkeypatch) -> None:
     assert calls == {"yes": True, "older_than": "24h"}
 
 
-def test_clean_command_rejects_invalid_age() -> None:
-    args = build_parser().parse_args(["clean", "--older-than", "soon"])
+@pytest.mark.parametrize("age", ["soon", "inf"])
+def test_clean_command_rejects_invalid_age(age: str) -> None:
+    args = build_parser().parse_args(["clean", "--older-than", age])
 
-    try:
+    with pytest.raises(SystemExit, match="age must"):
         execute_command(
             args=args,
             plugin_root=None,
@@ -48,7 +51,3 @@ def test_clean_command_rejects_invalid_age() -> None:
             base_level_name="INFO",
             cli_log_outputs=[],
         )
-    except SystemExit as exc:
-        assert "age must" in str(exc)
-    else:
-        raise AssertionError("Expected invalid age to exit")

@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from math import isfinite
 from pathlib import Path
 from time import time
 from uuid import uuid4
@@ -48,13 +49,18 @@ def parse_age(value: str | None) -> timedelta:
         raise ValueError(
             "age must be a number with optional m, h, or d suffix"
         ) from exc
+    if not isfinite(amount):
+        raise ValueError("age must be finite")
     if amount < 0:
         raise ValueError("age must not be negative")
-    if unit == "m":
-        return timedelta(minutes=amount)
-    if unit == "d":
-        return timedelta(days=amount)
-    return timedelta(hours=amount)
+    try:
+        if unit == "m":
+            return timedelta(minutes=amount)
+        if unit == "d":
+            return timedelta(days=amount)
+        return timedelta(hours=amount)
+    except OverflowError as exc:
+        raise ValueError("age must be within the supported range") from exc
 
 
 def find_temp_dirs(

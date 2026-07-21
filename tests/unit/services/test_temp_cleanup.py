@@ -99,9 +99,10 @@ def test_parse_age(value: str, seconds: int) -> None:
     assert parse_age(value).total_seconds() == seconds
 
 
-def test_parse_age_rejects_invalid_values() -> None:
+@pytest.mark.parametrize("value", ["soon", "inf", "-inf", "nan", "1e308h"])
+def test_parse_age_rejects_invalid_values(value: str) -> None:
     with pytest.raises(ValueError, match="age must"):
-        parse_age("soon")
+        parse_age(value)
 
 
 def test_format_bytes() -> None:
