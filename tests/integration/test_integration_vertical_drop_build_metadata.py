@@ -18,8 +18,8 @@ from datapipeline.operations.artifacts.scaler import materialize_scaler_statisti
 from datapipeline.operations.artifacts.series import (
     materialize_series,
 )
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.dataset.postprocess import apply_postprocess
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 

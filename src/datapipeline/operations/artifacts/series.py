@@ -21,11 +21,10 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import SeriesTask
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.series.nodes import SeriesSequencer
+from datapipeline.pipelines.series.stages import SeriesSequencer
 from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
@@ -243,13 +242,14 @@ def _materialize_stream_group(
     sort_progress = SortProgress()
     pipeline = Pipeline(
         name=f"series:{stream_id}",
-        nodes=(
-            *record_pipeline.nodes,
-            PipelineNode(
+        input=record_pipeline.input,
+        stages=(
+            *record_pipeline.stages,
+            Stage(
                 name="project_series",
                 apply=project_series,
             ),
-            PipelineNode(
+            Stage(
                 name="order_series",
                 apply=partial(
                     batch_sort,

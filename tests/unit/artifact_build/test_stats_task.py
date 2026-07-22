@@ -8,9 +8,9 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.execution.node import PipelineNode
+from datapipeline.execution.pipeline import Stage
 from datapipeline.operations.artifacts.stats import materialize_vector_stats
-from datapipeline.pipelines.dataset.nodes import PostprocessPlan
+from datapipeline.pipelines.dataset.postprocess import PostprocessPlan
 from datapipeline.runtime import Runtime
 
 
@@ -78,12 +78,12 @@ class _Context:
         return _ts(1), _ts(2)
 
 
-def _postprocess_plan(*nodes: PipelineNode) -> PostprocessPlan:
+def _postprocess_plan(*stages: Stage) -> PostprocessPlan:
     metadata = _metadata()
     return PostprocessPlan(
         feature_entries=metadata.features,
         target_entries=metadata.targets,
-        nodes=nodes,
+        stages=stages,
     )
 
 
@@ -173,7 +173,7 @@ def test_postprocessed_stats_keep_planned_columns_when_every_sample_is_dropped(
         features=Vector(values={"speed": [None, None]}),
         targets=Vector(values={"return": None}),
     )
-    drop_all = PipelineNode(name="drop_all", apply=lambda _samples: iter(()))
+    drop_all = Stage(name="drop_all", apply=lambda _samples: iter(()))
     monkeypatch.setattr(
         "datapipeline.operations.artifacts.stats.PipelineContext", _Context
     )

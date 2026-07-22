@@ -29,7 +29,7 @@ from datapipeline.config.transforms import (
     WhereConfig,
 )
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode, StageOp
+from datapipeline.execution.pipeline import Stage, StageOp
 from datapipeline.transforms.stream.dedupe import DedupeTransform
 from datapipeline.transforms.stream.derive import DeriveTransform
 from datapipeline.transforms.stream.ensure_ticks import (
@@ -51,102 +51,102 @@ from datapipeline.transforms.time import FloorTimeTransform, ShiftTimeTransform
 from datapipeline.transforms.where import WhereTransform
 
 
-def build_preprocess_nodes(
+def build_preprocess_stages(
     operations: Sequence[PreprocessConfig],
-) -> tuple[PipelineNode, ...]:
+) -> tuple[Stage, ...]:
     configured = tuple(operations)
     totals = Counter(operation.operation for operation in configured)
     occurrences: Counter[str] = Counter()
-    nodes: list[PipelineNode] = []
+    stages: list[Stage] = []
     for operation in configured:
         occurrences[operation.operation] += 1
-        node_name = f"preprocess_{operation.operation}"
+        stage_name = f"preprocess_{operation.operation}"
         if totals[operation.operation] > 1:
-            node_name += f"_{occurrences[operation.operation]}"
+            stage_name += f"_{occurrences[operation.operation]}"
 
         if isinstance(operation, WhereConfig):
-            node_op: StageOp = WhereTransform(
+            stage_op: StageOp = WhereTransform(
                 operation.field,
                 operation.operator,
                 operation.comparand,
             ).apply
         elif isinstance(operation, FloorTimeConfig):
-            node_op = FloorTimeTransform(operation.cadence).apply
+            stage_op = FloorTimeTransform(operation.cadence).apply
         elif isinstance(operation, ShiftTimeConfig):
-            node_op = ShiftTimeTransform(operation.by).apply
+            stage_op = ShiftTimeTransform(operation.by).apply
         else:
             raise TypeError(
                 f"Unsupported preprocess config: {type(operation).__name__}"
             )
 
-        nodes.append(
-            PipelineNode(
-                name=node_name,
-                apply=node_op,
+        stages.append(
+            Stage(
+                name=stage_name,
+                apply=stage_op,
             )
         )
-    return tuple(nodes)
+    return tuple(stages)
 
 
-def build_transform_nodes(
+def build_transform_stages(
     context: PipelineContext,
     operations: Sequence[TransformConfig],
     partition_by: tuple[str, ...],
-) -> tuple[PipelineNode, ...]:
+) -> tuple[Stage, ...]:
     configured = tuple(operations)
     totals = Counter(operation.operation for operation in configured)
     occurrences: Counter[str] = Counter()
-    nodes: list[PipelineNode] = []
+    stages: list[Stage] = []
     for operation in configured:
         occurrences[operation.operation] += 1
-        node_name: str = operation.operation
+        stage_name: str = operation.operation
         if totals[operation.operation] > 1:
-            node_name = f"{node_name}_{occurrences[operation.operation]}"
+            stage_name = f"{stage_name}_{occurrences[operation.operation]}"
 
-        node_op: StageOp
+        stage_op: StageOp
         if isinstance(operation, WhereConfig):
-            node_op = WhereTransform(
+            stage_op = WhereTransform(
                 operation.field,
                 operation.operator,
                 operation.comparand,
             ).apply
         elif isinstance(operation, DedupeConfig):
-            node_op = DedupeTransform().apply
+            stage_op = DedupeTransform().apply
         elif isinstance(operation, LagConfig):
-            node_op = LagTransform(
+            stage_op = LagTransform(
                 operation.field,
                 operation.periods,
                 partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, LeadConfig):
-            node_op = LeadTransform(
+            stage_op = LeadTransform(
                 operation.field,
                 operation.periods,
                 partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, ForwardSumConfig):
-            node_op = ForwardSumTransform(
+            stage_op = ForwardSumTransform(
                 operation.field,
                 operation.window,
                 partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, EnsureCadenceConfig):
-            node_op = EnsureCadenceTransform(
+            stage_op = EnsureCadenceTransform(
                 operation.cadence,
                 partition_by,
             ).apply
         elif isinstance(operation, EnsureTicksConfig):
-            node_op = partial(
+            stage_op = partial(
                 apply_tick_grid,
                 context,
                 operation,
                 partition_by,
             )
         elif isinstance(operation, FillConfig):
-            node_op = StatisticalFillTransform(
+            stage_op = StatisticalFillTransform(
                 operation.field,
                 operation.window,
                 operation.statistic,
@@ -155,18 +155,18 @@ def build_transform_nodes(
                 operation.min_samples,
             ).apply
         elif isinstance(operation, ForwardFillConfig):
-            node_op = ForwardFillTransform(
+            stage_op = ForwardFillTransform(
                 operation.field,
                 partition_by,
                 operation.to,
             ).apply
         elif isinstance(operation, CollapseConfig):
-            node_op = CollapseTransform(
+            stage_op = CollapseTransform(
                 partition_by,
                 operation.keep,
             ).apply
         elif isinstance(operation, RollingConfig):
-            node_op = RollingTransform(
+            stage_op = RollingTransform(
                 operation.field,
                 operation.window,
                 partition_by,
@@ -175,7 +175,7 @@ def build_transform_nodes(
                 operation.statistic,
             ).apply
         elif isinstance(operation, RollingSlopeConfig):
-            node_op = RollingSlopeTransform(
+            stage_op = RollingSlopeTransform(
                 operation.x,
                 operation.y,
                 operation.window,
@@ -183,9 +183,9 @@ def build_transform_nodes(
                 operation.to,
             ).apply
         elif isinstance(operation, LogConfig):
-            node_op = LogTransform(operation.field, operation.to).apply
+            stage_op = LogTransform(operation.field, operation.to).apply
         elif isinstance(operation, Log1pConfig):
-            node_op = Log1pTransform(operation.field, operation.to).apply
+            stage_op = Log1pTransform(operation.field, operation.to).apply
         elif isinstance(operation, DeriveConfig):
             if operation.right_field is not None:
                 transform = DeriveTransform(
@@ -201,17 +201,17 @@ def build_transform_nodes(
                     operation.to,
                     right_value=operation.right_value,
                 )
-            node_op = transform.apply
+            stage_op = transform.apply
         else:
             raise TypeError(f"Unsupported transform config: {type(operation).__name__}")
 
-        nodes.append(
-            PipelineNode(
-                name=node_name,
-                apply=node_op,
+        stages.append(
+            Stage(
+                name=stage_name,
+                apply=stage_op,
             )
         )
-    return tuple(nodes)
+    return tuple(stages)
 
 
 def apply_tick_grid(

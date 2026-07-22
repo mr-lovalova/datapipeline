@@ -17,7 +17,7 @@ from datapipeline.config.dataset.split import (
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
+from datapipeline.pipelines.dataset.postprocess import build_postprocess_plan
 from datapipeline.pipelines.dataset.pipeline import (
     run_dataset_pipeline,
     run_fold_dataset_pipeline,

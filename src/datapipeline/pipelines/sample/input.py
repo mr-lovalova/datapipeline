@@ -24,7 +24,7 @@ from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import ProgressSnapshot
-from datapipeline.execution.node import SourceNode
+from datapipeline.execution.pipeline import Input
 from datapipeline.pipelines.sample.assembly import (
     align_vectors_to_keys,
     assemble_samples,
@@ -73,14 +73,14 @@ def open_samples(
     )
 
 
-def build_sample_source_node(
+def build_sample_input(
     context: PipelineContext,
     feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
     target_configs: Sequence[SeriesConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
-) -> SourceNode:
+) -> Input:
     feature_cfgs = tuple(feature_configs)
     target_cfgs = () if target_configs is None else tuple(target_configs)
     sample_key_fields = tuple(sample_keys)
@@ -97,7 +97,7 @@ def build_sample_source_node(
             total=key_plan.total,
             unit="samples",
         )
-    return SourceNode(
+    return Input(
         name="assemble_samples",
         open=partial(
             _open_samples,

@@ -5,8 +5,8 @@ from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.config.tasks import MatrixTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
-from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.dataset.postprocess import build_postprocess_plan
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.runtime import Runtime
 
 

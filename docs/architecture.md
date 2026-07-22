@@ -50,11 +50,11 @@ A source-backed stream is one source followed by explicit stages:
 
 ```text
 stream:<id>
-  open_source
-  map_records
-  <one node per configured preprocess transform>
-  order_records
-  <one node per configured ordered transform>
+  input: open_source
+  stage: map_records
+  <one stage per configured preprocess transform>
+  stage: order_records
+  <one stage per configured ordered transform>
 ```
 
 A single-input derived stream flattens its upstream pipeline into the same run. The
@@ -63,34 +63,34 @@ and the stage that produced a record:
 
 ```text
 stream:<id>
-  stream:<upstream>/open_source
-  stream:<upstream>/map_records
-  stream:<upstream>/...
-  <one node per configured ordered transform>
+  input: stream:<upstream>/open_source
+  stage: stream:<upstream>/map_records
+  stage: stream:<upstream>/...
+  <one stage per configured ordered transform>
 ```
 
 The derived stream reuses upstream canonical order directly. It does not add
 identity mapping or sorting stages.
 
-Aligned streams are a symmetric fan-in boundary. Their root source node is
+Aligned streams are a symmetric fan-in boundary. Their pipeline input is
 `align_inputs`; it owns opening, validating, merging, and closing the configured
 ordered inputs.
 Those input pipelines run internally without starting competing visual pipelines.
-The aligned root remains the single observable pipeline: `align_inputs` reports
+The aligned pipeline remains the single observable boundary: `align_inputs` reports
 its current progress, then `combine_records` applies the configured combine
 function before ordered transforms.
 
-Broadcast streams are the asymmetric fan-in boundary. Their root
-`broadcast_inputs` node fully indexes one finite, unpartitioned input by time,
+Broadcast streams are the asymmetric fan-in boundary. Their `broadcast_inputs`
+pipeline input fully indexes one finite, unpartitioned input by time,
 then pairs each partitioned primary record with the exact timestamp match. It
 rejects missing, duplicate, and unordered keys, but ignores indexed timestamps
 that the primary never uses. Index memory is proportional to the number of
 broadcast records. `combine_records` receives read-only inputs; the indexed
 broadcast record object is reused across primary partitions at that timestamp.
 
-The runner accepts only a source followed by stream stages. It owns lazy
+The runner accepts one explicit input followed by ordered stages. It owns lazy
 iteration, closing, output counts, timings, and sampled progress. It has no
-generic fan-out, keyword-input, node-kind, nested-parent, or nested-pipeline
+generic fan-out, keyword-input, nested-parent, or nested-pipeline
 machinery.
 
 Preprocess and ordered transform configuration is a strict discriminated union. Each
@@ -143,7 +143,7 @@ boundary where its validated contract is needed.
 
 ## Preview boundaries
 
-`jerry serve --preview` selects a semantic boundary rather than a numeric node
+`jerry serve --preview` selects a semantic boundary rather than an execution
 position: `input`, `canonical`, `records`, `series`, `samples`, or `postprocess`.
-The meaning stays stable when optional pipeline nodes are added or removed. See the
+The meaning stays stable when optional pipeline stages are added or removed. See the
 README's **Preview stages** section for the output behavior of each boundary.

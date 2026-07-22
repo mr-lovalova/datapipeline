@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 from datapipeline.pipelines.stream.order import (
-    build_record_order_node,
+    build_record_order_stage,
     sort_records,
     validate_record_order,
 )
@@ -142,8 +142,8 @@ def test_sorted_records_reject_mixed_exact_partition_types(values) -> None:
 
 
 def test_only_real_sort_nodes_expose_sort_progress() -> None:
-    validate = build_record_order_node(("security_id",), True, 1_000_000)
-    sort = build_record_order_node(("security_id",), False, 1_000_000)
+    validate = build_record_order_stage(("security_id",), True, 1_000_000)
+    sort = build_record_order_stage(("security_id",), False, 1_000_000)
 
     assert validate.progress is None
     assert sort.progress is not None

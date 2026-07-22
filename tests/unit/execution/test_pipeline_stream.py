@@ -7,7 +7,7 @@ import pytest
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.execution import runner as pipeline_runner
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Input, Pipeline, Stage
 from datapipeline.execution.events import (
     NodeFinished,
     NodeProgress,
@@ -19,7 +19,6 @@ from datapipeline.execution.events import (
     PipelineSummary,
     ProgressSnapshot,
 )
-from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.runtime import Runtime
 
@@ -117,48 +116,39 @@ def _events_by_name(
     return {event.node_name: event for event in observer.node_events}
 
 
-def test_pipeline_requires_unique_names_and_a_first_source() -> None:
-    with pytest.raises(ValueError, match="node names must be unique"):
+def test_pipeline_requires_unique_input_and_stage_names() -> None:
+    with pytest.raises(ValueError, match="input and stage names must be unique"):
         Pipeline(
             name="duplicate",
-            nodes=(
-                SourceNode("records", lambda: ()),
-                PipelineNode("records", lambda records: records),
-            ),
-        )
-
-    with pytest.raises(ValueError, match="source node 'records' must be first"):
-        Pipeline(
-            name="late-source",
-            nodes=(
-                PipelineNode("transform", lambda records: records),
-                SourceNode("records", lambda: ()),
-            ),
+            input=Input("records", lambda: ()),
+            stages=(Stage("records", lambda records: records),),
         )
 
 
 def test_pipeline_can_stop_at_an_ordered_stage() -> None:
     pipeline = Pipeline(
         name="linear",
-        nodes=(
-            SourceNode("source", lambda: ()),
-            PipelineNode("map", lambda records: records),
-            PipelineNode("filter", lambda records: records),
+        input=Input("source", lambda: ()),
+        stages=(
+            Stage("map", lambda records: records),
+            Stage("filter", lambda records: records),
         ),
         summary="three stages",
     )
 
-    assert pipeline.node_count == 3
-    assert [node.name for node in pipeline.through_node(1).nodes] == ["source", "map"]
-    assert [node.name for node in pipeline.through_node_named("filter").nodes] == [
-        "source",
-        "map",
-        "filter",
-    ]
-    with pytest.raises(ValueError, match="no node named 'missing'"):
-        pipeline.through_node_named("missing")
-    with pytest.raises(ValueError, match="node index -1 is out of range"):
-        pipeline.through_node(-1)
+    assert len(pipeline.stages) == 2
+    assert pipeline.input_only().input.name == "source"
+    assert pipeline.input_only().stages == ()
+    assert [
+        stage.name for stage in pipeline.through_stage_count(1).stages
+    ] == ["map"]
+    assert [
+        stage.name for stage in pipeline.through_stage_named("filter").stages
+    ] == ["map", "filter"]
+    with pytest.raises(ValueError, match="no stage named 'missing'"):
+        pipeline.through_stage_named("missing")
+    with pytest.raises(ValueError, match="stage count -1 is out of range"):
+        pipeline.through_stage_count(-1)
 
 
 def test_run_starts_lazily(tmp_path: Path) -> None:
@@ -171,7 +161,7 @@ def test_run_starts_lazily(tmp_path: Path) -> None:
 
     stream = run_pipeline(
         _context(tmp_path),
-        Pipeline(name="lazy", nodes=(SourceNode("source", open_records),)),
+        Pipeline(name="lazy", input=Input("source", open_records)),
         observer=observer,
     )
 
@@ -185,27 +175,6 @@ def test_run_starts_lazily(tmp_path: Path) -> None:
     stream.close()
 
 
-def test_source_pipeline_rejects_a_seed(tmp_path: Path) -> None:
-    pipeline = Pipeline(name="source", nodes=(SourceNode("source", lambda: [1]),))
-
-    with pytest.raises(ValueError, match="cannot use both a source and a seed"):
-        list(run_pipeline(_context(tmp_path), pipeline, seed=[2]))
-
-
-def test_stage_pipeline_requires_and_consumes_a_seed(tmp_path: Path) -> None:
-    pipeline = Pipeline(
-        name="seeded",
-        nodes=(
-            PipelineNode("double", lambda records: (value * 2 for value in records)),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="requires a source or a seed"):
-        list(run_pipeline(_context(tmp_path), pipeline))
-
-    assert list(run_pipeline(_context(tmp_path), pipeline, seed=[1, 2])) == [2, 4]
-
-
 def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
     observer = _CollectingObserver()
 
@@ -217,10 +186,10 @@ def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
     pipeline = Pipeline(
         name="numbers",
         summary="filter then scale",
-        nodes=(
-            SourceNode("source", lambda: [1, 2, 3]),
-            PipelineNode("odd", odd),
-            PipelineNode("scale", lambda records: (value * 10 for value in records)),
+        input=Input("source", lambda: [1, 2, 3]),
+        stages=(
+            Stage("odd", odd),
+            Stage("scale", lambda records: (value * 10 for value in records)),
         ),
     )
 
@@ -276,10 +245,8 @@ def test_custom_progress_belongs_to_the_reporting_stage(
 
     pipeline = Pipeline(
         name="progress",
-        nodes=(
-            SourceNode("source", lambda: [1, 2]),
-            PipelineNode("annotate", annotate, progress=progress),
-        ),
+        input=Input("source", lambda: [1, 2]),
+        stages=(Stage("annotate", annotate, progress=progress),),
     )
 
     assert list(run_pipeline(_context(tmp_path), pipeline, observer=observer)) == [1, 2]
@@ -301,7 +268,7 @@ def test_unobserved_pipeline_does_not_read_progress(tmp_path: Path) -> None:
 
     pipeline = Pipeline(
         name="unobserved",
-        nodes=(SourceNode("source", lambda: [1, 2], progress=fail_progress),),
+        input=Input("source", lambda: [1, 2], progress=fail_progress),
     )
 
     assert list(run_pipeline(_context(tmp_path), pipeline)) == [1, 2]
@@ -319,9 +286,9 @@ def test_pipeline_only_observation_skips_node_instrumentation(tmp_path: Path) ->
     pipeline = Pipeline(
         name="pipeline-only",
         summary="two stages",
-        nodes=(
-            SourceNode("source", lambda: [1, 2], progress=fail_progress),
-            PipelineNode("double", lambda records: (value * 2 for value in records)),
+        input=Input("source", lambda: [1, 2], progress=fail_progress),
+        stages=(
+            Stage("double", lambda records: (value * 2 for value in records)),
         ),
     )
 
@@ -351,7 +318,7 @@ def test_pipeline_only_observation_keeps_pipeline_heartbeats(tmp_path: Path) -> 
         )
         yield 1
 
-    pipeline = Pipeline(name="heartbeat", nodes=(SourceNode("source", source),))
+    pipeline = Pipeline(name="heartbeat", input=Input("source", source))
 
     assert list(run_pipeline(context, pipeline)) == [1]
     assert observer.pipeline_progress_events
@@ -374,7 +341,7 @@ def test_pipeline_only_observation_without_heartbeats_skips_progress_thread(
     )
     pipeline = Pipeline(
         name="pipeline-only",
-        nodes=(SourceNode("source", lambda: [1, 2]),),
+        input=Input("source", lambda: [1, 2]),
     )
 
     assert list(run_pipeline(context, pipeline)) == [1, 2]
@@ -390,7 +357,7 @@ def test_explicit_observer_includes_nodes_in_pipeline_only_context(
     observer = _CollectingObserver()
     context = _context(tmp_path)
     context.observe_node_events = False
-    pipeline = Pipeline(name="explicit", nodes=(SourceNode("source", lambda: [1]),))
+    pipeline = Pipeline(name="explicit", input=Input("source", lambda: [1]))
 
     assert list(run_pipeline(context, pipeline, observer=observer)) == [1]
 
@@ -404,7 +371,7 @@ def test_context_snapshots_node_observation_for_lazy_execution(tmp_path: Path) -
     context.runtime.pipeline_observer = observer
     context.runtime.observe_node_events = False
     context = PipelineContext(context.runtime)
-    pipeline = Pipeline(name="lazy-detail", nodes=(SourceNode("source", lambda: [1]),))
+    pipeline = Pipeline(name="lazy-detail", input=Input("source", lambda: [1]))
     stream = run_pipeline(context, pipeline)
 
     context.runtime.observe_node_events = True
@@ -437,10 +404,8 @@ def test_progress_reader_is_sampled_while_another_node_is_active(
 
     pipeline = Pipeline(
         name="nested-progress",
-        nodes=(
-            SourceNode("source", lambda: [1, 2], progress=source_progress),
-            PipelineNode("slow", slow_stage),
-        ),
+        input=Input("source", lambda: [1, 2], progress=source_progress),
+        stages=(Stage("slow", slow_stage),),
     )
 
     assert list(run_pipeline(_context(tmp_path), pipeline, observer=observer)) == [1, 2]
@@ -469,7 +434,7 @@ def test_progress_failure_still_finishes_pipeline_lifecycle(
 
     pipeline = Pipeline(
         name="progress-failure",
-        nodes=(SourceNode("source", source, progress=fail_progress),),
+        input=Input("source", source, progress=fail_progress),
     )
 
     with pytest.raises(RuntimeError, match="Pipeline progress failed"):
@@ -498,7 +463,7 @@ def test_progress_failure_does_not_mask_pipeline_failure(
 
     pipeline = Pipeline(
         name="two-failures",
-        nodes=(SourceNode("source", fail_pipeline, progress=fail_progress),),
+        input=Input("source", fail_pipeline, progress=fail_progress),
     )
 
     with pytest.raises(ValueError, match="pipeline failed"):
@@ -539,7 +504,7 @@ def test_finish_observer_failures_do_not_mask_pipeline_failure(
         raise ValueError("source failed")
         yield
 
-    pipeline = Pipeline(name="failure", nodes=(SourceNode("source", fail),))
+    pipeline = Pipeline(name="failure", input=Input("source", fail))
 
     with pytest.raises(ValueError, match="source failed"):
         list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
@@ -556,7 +521,7 @@ def test_finish_observer_failure_is_reported_after_success(
         if isinstance(event, event_type):
             raise RuntimeError("observer failed")
 
-    pipeline = Pipeline(name="success", nodes=(SourceNode("source", lambda: [1]),))
+    pipeline = Pipeline(name="success", input=Input("source", lambda: [1]))
 
     with pytest.raises(RuntimeError, match="observer failed"):
         list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
@@ -582,7 +547,7 @@ def test_live_progress_samples_emitted_items(
         )
         yield 2
 
-    pipeline = Pipeline(name="sampled", nodes=(SourceNode("source", source),))
+    pipeline = Pipeline(name="sampled", input=Input("source", source))
 
     assert list(run_pipeline(context, pipeline, observer=observer)) == [1, 2]
 
@@ -602,7 +567,7 @@ def test_heartbeat_reports_current_item_count(tmp_path: Path) -> None:
         )
         yield 2
 
-    pipeline = Pipeline(name="heartbeat", nodes=(SourceNode("source", source),))
+    pipeline = Pipeline(name="heartbeat", input=Input("source", source))
 
     assert list(run_pipeline(context, pipeline, observer=observer)) == [1, 2]
     heartbeats = [event for event in observer.progress_events if event.heartbeat]
@@ -690,10 +655,10 @@ def test_partial_close_closes_stages_in_reverse_order(tmp_path: Path) -> None:
 
     pipeline = Pipeline(
         name="closing",
-        nodes=(
-            SourceNode("source", source),
-            PipelineNode("first", lambda records: closing_stage(records, "first")),
-            PipelineNode("second", lambda records: closing_stage(records, "second")),
+        input=Input("source", source),
+        stages=(
+            Stage("first", lambda records: closing_stage(records, "first")),
+            Stage("second", lambda records: closing_stage(records, "second")),
         ),
     )
 
@@ -713,61 +678,31 @@ def test_partial_close_closes_stages_in_reverse_order(tmp_path: Path) -> None:
     assert observer.pipeline_events[-1].output_items == 1
 
 
-@pytest.mark.parametrize(
-    ("seed", "expected"),
-    [
-        (None, []),
-        ([1, 2], [1, 2]),
-    ],
-)
-def test_empty_pipeline_is_a_valid_boundary(
+@pytest.mark.parametrize("input_output", [True, False])
+def test_none_pipeline_output_is_rejected(
     tmp_path: Path,
-    seed: list[int] | None,
-    expected: list[int],
+    input_output: bool,
 ) -> None:
     observer = _CollectingObserver()
-
-    output = list(
-        run_pipeline(
-            _context(tmp_path),
-            Pipeline(name="empty", nodes=()),
-            seed=seed,
-            observer=observer,
-        )
-    )
-
-    assert output == expected
-    assert observer.node_started == []
-    assert observer.node_events == []
-    assert observer.pipeline_events[-1].output_items == len(expected)
-
-
-@pytest.mark.parametrize("source_node", [True, False])
-def test_none_node_output_is_rejected(
-    tmp_path: Path,
-    source_node: bool,
-) -> None:
-    observer = _CollectingObserver()
-    if source_node:
+    if input_output:
         pipeline = Pipeline(
             name="none",
-            nodes=(SourceNode("broken", lambda: None),),  # type: ignore[arg-type]
+            input=Input("broken", lambda: None),  # type: ignore[arg-type]
         )
-        seed = None
     else:
         pipeline = Pipeline(
             name="none",
-            nodes=(
-                PipelineNode("broken", lambda records: None),  # type: ignore[arg-type]
+            input=Input("input", lambda: [1]),
+            stages=(
+                Stage("broken", lambda records: None),  # type: ignore[arg-type]
             ),
         )
-        seed = [1]
 
     with pytest.raises(
         TypeError,
         match="Pipeline node 'broken' returned None; return an iterable",
     ):
-        list(run_pipeline(_context(tmp_path), pipeline, seed=seed, observer=observer))
+        list(run_pipeline(_context(tmp_path), pipeline, observer=observer))
 
     event = observer.node_events[-1]
     assert event.node_name == "broken"
@@ -799,10 +734,8 @@ def test_stage_failures_reach_node_and_pipeline_events(
 
     pipeline = Pipeline(
         name="failure",
-        nodes=(
-            SourceNode("source", lambda: [1, 2, 3]),
-            PipelineNode("fail", fail),
-        ),
+        input=Input("source", lambda: [1, 2, 3]),
+        stages=(Stage("fail", fail),),
     )
 
     with pytest.raises(type(error)):
@@ -832,7 +765,7 @@ def test_node_cleanup_does_not_replace_processing_failure(
     stream = _ProcessingAndCleanupFailure(processing_error)
     pipeline = Pipeline(
         name="failure",
-        nodes=(SourceNode("source", lambda: stream),),
+        input=Input("source", lambda: stream),
     )
 
     with pytest.raises(type(processing_error), match=str(processing_error)):
@@ -860,7 +793,7 @@ def test_unobserved_cleanup_does_not_replace_processing_failure(
     stream = _ProcessingAndCleanupFailure(processing_error)
     pipeline = Pipeline(
         name="failure",
-        nodes=(SourceNode("source", lambda: stream),),
+        input=Input("source", lambda: stream),
     )
 
     with pytest.raises(type(processing_error), match=str(processing_error)):
@@ -881,7 +814,7 @@ def test_node_cleanup_failure_emits_failed_finish_event(tmp_path: Path) -> None:
 
     pipeline = Pipeline(
         name="cleanup-failure",
-        nodes=(SourceNode("source", source),),
+        input=Input("source", source),
     )
 
     execution = run_pipeline(_context(tmp_path), pipeline, observer=observer)
@@ -909,9 +842,9 @@ def test_unobserved_run_uses_the_fast_path(
     )
     pipeline = Pipeline(
         name="fast",
-        nodes=(
-            SourceNode("source", lambda: [1, 2]),
-            PipelineNode("double", lambda records: (value * 2 for value in records)),
+        input=Input("source", lambda: [1, 2]),
+        stages=(
+            Stage("double", lambda records: (value * 2 for value in records)),
         ),
     )
 

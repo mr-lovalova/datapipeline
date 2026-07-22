@@ -18,9 +18,8 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
     RunStatus,
 )
-from datapipeline.execution.node import Node, NodeProgressReader, SourceNode
 from datapipeline.execution.observer import PipelineObserver, ignore_pipeline_event
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Input, Pipeline, ProgressReader, Stage
 
 
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60.0
@@ -39,7 +38,7 @@ class _NodeProgressContext:
 class _NodeProgressState:
     started_at: float
     completed: int
-    reader: NodeProgressReader | None
+    reader: ProgressReader | None
     last_live_progress: ProgressSnapshot | None = None
 
 
@@ -85,7 +84,7 @@ class _RunProgress:
     def start_node(
         self,
         node: _NodeProgressContext,
-        reader: NodeProgressReader | None,
+        reader: ProgressReader | None,
     ) -> _NodeProgressState:
         now = time.perf_counter()
         state = _NodeProgressState(
@@ -195,20 +194,18 @@ def run_pipeline(
     context: PipelineContext,
     pipeline: Pipeline,
     *,
-    seed: Iterable[Any] | None = None,
     observer: PipelineObserver | None = None,
 ) -> Generator[Any, None, None]:
-    """Run a source followed by ordered stream stages."""
+    """Run a pipeline input followed by its ordered stages."""
 
     active_observer = observer if observer is not None else context.pipeline_observer
     if active_observer is None or active_observer is _NOOP_OBSERVER:
-        yield from _run_unobserved(pipeline, seed)
+        yield from _run_unobserved(pipeline)
         return
 
     yield from _run_observed(
         context,
         pipeline,
-        seed,
         active_observer,
         observe_nodes=observer is not None or context.observe_node_events,
     )
@@ -216,9 +213,8 @@ def run_pipeline(
 
 def _run_unobserved(
     pipeline: Pipeline,
-    seed: Iterable[Any] | None,
 ) -> Iterator[Any]:
-    stream = _build_stream(pipeline, seed, observer=None, progress=None)
+    stream = _build_stream(pipeline, observer=None, progress=None)
     try:
         yield from stream
     finally:
@@ -228,7 +224,6 @@ def _run_unobserved(
 def _run_observed(
     context: PipelineContext,
     pipeline: Pipeline,
-    seed: Iterable[Any] | None,
     observer: PipelineObserver,
     observe_nodes: bool,
 ) -> Iterator[Any]:
@@ -266,7 +261,6 @@ def _run_observed(
             progress.start()
         stream = _build_stream(
             pipeline,
-            seed,
             observer=observer if observe_nodes else None,
             progress=progress if observe_nodes else None,
         )
@@ -336,46 +330,21 @@ def _run_observed(
 
 def _build_stream(
     pipeline: Pipeline,
-    seed: Iterable[Any] | None,
     observer: PipelineObserver | None,
     progress: _RunProgress | None,
 ) -> Iterable[Any]:
-    nodes = pipeline.nodes
-    stream: Iterable[Any]
-    if nodes and isinstance(nodes[0], SourceNode):
-        if seed is not None:
-            raise ValueError(
-                f"Pipeline '{pipeline.name}' cannot use both a source and a seed."
-            )
+    stream: Iterable[Any] = _wrap_node(
+        pipeline.name,
+        pipeline.input,
+        0,
+        upstream=None,
+        observer=observer,
+        progress=progress,
+    )
+    for index, stage in enumerate(pipeline.stages, start=1):
         stream = _wrap_node(
             pipeline.name,
-            nodes[0],
-            0,
-            upstream=None,
-            observer=observer,
-            progress=progress,
-        )
-        remaining = nodes[1:]
-    else:
-        if seed is None:
-            if nodes:
-                raise ValueError(
-                    f"Pipeline '{pipeline.name}' requires a source or a seed."
-                )
-            stream = ()
-        else:
-            stream = seed
-        remaining = nodes
-
-    offset = len(nodes) - len(remaining)
-    for index, node in enumerate(remaining, start=offset):
-        if isinstance(node, SourceNode):
-            raise ValueError(
-                f"Pipeline '{pipeline.name}' source node '{node.name}' must be first."
-            )
-        stream = _wrap_node(
-            pipeline.name,
-            node,
+            stage,
             index,
             upstream=stream,
             observer=observer,
@@ -386,7 +355,7 @@ def _build_stream(
 
 def _wrap_node(
     pipeline_name: str,
-    node: Node,
+    node: Input | Stage,
     node_index: int,
     upstream: Iterable[Any] | None,
     observer: PipelineObserver | None,
@@ -404,16 +373,16 @@ def _wrap_node(
     )
 
 
-def _open_node(node: Node, upstream: Iterable[Any] | None) -> Iterable[Any]:
-    if isinstance(node, SourceNode):
+def _open_node(node: Input | Stage, upstream: Iterable[Any] | None) -> Iterable[Any]:
+    if isinstance(node, Input):
         return node.open()
     if upstream is None:
-        raise RuntimeError(f"Pipeline node '{node.name}' has no input stream.")
+        raise RuntimeError(f"Pipeline stage '{node.name}' has no input stream.")
     return node.apply(iter(upstream))
 
 
 def _unobserved_node(
-    node: Node,
+    node: Input | Stage,
     upstream: Iterable[Any] | None,
 ) -> Iterator[Any]:
     produced: Iterable[Any] = ()
@@ -446,7 +415,7 @@ def _unobserved_node(
 
 def _observed_node(
     pipeline_name: str,
-    node: Node,
+    node: Input | Stage,
     node_index: int,
     upstream: Iterable[Any] | None,
     observer: PipelineObserver,

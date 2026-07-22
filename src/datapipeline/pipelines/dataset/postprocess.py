@@ -5,7 +5,7 @@ from datapipeline.artifacts.models import ListVectorMetadataEntry, VectorMetadat
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode
+from datapipeline.execution.pipeline import Stage
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler
 from datapipeline.transforms.vector.drop.horizontal import (
     DropSamplesTransform,
@@ -26,12 +26,12 @@ from datapipeline.transforms.vector.normalize import (
 class PostprocessPlan:
     feature_entries: tuple[VectorMetadataEntry, ...]
     target_entries: tuple[VectorMetadataEntry, ...]
-    nodes: tuple[PipelineNode, ...]
+    stages: tuple[Stage, ...]
 
     def apply(self, samples: Iterator[Sample]) -> Iterator[Sample]:
         stream = samples
-        for node in self.nodes:
-            stream = iter(node.apply(stream))
+        for stage in self.stages:
+            stream = iter(stage.apply(stream))
         return stream
 
 
@@ -56,7 +56,7 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
     config = context.runtime.dataset.postprocess
     feature_entries = metadata.features
     target_entries = metadata.targets
-    nodes: list[PipelineNode] = []
+    stages: list[Stage] = []
 
     if config.columns.features is not None:
         policy = config.columns.features
@@ -76,8 +76,8 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
         )
         if not feature_entries:
             raise ValueError("Feature selection removed every metadata entry.")
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="select_features",
                 apply=feature_selection.apply,
             )
@@ -101,15 +101,15 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
         )
         if not target_entries:
             raise ValueError("Target selection removed every metadata entry.")
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="select_targets",
                 apply=target_selection.apply,
             )
         )
 
-    nodes.append(
-        PipelineNode(
+    stages.append(
+        Stage(
             name="normalize_features",
             apply=NormalizeFeaturesTransform(feature_entries).apply,
         )
@@ -117,13 +117,13 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
 
     if target_entries:
         target_normalizer = NormalizeTargetsTransform(target_entries).apply
-        target_node_name = "normalize_targets"
+        target_stage_name = "normalize_targets"
     else:
         target_normalizer = _reject_undeclared_targets
-        target_node_name = "reject_undeclared_targets"
-    nodes.append(
-        PipelineNode(
-            name=target_node_name,
+        target_stage_name = "reject_undeclared_targets"
+    stages.append(
+        Stage(
+            name=target_stage_name,
             apply=target_normalizer,
         )
     )
@@ -134,8 +134,8 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
             config.samples.features.threshold,
             config.samples.features.ids,
         )
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="filter_samples_by_features",
                 apply=feature_filter.apply,
             )
@@ -147,8 +147,8 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
             config.samples.targets.threshold,
             config.samples.targets.ids,
         )
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="filter_samples_by_targets",
                 apply=target_filter.apply,
             )
@@ -157,7 +157,7 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
     return PostprocessPlan(
         feature_entries=feature_entries,
         target_entries=target_entries,
-        nodes=tuple(nodes),
+        stages=tuple(stages),
     )
 
 

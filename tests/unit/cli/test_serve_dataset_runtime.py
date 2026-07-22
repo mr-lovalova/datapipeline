@@ -14,8 +14,7 @@ from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSpl
 from datapipeline.config.preview import PreviewStage
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.execution.node import PipelineNode, SourceNode
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Input, Pipeline, Stage
 from datapipeline.io.dataset_table import DatasetTable
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
@@ -130,12 +129,12 @@ def _serve(
 def _sample_preview_pipeline():
     return Pipeline(
         name="dataset",
-        nodes=(
-            SourceNode(
-                name="assemble_samples",
-                open=lambda: iter(["sample"]),
-            ),
-            PipelineNode(
+        input=Input(
+            name="assemble_samples",
+            open=lambda: iter(["sample"]),
+        ),
+        stages=(
+            Stage(
                 name="normalize_features",
                 apply=lambda stream: (f"post:{item}" for item in stream),
             ),
@@ -146,20 +145,20 @@ def _sample_preview_pipeline():
 def _record_preview_pipeline():
     return Pipeline(
         name="stream:prices",
-        nodes=(
-            SourceNode(
-                name="open_source",
-                open=lambda: iter(["source"]),
-            ),
-            PipelineNode(
+        input=Input(
+            name="open_source",
+            open=lambda: iter(["source"]),
+        ),
+        stages=(
+            Stage(
                 name="map_records",
                 apply=lambda rows: (f"mapped:{row}" for row in rows),
             ),
-            PipelineNode(
+            Stage(
                 name="floor_time",
                 apply=lambda rows: (f"transformed:{row}" for row in rows),
             ),
-            PipelineNode(
+            Stage(
                 name="order_records",
                 apply=lambda rows: (f"records:{row}" for row in rows),
             ),
@@ -375,7 +374,7 @@ def test_samples_preview_writes_schema_aware_parquet(monkeypatch, tmp_path):
     )
     pipeline = Pipeline(
         name="dataset",
-        nodes=(SourceNode(name="assemble_samples", open=lambda: iter((sample,))),),
+        input=Input(name="assemble_samples", open=lambda: iter((sample,))),
     )
     monkeypatch.setattr(
         "datapipeline.operations.runtime.dataset.resolve_window_bounds",

@@ -28,7 +28,7 @@ from datapipeline.operations.persistence import (
     RuntimeOutput,
     RuntimeOutputBatch,
 )
-from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
+from datapipeline.pipelines.dataset.postprocess import build_postprocess_plan
 from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
     run_dataset_pipeline,
@@ -153,21 +153,21 @@ def _record_preview_stream(
             upstream = build_stream_pipeline(context, stream.input_stream)
             return run_pipeline(
                 context,
-                pipeline.through_node(upstream.node_count - 1),
+                pipeline.through_stage_count(len(upstream.stages)),
             )
-        return run_pipeline(context, pipeline.through_node(0))
+        return run_pipeline(context, pipeline.input_only())
     if preview == "canonical":
         if isinstance(stream, DerivedRuntimeStream):
             upstream = build_stream_pipeline(context, stream.input_stream)
             return run_pipeline(
                 context,
-                pipeline.through_node(upstream.node_count - 1),
+                pipeline.through_stage_count(len(upstream.stages)),
             )
         if isinstance(stream, (AlignedRuntimeStream, BroadcastRuntimeStream)):
             node_name = "combine_records"
         else:
             node_name = "map_records"
-        return run_pipeline(context, pipeline.through_node_named(node_name))
+        return run_pipeline(context, pipeline.through_stage_named(node_name))
     if preview == "records":
         return run_pipeline(context, pipeline)
     raise ValueError(f"Preview stage {preview!r} does not produce records")
@@ -201,7 +201,7 @@ def _serve_preview(
             sample_keys=sample_keys,
         )
         selected_pipeline = (
-            dataset_pipeline.through_node(0)
+            dataset_pipeline.input_only()
             if preview == "samples"
             else dataset_pipeline
         )

@@ -12,7 +12,7 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import OperationProgressTracker
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.runtime import Runtime
 from datapipeline.domain.series_id import base_id as _base_series_id
 from datapipeline.transforms.utils import is_missing

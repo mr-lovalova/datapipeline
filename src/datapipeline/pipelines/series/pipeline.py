@@ -6,10 +6,9 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.series.nodes import (
+from datapipeline.pipelines.series.stages import (
     order_series,
     project_series,
     sequence_series,
@@ -44,15 +43,18 @@ def build_series_pipeline(
     group_by_cadence: str | None = None,
 ) -> Pipeline:
     record_pipeline = build_stream_pipeline(context, cfg.stream)
-    record_nodes = tuple(
-        replace(node, name=f"{record_pipeline.name}/{node.name}")
-        for node in record_pipeline.nodes
-    )
     return Pipeline(
         name=f"series:{cfg.id}",
-        nodes=(
-            *record_nodes,
-            *build_series_nodes(
+        input=replace(
+            record_pipeline.input,
+            name=f"{record_pipeline.name}/{record_pipeline.input.name}",
+        ),
+        stages=(
+            *(
+                replace(stage, name=f"{record_pipeline.name}/{stage.name}")
+                for stage in record_pipeline.stages
+            ),
+            *build_series_stages(
                 context,
                 cfg,
                 sample_keys=sample_keys,
@@ -63,19 +65,19 @@ def build_series_pipeline(
     )
 
 
-def build_series_nodes(
+def build_series_stages(
     context: PipelineContext,
     config: SeriesConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
-) -> tuple[PipelineNode, ...]:
+) -> tuple[Stage, ...]:
     stream = require_runtime_stream(context.runtime, config.stream)
     projector = SeriesProjector(
         stream.partition_by,
         SampleKeyContract(sample_keys),
     )
-    nodes = [
-        PipelineNode(
+    stages = [
+        Stage(
             name="project_series",
             apply=partial(
                 project_series,
@@ -85,16 +87,16 @@ def build_series_nodes(
         ),
     ]
     if config.sequence is not None:
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="sequence_series",
                 apply=partial(sequence_series, config.sequence),
             )
         )
     if stream.partition_by or sample_keys:
         sort_progress = SortProgress()
-        nodes.append(
-            PipelineNode(
+        stages.append(
+            Stage(
                 name="order_series",
                 apply=partial(
                     order_series,
@@ -106,4 +108,4 @@ def build_series_nodes(
                 progress=sort_progress.snapshot,
             ),
         )
-    return tuple(nodes)
+    return tuple(stages)

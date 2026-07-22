@@ -1,6 +1,30 @@
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from typing import Any, TypeAlias
 
-from datapipeline.execution.node import Node, SourceNode
+from datapipeline.execution.events import ProgressSnapshot
+
+
+StageOp: TypeAlias = Callable[[Iterator[Any]], Iterable[Any]]
+ProgressReader: TypeAlias = Callable[[int], ProgressSnapshot]
+
+
+@dataclass(frozen=True)
+class Input:
+    """Open the first stream in a pipeline."""
+
+    name: str
+    open: Callable[[], Iterable[Any]]
+    progress: ProgressReader | None = None
+
+
+@dataclass(frozen=True)
+class Stage:
+    """Apply one ordered transformation to a stream."""
+
+    name: str
+    apply: StageOp
+    progress: ProgressReader | None = None
 
 
 @dataclass(frozen=True)
@@ -8,39 +32,36 @@ class Pipeline:
     """A linear, lazily evaluated record pipeline."""
 
     name: str
-    nodes: tuple[Node, ...]
+    input: Input
+    stages: tuple[Stage, ...] = ()
     summary: str | None = None
 
     def __post_init__(self) -> None:
-        names = [node.name for node in self.nodes]
+        names = [self.input.name, *(stage.name for stage in self.stages)]
         if len(names) != len(set(names)):
-            raise ValueError(f"Pipeline '{self.name}' node names must be unique.")
-        for index, node in enumerate(self.nodes):
-            if isinstance(node, SourceNode) and index != 0:
-                raise ValueError(
-                    f"Pipeline '{self.name}' source node '{node.name}' must be first."
-                )
-
-    @property
-    def node_count(self) -> int:
-        return len(self.nodes)
-
-    def index_of(self, node_name: str) -> int:
-        for index, node in enumerate(self.nodes):
-            if node.name == node_name:
-                return index
-        raise ValueError(f"Pipeline '{self.name}' has no node named '{node_name}'.")
-
-    def through_node_named(self, node_name: str) -> "Pipeline":
-        return self.through_node(self.index_of(node_name))
-
-    def through_node(self, node_index: int) -> "Pipeline":
-        if not 0 <= node_index < len(self.nodes):
             raise ValueError(
-                f"Pipeline '{self.name}' node index {node_index} is out of range."
+                f"Pipeline '{self.name}' input and stage names must be unique."
+            )
+
+    def input_only(self) -> "Pipeline":
+        return self.through_stage_count(0)
+
+    def through_stage_named(self, stage_name: str) -> "Pipeline":
+        for index, stage in enumerate(self.stages, start=1):
+            if stage.name == stage_name:
+                return self.through_stage_count(index)
+        raise ValueError(
+            f"Pipeline '{self.name}' has no stage named '{stage_name}'."
+        )
+
+    def through_stage_count(self, stage_count: int) -> "Pipeline":
+        if not 0 <= stage_count <= len(self.stages):
+            raise ValueError(
+                f"Pipeline '{self.name}' stage count {stage_count} is out of range."
             )
         return Pipeline(
             name=self.name,
-            nodes=self.nodes[: node_index + 1],
+            input=self.input,
+            stages=self.stages[:stage_count],
             summary=self.summary,
         )

@@ -5,8 +5,8 @@ from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.dataset.postprocess import apply_postprocess
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from tests.series_helpers import register_series

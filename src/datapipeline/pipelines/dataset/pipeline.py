@@ -11,15 +11,14 @@ from datapipeline.config.dataset.split import DatasetFold
 from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode, SourceNode
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.dataset.nodes import (
+from datapipeline.pipelines.dataset.postprocess import (
     build_postprocess_plan,
     select_fold_samples,
 )
 from datapipeline.pipelines.dataset.split import build_labeler
-from datapipeline.pipelines.sample.source import build_sample_source_node
+from datapipeline.pipelines.sample.input import build_sample_input
 from datapipeline.transforms.vector.scaler import SampleScaler
 
 
@@ -55,17 +54,15 @@ def build_dataset_pipeline(
     postprocess = build_postprocess_plan(context)
     return Pipeline(
         name="dataset",
-        nodes=(
-            build_sample_source_node(
-                context,
-                feature_configs,
-                group_by_cadence,
-                target_configs,
-                rectangular,
-                sample_keys,
-            ),
-            *postprocess.nodes,
+        input=build_sample_input(
+            context,
+            feature_configs,
+            group_by_cadence,
+            target_configs,
+            rectangular,
+            sample_keys,
         ),
+        stages=postprocess.stages,
     )
 
 
@@ -88,17 +85,17 @@ def run_scaled_dataset_pipeline(
         context,
         Pipeline(
             name="dataset",
-            nodes=(
-                build_sample_source_node(
-                    context,
-                    feature_configs,
-                    group_by_cadence,
-                    target_configs,
-                    rectangular,
-                    sample_keys,
-                ),
-                PipelineNode(name="scale_samples", apply=scaler.apply),
-                *postprocess.nodes,
+            input=build_sample_input(
+                context,
+                feature_configs,
+                group_by_cadence,
+                target_configs,
+                rectangular,
+                sample_keys,
+            ),
+            stages=(
+                Stage(name="scale_samples", apply=scaler.apply),
+                *postprocess.stages,
             ),
         ),
     )
@@ -128,16 +125,16 @@ def run_fold_dataset_pipeline(
             f"Dataset fold {fold.id!r} does not contain selected labels: {unknown}."
         )
 
-    nodes: list[PipelineNode | SourceNode] = [
-        build_sample_source_node(
-            context,
-            feature_configs,
-            group_by_cadence,
-            target_configs,
-            rectangular,
-            sample_keys,
-        ),
-        PipelineNode(
+    pipeline_input = build_sample_input(
+        context,
+        feature_configs,
+        group_by_cadence,
+        target_configs,
+        rectangular,
+        sample_keys,
+    )
+    stages = [
+        Stage(
             name="select_fold_samples",
             apply=partial(select_fold_samples, build_labeler(split), included),
         ),
@@ -151,13 +148,17 @@ def run_fold_dataset_pipeline(
             feature_configs,
             target_configs,
         )
-        nodes.append(PipelineNode(name="scale_samples", apply=scaler.apply))
+        stages.append(Stage(name="scale_samples", apply=scaler.apply))
 
     postprocess = build_postprocess_plan(context)
-    nodes.extend(postprocess.nodes)
+    stages.extend(postprocess.stages)
     return run_pipeline(
         context,
-        Pipeline(name=f"dataset:{fold.id}", nodes=tuple(nodes)),
+        Pipeline(
+            name=f"dataset:{fold.id}",
+            input=pipeline_input,
+            stages=tuple(stages),
+        ),
     )
 
 

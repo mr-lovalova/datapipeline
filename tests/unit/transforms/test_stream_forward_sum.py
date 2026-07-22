@@ -8,8 +8,7 @@ import pytest
 
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import PipelineNode, SourceNode
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Input, Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.runtime import Runtime
 from datapipeline.transforms.stream.forward_sum import ForwardSumTransform
@@ -191,10 +190,8 @@ def test_pipeline_closes_source_when_forward_sum_output_is_closed(
     transform = ForwardSumTransform("value", 2, (), "forward")
     pipeline = Pipeline(
         name="forward",
-        nodes=(
-            SourceNode("source", source),
-            PipelineNode("forward_sum", transform.apply),
-        ),
+        input=Input("source", source),
+        stages=(Stage("forward_sum", transform.apply),),
     )
 
     output = run_pipeline(PipelineContext(runtime), pipeline)

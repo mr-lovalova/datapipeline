@@ -10,12 +10,12 @@ from datapipeline.domain.series import SeriesRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.series.nodes import (
+from datapipeline.pipelines.series.stages import (
     SeriesSequencer,
     project_series,
     sequence_series,
 )
-from datapipeline.pipelines.series.pipeline import build_series_nodes
+from datapipeline.pipelines.series.pipeline import build_series_stages
 from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.runtime import Runtime, SourceRuntimeStream
 
@@ -63,8 +63,8 @@ def _series_record(
     )
 
 
-def test_series_nodes_sequence_without_scaling(tmp_path) -> None:
-    nodes = build_series_nodes(
+def test_series_stages_sequence_without_scaling(tmp_path) -> None:
+    stages = build_series_stages(
         _context(tmp_path),
         SeriesConfig(
             stream="stream",
@@ -76,34 +76,34 @@ def test_series_nodes_sequence_without_scaling(tmp_path) -> None:
         group_by_cadence="1h",
     )
 
-    assert [node.name for node in nodes] == [
+    assert [stage.name for stage in stages] == [
         "project_series",
         "sequence_series",
     ]
 
 
-def test_series_nodes_omit_disabled_stages(tmp_path) -> None:
-    nodes = build_series_nodes(
+def test_series_stages_omit_disabled_stages(tmp_path) -> None:
+    stages = build_series_stages(
         _context(tmp_path),
         SeriesConfig(stream="stream", id="x", field="value"),
     )
 
-    assert [node.name for node in nodes] == ["project_series"]
+    assert [stage.name for stage in stages] == ["project_series"]
 
 
-def test_partitioned_series_nodes_include_ordering(tmp_path) -> None:
-    nodes = build_series_nodes(
+def test_partitioned_series_stages_include_ordering(tmp_path) -> None:
+    stages = build_series_stages(
         _context(tmp_path, partition_by=("symbol",)),
         SeriesConfig(stream="stream", id="x", field="value"),
         sample_keys=("symbol",),
         group_by_cadence="1h",
     )
 
-    assert [node.name for node in nodes] == [
+    assert [stage.name for stage in stages] == [
         "project_series",
         "order_series",
     ]
-    assert nodes[-1].progress is not None
+    assert stages[-1].progress is not None
 
 
 def test_sequence_series_builds_strided_windows() -> None:

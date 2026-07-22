@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 from datapipeline.domain.stream import RecordStream
 from datapipeline.execution.events import ProgressResource, ProgressSnapshot
-from datapipeline.execution.node import NodeProgressReader
+from datapipeline.execution.pipeline import ProgressReader
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
 from datapipeline.sources.loader import DataLoader
@@ -15,7 +15,7 @@ from datapipeline.sources.source import Source
 
 def source_progress(
     stream_source: RecordStream[object],
-) -> NodeProgressReader | None:
+) -> ProgressReader | None:
     if not isinstance(stream_source, Source):
         return None
 

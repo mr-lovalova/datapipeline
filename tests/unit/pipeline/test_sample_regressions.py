@@ -18,7 +18,7 @@ from datapipeline.domain.series import SeriesRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.series.pipeline import run_series_pipeline
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.transforms.vector.scaler import SampleScaler, ScalerAccumulator
 from tests.series_helpers import register_series

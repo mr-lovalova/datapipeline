@@ -7,7 +7,7 @@ from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.pipelines.dataset.nodes import (
+from datapipeline.pipelines.dataset.postprocess import (
     apply_postprocess,
     build_postprocess_plan,
 )
@@ -63,12 +63,12 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
     pipeline = build_dataset_pipeline(PipelineContext(runtime), [], "1h")
 
     assert pipeline.name == "dataset"
-    assert [node.name for node in pipeline.nodes] == [
-        "assemble_samples",
+    assert pipeline.input.name == "assemble_samples"
+    assert [stage.name for stage in pipeline.stages] == [
         "normalize_features",
         "reject_undeclared_targets",
     ]
-    assert pipeline.nodes[0].progress is None
+    assert pipeline.input.progress is None
 
 
 def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
@@ -118,7 +118,7 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
 
     assert [entry.id for entry in plan.feature_entries] == ["value"]
     assert plan.target_entries == ()
-    assert [node.name for node in plan.nodes] == [
+    assert [stage.name for stage in plan.stages] == [
         "select_features",
         "normalize_features",
         "reject_undeclared_targets",

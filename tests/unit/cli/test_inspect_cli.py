@@ -11,12 +11,12 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import CoverageTask, MatrixTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.execution.node import PipelineNode
+from datapipeline.execution.pipeline import Stage
 from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime import coverage as coverage_ops
 from datapipeline.operations.runtime import matrix as matrix_ops
-from datapipeline.pipelines.dataset.nodes import PostprocessPlan
+from datapipeline.pipelines.dataset.postprocess import PostprocessPlan
 
 
 def _stats() -> VectorStatsArtifact:
@@ -116,7 +116,7 @@ def _patch_matrix(monkeypatch) -> None:
         lambda _context: PostprocessPlan(
             feature_entries=metadata.features,
             target_entries=metadata.targets,
-            nodes=(),
+            stages=(),
         ),
     )
 
@@ -279,7 +279,7 @@ def test_matrix_limit_caps_samples_after_postprocess(monkeypatch) -> None:
         lambda _context: PostprocessPlan(
             feature_entries=metadata.features,
             target_entries=metadata.targets,
-            nodes=(PipelineNode(name="drop_first", apply=drop_first),),
+            stages=(Stage(name="drop_first", apply=drop_first),),
         ),
     )
 
@@ -299,14 +299,14 @@ def test_postprocessed_matrix_keeps_headers_when_every_sample_is_dropped(
 ) -> None:
     _patch_matrix(monkeypatch)
     metadata = _metadata()
-    drop_all = PipelineNode(name="drop_all", apply=lambda _samples: iter(()))
+    drop_all = Stage(name="drop_all", apply=lambda _samples: iter(()))
     monkeypatch.setattr(
         matrix_ops,
         "build_postprocess_plan",
         lambda _context: PostprocessPlan(
             feature_entries=metadata.features,
             target_entries=metadata.targets,
-            nodes=(drop_all,),
+            stages=(drop_all,),
         ),
     )
     destination = (tmp_path / "empty-matrix.html").resolve()

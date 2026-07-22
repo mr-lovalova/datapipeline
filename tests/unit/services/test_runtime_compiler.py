@@ -349,14 +349,10 @@ combine:
     context = PipelineContext(runtime)
     pipeline = build_stream_pipeline(context, "combined")
     assert pipeline.name == "stream:combined"
-    assert [node.name for node in pipeline.nodes] == [
-        "align_inputs",
-        "combine_records",
-    ]
-    assert [node.progress is not None for node in pipeline.nodes] == [
-        False,
-        False,
-    ]
+    assert pipeline.input.name == "align_inputs"
+    assert [stage.name for stage in pipeline.stages] == ["combine_records"]
+    assert pipeline.input.progress is None
+    assert [stage.progress is not None for stage in pipeline.stages] == [False]
     input_rows = list(_record_preview_stream(context, "combined", "input"))
     assert [[record.value for record in row] for row in input_rows] == [
         [1, 10],

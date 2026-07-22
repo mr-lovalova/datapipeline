@@ -36,14 +36,14 @@ from datapipeline.execution.events import (
     PipelineStarted,
     ProgressSnapshot,
 )
-from datapipeline.execution.node import SourceNode
+from datapipeline.execution.pipeline import Input
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.series import (
     materialize_series,
 )
 from datapipeline.operations.runtime.dataset import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
-from datapipeline.pipelines.dataset.nodes import apply_postprocess
+from datapipeline.pipelines.dataset.postprocess import apply_postprocess
 from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
     run_dataset_pipeline,
@@ -56,12 +56,12 @@ from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
 )
-from datapipeline.pipelines.sample import source as sample_source
+from datapipeline.pipelines.sample import input as sample_input
 from datapipeline.pipelines.sample.keys import (
     sample_domain_key_plan,
     window_key_plan,
 )
-from datapipeline.pipelines.sample.source import open_samples
+from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     BroadcastRuntimeStream,
@@ -396,16 +396,13 @@ def test_source_pipeline_carries_source_summary(tmp_path: Path) -> None:
 
     assert pipeline.name == "stream:prices"
     assert pipeline.summary == "transport=fs.file file=prices.jsonl"
-    assert [node.name for node in pipeline.nodes] == [
-        "open_source",
+    assert pipeline.input.name == "open_source"
+    assert [stage.name for stage in pipeline.stages] == [
         "map_records",
         "order_records",
     ]
-    assert [node.progress is not None for node in pipeline.nodes] == [
-        True,
-        False,
-        True,
-    ]
+    assert pipeline.input.progress is not None
+    assert [stage.progress is not None for stage in pipeline.stages] == [False, True]
 
 
 def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
@@ -435,16 +432,13 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
     assert pipeline.summary == (
         "transport=fs.glob count=2 first=AAPL.jsonl last=MSFT.jsonl"
     )
-    assert [node.name for node in pipeline.nodes] == [
-        "stream:source/open_source",
+    assert pipeline.input.name == "stream:source/open_source"
+    assert [stage.name for stage in pipeline.stages] == [
         "stream:source/map_records",
         "stream:source/order_records",
     ]
-    assert [node.progress is not None for node in pipeline.nodes] == [
-        True,
-        False,
-        True,
-    ]
+    assert pipeline.input.progress is not None
+    assert [stage.progress is not None for stage in pipeline.stages] == [False, True]
 
 
 def test_derived_stream_reuses_upstream_order_without_a_mapper(
@@ -468,8 +462,8 @@ def test_derived_stream_reuses_upstream_order_without_a_mapper(
 
     pipeline = build_stream_pipeline(context, "derived")
 
-    assert [node.name for node in pipeline.nodes] == [
-        "stream:stream/open_source",
+    assert pipeline.input.name == "stream:stream/open_source"
+    assert [stage.name for stage in pipeline.stages] == [
         "stream:stream/map_records",
         "stream:stream/order_records",
     ]
@@ -500,8 +494,8 @@ def test_derived_record_previews_use_records_before_derived_transforms(
     )
 
     pipeline = build_stream_pipeline(PipelineContext(runtime), "derived")
-    assert [node.name for node in pipeline.nodes] == [
-        "stream:stream/open_source",
+    assert pipeline.input.name == "stream:stream/open_source"
+    assert [stage.name for stage in pipeline.stages] == [
         "stream:stream/map_records",
         "stream:stream/order_records",
         "ensure_cadence",
@@ -616,10 +610,8 @@ def test_broadcast_pipeline_reuses_exact_input_across_partitions(
     records = list(run_pipeline(context, pipeline))
 
     assert pipeline.summary == "primary=primary,broadcast=broadcast"
-    assert [node.name for node in pipeline.nodes] == [
-        "broadcast_inputs",
-        "combine_records",
-    ]
+    assert pipeline.input.name == "broadcast_inputs"
+    assert [stage.name for stage in pipeline.stages] == ["combine_records"]
     assert [
         (record.id_, record.time.hour, record.value, record.broadcast_value)
         for record in records
@@ -760,17 +752,17 @@ def test_source_pipeline_runs_map_then_preprocess(
     ctx = PipelineContext(runtime)
 
     pipeline = build_stream_pipeline(ctx, "stream")
-    stage0 = list(run_pipeline(ctx, pipeline.through_node(0)))
-    assert stage0 == rows
+    input_rows = list(run_pipeline(ctx, pipeline.input_only()))
+    assert input_rows == rows
 
-    stage1 = list(run_pipeline(ctx, pipeline.through_node(1)))
-    assert all(isinstance(rec, TemporalRecord) for rec in stage1)
-    assert [rec.time for rec in stage1] == [rows[0]["time"], rows[1]["time"]]
+    mapped = list(run_pipeline(ctx, pipeline.through_stage_count(1)))
+    assert all(isinstance(record, TemporalRecord) for record in mapped)
+    assert [record.time for record in mapped] == [rows[0]["time"], rows[1]["time"]]
 
-    stage2 = list(
-        run_pipeline(ctx, pipeline.through_node_named("preprocess_floor_time"))
+    preprocessed = list(
+        run_pipeline(ctx, pipeline.through_stage_named("preprocess_floor_time"))
     )
-    assert all(rec.time.minute == 0 for rec in stage2)
+    assert all(record.time.minute == 0 for record in preprocessed)
 
 
 @pytest.mark.parametrize(
@@ -885,18 +877,16 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     stream_pipeline = build_stream_pipeline(context, "stream")
     series_pipeline = build_series_pipeline(context, cfg)
 
-    assert [node.name for node in stream_pipeline.nodes[:2]] == [
-        "open_source",
-        "map_records",
-    ]
-    assert [node.name for node in series_pipeline.nodes] == [
-        "stream:stream/open_source",
+    assert stream_pipeline.input.name == "open_source"
+    assert stream_pipeline.stages[0].name == "map_records"
+    assert series_pipeline.input.name == "stream:stream/open_source"
+    assert [stage.name for stage in series_pipeline.stages] == [
         "stream:stream/map_records",
         "stream:stream/order_records",
         "project_series",
     ]
     assert series_pipeline.summary is None
-    assert isinstance(series_pipeline.nodes[0], SourceNode)
+    assert isinstance(series_pipeline.input, Input)
 
 
 def test_source_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
@@ -1017,7 +1007,7 @@ def test_series_pipeline_wraps_record_values(tmp_path: Path) -> None:
     records = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("project_series"),
+            preview_pipeline.through_stage_named("project_series"),
         )
     )
     assert len(records) == 1
@@ -1095,7 +1085,7 @@ def test_series_pipeline_builds_sequences(tmp_path: Path) -> None:
     sequences = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("sequence_series"),
+            preview_pipeline.through_stage_named("sequence_series"),
         )
     )
     assert len(sequences) == 2
@@ -1168,9 +1158,8 @@ def test_dataset_pipeline_matches_sample_and_postprocess_chain(tmp_path: Path) -
         "1h",
         rectangular=False,
     )
-    source = pipeline.nodes[0]
-    assert isinstance(source, SourceNode)
-    assert source.progress is None
+    assert isinstance(pipeline.input, Input)
+    assert pipeline.input.progress is None
 
     dataset_out = list(run_dataset_pipeline(ctx, [cfg], "1h", rectangular=False))
 
@@ -1192,7 +1181,7 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
     feature_configs = [cfg]
     register_series(runtime, feature_configs, "1h")
 
-    original = sample_source.rectangular_key_plan
+    original = sample_input.rectangular_key_plan
     plan_count = 0
 
     def count_plans(pipeline_context, cadence, sample_keys):
@@ -1200,21 +1189,20 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
         plan_count += 1
         return original(pipeline_context, cadence, sample_keys)
 
-    monkeypatch.setattr(sample_source, "rectangular_key_plan", count_plans)
+    monkeypatch.setattr(sample_input, "rectangular_key_plan", count_plans)
 
     pipeline = build_dataset_pipeline(context, feature_configs, "1h")
     feature_configs.clear()
 
-    source = pipeline.nodes[0]
-    assert isinstance(source, SourceNode)
-    assert source.progress is not None
-    samples = list(source.open())
+    assert isinstance(pipeline.input, Input)
+    assert pipeline.input.progress is not None
+    samples = list(pipeline.input.open())
     assert [sample.key for sample in samples] == [
         (_ts(0),),
         (_ts(1),),
         (_ts(2),),
     ]
-    assert source.progress(len(samples)) == ProgressSnapshot(
+    assert pipeline.input.progress(len(samples)) == ProgressSnapshot(
         completed=3,
         total=len(samples),
         unit="samples",
@@ -1794,7 +1782,7 @@ def test_series_rejects_symlinked_output_before_mutation(
 
 
 @pytest.mark.parametrize("rectangular", [False, True])
-def test_sample_source_requires_series_artifact(
+def test_sample_input_requires_series_artifact(
     tmp_path: Path,
     rectangular: bool,
 ) -> None:
@@ -1809,7 +1797,7 @@ def test_sample_source_requires_series_artifact(
         list(open_samples(context, [cfg], "1h", rectangular=rectangular))
 
 
-def test_cached_sample_source_rejects_manifest_cadence_mismatch(
+def test_cached_sample_input_rejects_manifest_cadence_mismatch(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1834,7 +1822,7 @@ def test_cached_sample_source_rejects_manifest_cadence_mismatch(
         )
 
 
-def test_cached_sample_source_verifies_manifest_shard_rows(
+def test_cached_sample_input_verifies_manifest_shard_rows(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1859,7 +1847,7 @@ def test_cached_sample_source_verifies_manifest_shard_rows(
         )
 
 
-def test_cached_sample_source_reads_requested_feature_subset(
+def test_cached_sample_input_reads_requested_feature_subset(
     tmp_path: Path,
 ) -> None:
     rows = [
@@ -1932,11 +1920,11 @@ def test_cached_series_records_close_streams_when_stopped_early(
         raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.sample.source.open_series",
+        "datapipeline.pipelines.sample.input.open_series",
         _open_records,
     )
 
-    keyed_records = sample_source._merged_keyed_records(
+    keyed_records = sample_input._merged_keyed_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
             SeriesShard(id="a", path="a.jsonl.gz", rows=2),

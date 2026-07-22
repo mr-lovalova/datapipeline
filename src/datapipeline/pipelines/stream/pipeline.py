@@ -7,14 +7,13 @@ from typing import Any
 from datapipeline.alignment.broadcast import broadcast_stream
 from datapipeline.alignment.engine import align_streams
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.node import Node, PipelineNode, SourceNode
 from datapipeline.execution.observer import ignore_pipeline_event
-from datapipeline.execution.pipeline import Pipeline
+from datapipeline.execution.pipeline import Input, Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.stream.order import build_record_order_node
-from datapipeline.pipelines.stream.transform_nodes import (
-    build_preprocess_nodes,
-    build_transform_nodes,
+from datapipeline.pipelines.stream.order import build_record_order_stage
+from datapipeline.pipelines.stream.stages import (
+    build_preprocess_stages,
+    build_transform_stages,
 )
 from datapipeline.runtime import (
     AlignedRuntimeStream,
@@ -42,20 +41,28 @@ def build_stream_pipeline(
     if isinstance(stream, SourceRuntimeStream):
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=_source_nodes(context, stream),
+            input=Input(
+                name="open_source",
+                open=stream.source.stream,
+                progress=source_progress(stream.source),
+            ),
+            stages=_source_stages(context, stream),
             summary=source_summary(stream.source),
         )
     if isinstance(stream, DerivedRuntimeStream):
         upstream = build_stream_pipeline(context, stream.input_stream)
-        upstream_nodes = tuple(
-            replace(node, name=f"{upstream.name}/{node.name}")
-            for node in upstream.nodes
-        )
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=(
-                *upstream_nodes,
-                *build_transform_nodes(
+            input=replace(
+                upstream.input,
+                name=f"{upstream.name}/{upstream.input.name}",
+            ),
+            stages=(
+                *(
+                    replace(stage, name=f"{upstream.name}/{stage.name}")
+                    for stage in upstream.stages
+                ),
+                *build_transform_stages(
                     context,
                     stream.transforms,
                     stream.partition_by,
@@ -66,19 +73,19 @@ def build_stream_pipeline(
     if isinstance(stream, BroadcastRuntimeStream):
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=(
-                SourceNode(
-                    name="broadcast_inputs",
-                    open=partial(
-                        _broadcast_inputs,
-                        context,
-                        stream.input_stream,
-                        stream.broadcast_stream,
-                        stream.partition_by,
-                    ),
+            input=Input(
+                name="broadcast_inputs",
+                open=partial(
+                    _broadcast_inputs,
+                    context,
+                    stream.input_stream,
+                    stream.broadcast_stream,
+                    stream.partition_by,
                 ),
-                PipelineNode(name="combine_records", apply=stream.combine),
-                *build_transform_nodes(
+            ),
+            stages=(
+                Stage(name="combine_records", apply=stream.combine),
+                *build_transform_stages(
                     context,
                     stream.transforms,
                     stream.partition_by,
@@ -91,18 +98,18 @@ def build_stream_pipeline(
     if isinstance(stream, AlignedRuntimeStream):
         return Pipeline(
             name=f"stream:{stream_id}",
-            nodes=(
-                SourceNode(
-                    name="align_inputs",
-                    open=partial(
-                        _align_inputs,
-                        context,
-                        stream.inputs,
-                        stream.partition_by,
-                    ),
+            input=Input(
+                name="align_inputs",
+                open=partial(
+                    _align_inputs,
+                    context,
+                    stream.inputs,
+                    stream.partition_by,
                 ),
-                PipelineNode(name="combine_records", apply=stream.combine),
-                *build_transform_nodes(
+            ),
+            stages=(
+                Stage(name="combine_records", apply=stream.combine),
+                *build_transform_stages(
                     context,
                     stream.transforms,
                     stream.partition_by,
@@ -113,27 +120,22 @@ def build_stream_pipeline(
     raise TypeError(f"Unsupported runtime stream: {type(stream).__name__}")
 
 
-def _source_nodes(
+def _source_stages(
     context: PipelineContext,
     stream: SourceRuntimeStream,
-) -> tuple[Node, ...]:
+) -> tuple[Stage, ...]:
     return (
-        SourceNode(
-            name="open_source",
-            open=stream.source.stream,
-            progress=source_progress(stream.source),
-        ),
-        PipelineNode(
+        Stage(
             name="map_records",
             apply=partial(_map_records, stream.mapper),
         ),
-        *build_preprocess_nodes(stream.preprocess),
-        build_record_order_node(
+        *build_preprocess_stages(stream.preprocess),
+        build_record_order_stage(
             stream.partition_by,
             stream.presorted,
             context.runtime.execution.sort_buffer_bytes,
         ),
-        *build_transform_nodes(
+        *build_transform_stages(
             context,
             stream.transforms,
             stream.partition_by,

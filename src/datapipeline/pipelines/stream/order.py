@@ -3,7 +3,7 @@ from functools import partial
 from typing import Any
 
 from datapipeline.domain.stream import canonical_record_order
-from datapipeline.execution.node import PipelineNode
+from datapipeline.execution.pipeline import Stage
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.transforms.utils import partition_key
 
@@ -25,19 +25,19 @@ def _require_consistent_partition_types(
             )
 
 
-def build_record_order_node(
+def build_record_order_stage(
     partition_by: tuple[str, ...],
     presorted: bool,
     buffer_bytes: int,
-) -> PipelineNode:
+) -> Stage:
     if presorted:
-        return PipelineNode(
+        return Stage(
             name="order_records",
             apply=partial(validate_record_order, partition_by),
         )
 
     progress = SortProgress()
-    return PipelineNode(
+    return Stage(
         name="order_records",
         apply=partial(sort_records, partition_by, buffer_bytes, progress),
         progress=progress.snapshot,
