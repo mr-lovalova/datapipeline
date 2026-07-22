@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Callable, Literal
 
 from datapipeline.execution.events import RunStatus
 
@@ -47,14 +47,16 @@ class FileResult:
     path: Path
 
 
-class OperationObserver(Protocol):
-    def emit_started(self, event: OperationStarted) -> None: ...
+@dataclass(frozen=True)
+class RowsWritten:
+    output_id: str
+    row_count: int
 
-    def emit_finished(self, event: OperationFinished) -> None: ...
 
-    def emit_file_result(self, result: FileResult) -> None: ...
-
-    def emit_progress(self, event: OperationProgress) -> None: ...
+OperationEvent = (
+    OperationStarted | OperationProgress | OperationFinished | FileResult | RowsWritten
+)
+OperationObserver = Callable[[OperationEvent], None]
 
 
 _CURRENT_OPERATION_OBSERVER: ContextVar[OperationObserver | None] = ContextVar(
@@ -85,13 +87,13 @@ def operation_scope(name: str):
     observer = current_operation_observer()
     started_at = time.perf_counter()
     if observer is not None:
-        observer.emit_started(OperationStarted(name))
+        observer(OperationStarted(name))
     token = _CURRENT_OPERATION_NAME.set(name)
     try:
         yield
     except BaseException as exc:
         if observer is not None:
-            observer.emit_finished(
+            observer(
                 OperationFinished(
                     name=name,
                     status="error",
@@ -103,7 +105,7 @@ def operation_scope(name: str):
         raise
     else:
         if observer is not None:
-            observer.emit_finished(
+            observer(
                 OperationFinished(
                     name=name,
                     status="success",
@@ -121,7 +123,15 @@ def emit_file_result(
     observer = current_operation_observer()
     if observer is None:
         return False
-    observer.emit_file_result(FileResult(label, path))
+    observer(FileResult(label, path))
+    return True
+
+
+def emit_rows_written(output_id: str, row_count: int) -> bool:
+    observer = current_operation_observer()
+    if observer is None:
+        return False
+    observer(RowsWritten(output_id, row_count))
     return True
 
 
@@ -135,7 +145,7 @@ def emit_operation_progress(
     observer = current_operation_observer()
     if name is None or observer is None:
         return False
-    observer.emit_progress(
+    observer(
         OperationProgress(
             name=name,
             step=step,

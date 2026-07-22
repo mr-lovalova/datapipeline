@@ -30,6 +30,7 @@ from datapipeline.execution.observability import (
     OperationFinished,
     OperationProgress,
     OperationStarted,
+    RowsWritten,
     emit_file_result,
     emit_operation_progress,
     operation_observer,
@@ -57,6 +58,11 @@ class _CaptureHandler:
             FileResult("train_0", Path("/tmp/dataset.train_0.jsonl")),
             logging.INFO,
             "train_0: /tmp/dataset.train_0.jsonl",
+        ),
+        (
+            RowsWritten("train_0", 1250),
+            logging.INFO,
+            "train_0 rows: 1,250",
         ),
         (
             CommandFinished("serve", "success", 2.5),

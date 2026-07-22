@@ -46,6 +46,7 @@ from datapipeline.execution.observability import (
     OperationFinished,
     OperationProgress,
     OperationStarted,
+    RowsWritten,
 )
 
 
@@ -625,6 +626,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
             output_items=10,
             elapsed_seconds=1,
         ),
+        RowsWritten("Output", 10),
         FileResult("Output", Path("/tmp/adv.20.jsonl")),
         OperationFinished("materialize:adv.20", "success", 1),
     )
@@ -637,6 +639,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
         "Config:",
         "[stream:adv.20] started",
         "[stream:adv.20] finished",
+        "Output rows: 10",
         "Output:",
         "Operation materialize:adv.20 finished",
     ]
@@ -649,7 +652,7 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
         events[0],
         events[2],
         events[3],
-        events[5],
+        events[6],
     ]
 
 

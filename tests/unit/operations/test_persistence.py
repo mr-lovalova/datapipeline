@@ -680,22 +680,41 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
         encoding="utf-8",
         destination=val_path,
     )
+    empty_path = tmp_path / "empty.jsonl"
+    empty_target = OutputTarget(
+        transport="fs",
+        format="jsonl",
+        view="raw",
+        encoding="utf-8",
+        destination=empty_path,
+    )
     rows = [
         {"output": "train", "value": 1},
         {"output": "val", "value": 2},
         {"output": None, "value": 3},
     ]
-    results: list[tuple[str, Path]] = []
+    results: list[tuple[str, str, int | Path]] = []
+    monkeypatch.setattr(
+        persistence,
+        "emit_rows_written",
+        lambda output_id, row_count: results.append(
+            ("rows", output_id, row_count)
+        ),
+    )
     monkeypatch.setattr(
         persistence,
         "emit_file_result",
-        lambda label, path: results.append((label, path)),
+        lambda label, path: results.append(("file", label, path)),
     )
 
     persist_runtime_result(
         RoutedRuntimeOutput(
             rows=iter(rows),
-            targets={"train": train_target, "val": val_target},
+            targets={
+                "train": train_target,
+                "val": val_target,
+                "empty": empty_target,
+            },
             output_for_row=lambda row: row["output"],
         ),
         target=None,
@@ -710,9 +729,14 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
     ]
     assert train_rows == [{"output": "train", "value": 1}]
     assert val_rows == [{"output": "val", "value": 2}]
+    assert empty_path.read_text(encoding="utf-8") == ""
     assert results == [
-        ("train", train_path),
-        ("val", val_path),
+        ("rows", "train", 1),
+        ("file", "train", train_path),
+        ("rows", "val", 1),
+        ("file", "val", val_path),
+        ("rows", "empty", 0),
+        ("file", "empty", empty_path),
     ]
 
 

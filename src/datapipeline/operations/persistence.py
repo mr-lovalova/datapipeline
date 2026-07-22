@@ -11,6 +11,7 @@ from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import (
     OperationProgressTracker,
     emit_file_result,
+    emit_rows_written,
 )
 from datapipeline.io.factory import writer_factory
 from datapipeline.io.factory import dataset_writer_factory
@@ -319,9 +320,9 @@ def _route_runtime_rows(
     result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
     rows: Iterator[Any],
     writers: Mapping[str, Writer],
-    counts: dict[str, int],
     progress: OperationProgressTracker,
-) -> None:
+) -> dict[str, int]:
+    counts = dict.fromkeys(writers, 0)
     for row in rows:
         routed_id = result.output_for_row(row)
         if routed_id is None:
@@ -345,6 +346,7 @@ def _route_runtime_rows(
             count >= result.limit_per_output for count in counts.values()
         ):
             break
+    return counts
 
 
 def _persist_routed_output(
@@ -354,25 +356,22 @@ def _persist_routed_output(
     logger: logging.Logger,
 ) -> None:
     writers: dict[str, Writer] = {}
-    counts: dict[str, int] = {}
-    destinations: dict[str, Path] = {}
     try:
         with _runtime_rows(result.rows, logger) as rows:
-            for output_id, target, destination in _planned_routed_targets(result):
+            planned = _planned_routed_targets(result)
+            for output_id, target, _destination in planned:
                 writers[output_id] = (
                     dataset_writer_factory(target, result.table)
                     if isinstance(result, RoutedDatasetTableOutput)
                     else writer_factory(target)
                 )
-                counts[output_id] = 0
-                destinations[output_id] = destination
 
             progress = OperationProgressTracker(
                 "write_output",
                 "rows",
                 resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
             )
-            _route_runtime_rows(result, rows, writers, counts, progress)
+            counts = _route_runtime_rows(result, rows, writers, progress)
 
         for writer in writers.values():
             writer.close()
@@ -387,7 +386,8 @@ def _persist_routed_output(
                 )
         raise
 
-    for output_id, destination in destinations.items():
+    for output_id, _target, destination in planned:
+        emit_rows_written(output_id, counts[output_id])
         emit_file_result(output_id, destination)
 
 

@@ -20,9 +20,11 @@ from datapipeline.execution.observer import PipelineObserver
 from datapipeline.execution.observability import (
     CommandFinished,
     FileResult,
+    OperationObserver,
     OperationFinished,
     OperationProgress,
     OperationStarted,
+    RowsWritten,
 )
 
 
@@ -40,6 +42,7 @@ ExecutionLogEvent = (
     | OperationStarted
     | OperationFinished
     | OperationProgress
+    | RowsWritten
 )
 
 
@@ -74,6 +77,7 @@ class ExecutionEventFormatter:
             event,
             CommandFinished
             | FileResult
+            | RowsWritten
             | PipelineStarted
             | PipelineSummary
             | PipelineProgress
@@ -91,6 +95,8 @@ class ExecutionEventFormatter:
     def message(cls, event: ExecutionLogEvent) -> str:
         if isinstance(event, FileResult):
             return f"{event.label}: {event.path}"
+        if isinstance(event, RowsWritten):
+            return f"{event.output_id} rows: {event.row_count:,}"
         if isinstance(event, CommandFinished):
             return (
                 f"Command {event.command} finished status={event.status} "
@@ -176,27 +182,13 @@ def emit_execution_message(
     route_execution_event(event, logger)
 
 
-class ExecutionOperationObserver:
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    def emit_file_result(self, result: FileResult) -> None:
-        route_execution_event(result, self._logger)
-
-    def emit_started(self, event: OperationStarted) -> None:
-        route_execution_event(event, self._logger)
-
-    def emit_finished(self, event: OperationFinished) -> None:
-        route_execution_event(event, self._logger)
-
-    def emit_progress(self, event: OperationProgress) -> None:
-        route_execution_event(event, self._logger)
-
-
 def make_operation_observer(
     logger: logging.Logger | None = None,
-) -> ExecutionOperationObserver:
-    return ExecutionOperationObserver(logger or logging.getLogger(__name__))
+) -> OperationObserver:
+    return partial(
+        route_execution_event,
+        logger=logger or logging.getLogger(__name__),
+    )
 
 
 def make_pipeline_observer(
