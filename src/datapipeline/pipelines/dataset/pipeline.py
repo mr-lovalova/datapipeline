@@ -9,6 +9,7 @@ from datapipeline.artifacts.scaler import (
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.split import DatasetFold
 from datapipeline.config.dataset.series import SeriesConfig
+from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.execution.pipeline import Pipeline
@@ -18,8 +19,7 @@ from datapipeline.pipelines.dataset.nodes import (
     select_fold_samples,
 )
 from datapipeline.pipelines.dataset.split import build_labeler
-from datapipeline.pipelines.vector.pipeline import build_vector_source_node
-from datapipeline.domain.sample import Sample
+from datapipeline.pipelines.sample.source import build_sample_source_node
 from datapipeline.transforms.vector.scaler import SampleScaler
 
 
@@ -56,7 +56,7 @@ def build_dataset_pipeline(
     return Pipeline(
         name="dataset",
         nodes=(
-            build_vector_source_node(
+            build_sample_source_node(
                 context,
                 feature_configs,
                 group_by_cadence,
@@ -89,7 +89,7 @@ def run_scaled_dataset_pipeline(
         Pipeline(
             name="dataset",
             nodes=(
-                build_vector_source_node(
+                build_sample_source_node(
                     context,
                     feature_configs,
                     group_by_cadence,
@@ -129,7 +129,7 @@ def run_fold_dataset_pipeline(
         )
 
     nodes: list[PipelineNode | SourceNode] = [
-        build_vector_source_node(
+        build_sample_source_node(
             context,
             feature_configs,
             group_by_cadence,

@@ -16,7 +16,7 @@ from .common import (
 def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
     parser = sub.add_parser(
         "serve",
-        help="produce vectors with configurable logging",
+        help="produce dataset samples with configurable logging",
         parents=[common],
     )
     add_dataset_flag(parser)
@@ -26,7 +26,7 @@ def add_serve_command(sub, common: argparse.ArgumentParser) -> None:
         "-n",
         type=positive_integer,
         default=None,
-        help="optional cap on the number of vectors to emit",
+        help="optional cap on the number of samples to emit",
     )
     parser.add_argument(
         "--output-transport",

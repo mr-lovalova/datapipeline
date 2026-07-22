@@ -6,40 +6,40 @@ from functools import partial
 from itertools import tee
 from pathlib import Path
 
-from datapipeline.artifacts.series import (
-    SeriesShard,
-    SeriesManifest,
-    load_series_manifest,
-    open_series,
-)
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.registry import (
     VECTOR_METADATA_SPEC,
     ArtifactNotRegisteredError,
 )
+from datapipeline.artifacts.series import (
+    SeriesManifest,
+    SeriesShard,
+    load_series_manifest,
+    open_series,
+)
 from datapipeline.artifacts.specs import SERIES
 from datapipeline.config.dataset.series import SeriesConfig
-from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import ProgressSnapshot
 from datapipeline.execution.node import SourceNode
-from datapipeline.pipelines.vector.keygen import (
-    RectangularKeyPlan,
-    group_key_for,
-    sample_domain_key_plan,
-    window_key_plan,
+from datapipeline.pipelines.sample.assembly import (
+    align_vectors_to_keys,
+    assemble_samples,
+    assemble_vectors,
 )
-from datapipeline.pipelines.vector.nodes import (
-    align_stream,
-    sample_assemble_stage,
-    vector_assemble_stage,
+from datapipeline.pipelines.sample.keys import (
+    RectangularKeyPlan,
+    sample_domain_key_plan,
+    sample_key_for,
+    window_key_plan,
 )
 from datapipeline.utils.time import parse_cadence
 
 
-def build_vector_pipeline(
+def open_samples(
     context: PipelineContext,
     feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
@@ -48,7 +48,7 @@ def build_vector_pipeline(
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Sample]:
     feature_cfgs = tuple(feature_configs)
-    target_cfgs = tuple(() if target_configs is None else target_configs)
+    target_cfgs = () if target_configs is None else tuple(target_configs)
     sample_key_fields = tuple(sample_keys)
     if not feature_cfgs and not target_cfgs:
         return iter(())
@@ -62,7 +62,7 @@ def build_vector_pipeline(
         if rectangular
         else None
     )
-    return _assemble_vector_samples(
+    return _assemble_samples_from_series(
         manifest_path=manifest_path,
         manifest=manifest,
         feature_configs=feature_cfgs,
@@ -73,7 +73,7 @@ def build_vector_pipeline(
     )
 
 
-def build_vector_source_node(
+def build_sample_source_node(
     context: PipelineContext,
     feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
@@ -82,7 +82,7 @@ def build_vector_source_node(
     sample_keys: Sequence[str] = (),
 ) -> SourceNode:
     feature_cfgs = tuple(feature_configs)
-    target_cfgs = tuple(() if target_configs is None else target_configs)
+    target_cfgs = () if target_configs is None else tuple(target_configs)
     sample_key_fields = tuple(sample_keys)
     has_inputs = bool(feature_cfgs or target_cfgs)
     key_plan = (
@@ -98,9 +98,9 @@ def build_vector_source_node(
             unit="samples",
         )
     return SourceNode(
-        name="vector_assemble",
+        name="assemble_samples",
         open=partial(
-            _open_vector_samples,
+            _open_samples,
             context,
             feature_cfgs,
             group_by_cadence,
@@ -112,7 +112,7 @@ def build_vector_source_node(
     )
 
 
-def _open_vector_samples(
+def _open_samples(
     context: PipelineContext,
     feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
@@ -126,7 +126,7 @@ def _open_vector_samples(
     manifest_path, manifest, sample_key_contract = _require_series(
         context, group_by_cadence, sample_keys
     )
-    return _assemble_vector_samples(
+    return _assemble_samples_from_series(
         manifest_path=manifest_path,
         manifest=manifest,
         feature_configs=feature_configs,
@@ -145,7 +145,7 @@ def _require_series(
     artifact = context.runtime.artifacts.optional(SERIES)
     if artifact is None:
         raise RuntimeError(
-            "Series artifact is required before vector assembly. "
+            "Series artifact is required before sample assembly. "
             "Run `jerry build --profile series` or use "
             "`--artifact-mode AUTO|FORCE`."
         )
@@ -168,7 +168,7 @@ def _require_series(
     return manifest_path, manifest, sample_key_contract
 
 
-def _assemble_vector_samples(
+def _assemble_samples_from_series(
     manifest_path: Path,
     manifest: SeriesManifest,
     feature_configs: Sequence[SeriesConfig],
@@ -193,8 +193,8 @@ def _assemble_vector_samples(
         group_by_cadence=cadence,
         sample_key_contract=sample_key_contract,
     )
-    feature_vectors = vector_assemble_stage(keyed_feature_records)
-    aligned_feature_vectors = align_stream(feature_vectors, feature_keys)
+    feature_vectors = assemble_vectors(keyed_feature_records)
+    aligned_feature_vectors = align_vectors_to_keys(feature_vectors, feature_keys)
 
     target_vectors = None
     if target_configs:
@@ -205,11 +205,11 @@ def _assemble_vector_samples(
             group_by_cadence=cadence,
             sample_key_contract=sample_key_contract,
         )
-        target_vectors = align_stream(
-            vector_assemble_stage(keyed_target_records),
+        target_vectors = align_vectors_to_keys(
+            assemble_vectors(keyed_target_records),
             target_keys,
         )
-    return sample_assemble_stage(aligned_feature_vectors, target_vectors)
+    return assemble_samples(aligned_feature_vectors, target_vectors)
 
 
 def _shards_for_configs(
@@ -226,8 +226,7 @@ def _shards_for_configs(
         return target_shards
     missing = sorted(requested - feature_ids - target_ids)
     raise RuntimeError(
-        "Series artifact does not contain configured series ids: "
-        + ", ".join(missing)
+        "Series artifact does not contain configured series ids: " + ", ".join(missing)
     )
 
 
@@ -247,12 +246,10 @@ def _merged_keyed_records(
     ) -> Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]:
         for record in stream:
             sample_key_contract.validate(record.entity_key)
-            yield group_key_for(record, group_by_cadence), record
+            yield sample_key_for(record, group_by_cadence), record
 
     with ExitStack() as opened:
-        opened_streams: list[
-            Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]
-        ] = []
+        opened_streams: list[Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]] = []
         for cfg in configs:
             shard = shards_by_id.get(cfg.id)
             if shard is None:

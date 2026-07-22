@@ -12,7 +12,7 @@ from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.execution.observability import OperationProgressTracker
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.runtime import Runtime
 from datapipeline.domain.series_id import base_id as _base_series_id
 from datapipeline.transforms.utils import is_missing
@@ -102,7 +102,7 @@ def collect_vector_metadata(
     if not configs:
         return [], 0, {}
     context = PipelineContext(runtime)
-    vectors = build_vector_pipeline(
+    samples = open_samples(
         context,
         configs,
         cadence,
@@ -119,7 +119,7 @@ def collect_vector_metadata(
         resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
     )
     try:
-        for sample in vectors:
+        for sample in samples:
             vector_count += 1
             if (
                 not isinstance(sample.key, tuple)
@@ -142,7 +142,7 @@ def collect_vector_metadata(
                 entry.observe(value, ts)
             progress.advance()
     finally:
-        closer = getattr(vectors, "close", None)
+        closer = getattr(samples, "close", None)
         if callable(closer):
             closer()
 

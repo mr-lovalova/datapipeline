@@ -6,7 +6,7 @@ Current status:
 - Hidden session fan-out caching was removed from pipeline orchestration.
 - `series` is now an explicit durable artifact with a manifest, compressed
   feature/target shards, file fingerprints, config freshness, and graph dependencies.
-- Vector assembly requires that artifact instead of silently switching between
+- Sample assembly requires that artifact instead of silently switching between
   cached and uncached execution paths.
 
 Possible future work:

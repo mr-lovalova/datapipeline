@@ -6,14 +6,7 @@ from .vector import Vector
 
 @dataclass
 class Sample:
-    """
-    Represents a single grouped vector sample emitted by the pipeline.
-
-    Attributes:
-        key: Group identifier (tuple when group_by cadence > 1).
-        features: Feature vector payload.
-        targets: Optional target vector when requested.
-    """
+    """One dataset row with its identity, feature vector, and optional targets."""
 
     key: Any
     features: Vector

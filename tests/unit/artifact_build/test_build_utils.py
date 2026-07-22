@@ -87,7 +87,7 @@ def _collect_from_pipeline(
     runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
     monkeypatch.setattr(
         artifact_utils,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: pipeline,
     )
     return collect_vector_metadata(
@@ -135,7 +135,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
         return iter([sample])
 
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.utils.build_vector_pipeline",
+        "datapipeline.operations.artifacts.utils.open_samples",
         fake_pipeline,
     )
 
@@ -188,7 +188,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     runtime.heartbeat_interval_seconds = 180
     monkeypatch.setattr(
         artifact_utils,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(artifact_utils, "OperationProgressTracker", Progress)
@@ -463,7 +463,7 @@ def test_collect_vector_metadata_rejects_scalar_list_mixtures(
     ]
     monkeypatch.setattr(
         artifact_utils,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
 
@@ -496,7 +496,7 @@ def test_collect_vector_metadata_rejects_series_list_lengths(
     ]
     monkeypatch.setattr(
         artifact_utils,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
 

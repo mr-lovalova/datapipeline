@@ -6,7 +6,7 @@ from datapipeline.config.tasks import MetadataTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 from tests.series_helpers import register_series
@@ -34,15 +34,14 @@ def test_drop_with_metadata_and_partitioned_streams(copy_fixture):
         VECTOR_METADATA,
         relative_path=metadata.relative_path,
     )
-    vectors = build_vector_pipeline(
+    assembled_samples = open_samples(
         context,
         dataset.features,
         dataset.sample.cadence,
         target_configs=dataset.targets,
         rectangular=False,
     )
-    processed = apply_postprocess(context, vectors)
-    samples = list(processed)
+    samples = list(apply_postprocess(context, assembled_samples))
 
     # Source emits ticks every 2h; ensure_cadence fills 1h gaps with None.
     # drop with axis=horizontal, threshold=1.0 removes the filled (None) buckets,

@@ -64,7 +64,7 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
 
     assert pipeline.name == "dataset"
     assert [node.name for node in pipeline.nodes] == [
-        "vector_assemble",
+        "assemble_samples",
         "normalize_features",
         "reject_undeclared_targets",
     ]

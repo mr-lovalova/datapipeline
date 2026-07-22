@@ -56,12 +56,12 @@ from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,
 )
-from datapipeline.pipelines.vector import pipeline as vector_pipeline
-from datapipeline.pipelines.vector.keygen import (
+from datapipeline.pipelines.sample import source as sample_source
+from datapipeline.pipelines.sample.keys import (
     sample_domain_key_plan,
     window_key_plan,
 )
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.runtime import (
     AlignedRuntimeStream,
     BroadcastRuntimeStream,
@@ -1151,7 +1151,7 @@ def test_postprocess_rejects_targets_absent_from_metadata(tmp_path: Path) -> Non
         list(apply_postprocess(PipelineContext(runtime), iter(samples)))
 
 
-def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -> None:
+def test_dataset_pipeline_matches_sample_and_postprocess_chain(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": None},
         {"time": _ts(1), "value": 2.0},
@@ -1174,7 +1174,7 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
 
     dataset_out = list(run_dataset_pipeline(ctx, [cfg], "1h", rectangular=False))
 
-    manual = build_vector_pipeline(ctx, [cfg], "1h", rectangular=False)
+    manual = open_samples(ctx, [cfg], "1h", rectangular=False)
     manual_out = list(apply_postprocess(ctx, manual))
 
     assert dataset_out == manual_out
@@ -1192,7 +1192,7 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
     feature_configs = [cfg]
     register_series(runtime, feature_configs, "1h")
 
-    original = vector_pipeline.rectangular_key_plan
+    original = sample_source.rectangular_key_plan
     plan_count = 0
 
     def count_plans(pipeline_context, cadence, sample_keys):
@@ -1200,7 +1200,7 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
         plan_count += 1
         return original(pipeline_context, cadence, sample_keys)
 
-    monkeypatch.setattr(vector_pipeline, "rectangular_key_plan", count_plans)
+    monkeypatch.setattr(sample_source, "rectangular_key_plan", count_plans)
 
     pipeline = build_dataset_pipeline(context, feature_configs, "1h")
     feature_configs.clear()
@@ -1238,7 +1238,7 @@ def test_rectangular_features_and_targets_share_every_planned_key(
     register_series(runtime, [feature], "1h", targets=[target])
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             PipelineContext(runtime),
             [feature],
             "1h",
@@ -1298,7 +1298,7 @@ def test_series_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         meta=result.meta,
     )
     cached = _sample_payload(
-        build_vector_pipeline(
+        open_samples(
             PipelineContext(runtime),
             configs,
             "1h",
@@ -1794,7 +1794,7 @@ def test_series_rejects_symlinked_output_before_mutation(
 
 
 @pytest.mark.parametrize("rectangular", [False, True])
-def test_vector_pipeline_requires_series_artifact(
+def test_sample_source_requires_series_artifact(
     tmp_path: Path,
     rectangular: bool,
 ) -> None:
@@ -1806,10 +1806,10 @@ def test_vector_pipeline_requires_series_artifact(
     cfg = SeriesConfig(stream="stream", id="price", field="value")
 
     with pytest.raises(RuntimeError, match="Series artifact is required"):
-        list(build_vector_pipeline(context, [cfg], "1h", rectangular=rectangular))
+        list(open_samples(context, [cfg], "1h", rectangular=rectangular))
 
 
-def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
+def test_cached_sample_source_rejects_manifest_cadence_mismatch(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1825,7 +1825,7 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
 
     with pytest.raises(RuntimeError, match="cadence does not match"):
         list(
-            build_vector_pipeline(
+            open_samples(
                 PipelineContext(runtime),
                 [cfg],
                 "1h",
@@ -1834,7 +1834,7 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
         )
 
 
-def test_cached_vector_pipeline_verifies_manifest_shard_rows(
+def test_cached_sample_source_verifies_manifest_shard_rows(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1850,7 +1850,7 @@ def test_cached_vector_pipeline_verifies_manifest_shard_rows(
 
     with pytest.raises(ValueError, match="declares 2 rows but contains 1"):
         list(
-            build_vector_pipeline(
+            open_samples(
                 PipelineContext(runtime),
                 [cfg],
                 "1h",
@@ -1859,7 +1859,7 @@ def test_cached_vector_pipeline_verifies_manifest_shard_rows(
         )
 
 
-def test_cached_vector_pipeline_reads_requested_feature_subset(
+def test_cached_sample_source_reads_requested_feature_subset(
     tmp_path: Path,
 ) -> None:
     rows = [
@@ -1872,7 +1872,7 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
     register_series(runtime, [value_cfg, other_cfg], "1h")
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             PipelineContext(runtime),
             [value_cfg],
             "1h",
@@ -1886,7 +1886,7 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
     ]
 
 
-def test_cached_vector_records_close_streams_when_stopped_early(
+def test_cached_series_records_close_streams_when_stopped_early(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1932,11 +1932,11 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.vector.pipeline.open_series",
+        "datapipeline.pipelines.sample.source.open_series",
         _open_records,
     )
 
-    keyed_records = vector_pipeline._merged_keyed_records(
+    keyed_records = sample_source._merged_keyed_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
             SeriesShard(id="a", path="a.jsonl.gz", rows=2),

@@ -60,16 +60,16 @@ def limit_items(items: Iterator[T], limit: int | None) -> Iterator[T]:
         yield from islice(items, limit)
 
 
-def throttle_vectors(
-    vectors: Iterator[Sample],
+def throttle_samples(
+    samples: Iterator[Sample],
     throttle_ms: float | None,
 ) -> Iterator[Sample]:
     if not throttle_ms or throttle_ms <= 0:
-        yield from vectors
+        yield from samples
         return
     delay = throttle_ms / 1000.0
-    for item in vectors:
-        yield item
+    for sample in samples:
+        yield sample
         time.sleep(delay)
 
 
@@ -103,7 +103,7 @@ def _sample_output(
     limit: int | None,
     throttle_ms: float | None,
 ) -> RuntimeOutput:
-    return _runtime_output(throttle_vectors(stream, throttle_ms), target, limit)
+    return _runtime_output(throttle_samples(stream, throttle_ms), target, limit)
 
 
 def _parquet_sample_output(
@@ -115,7 +115,7 @@ def _parquet_sample_output(
 ) -> DatasetTableOutput:
     return DatasetTableOutput(
         rows=limit_items(
-            _managed_items(throttle_vectors(stream, throttle_ms)),
+            _managed_items(throttle_samples(stream, throttle_ms)),
             limit,
         ),
         table=table,
@@ -283,7 +283,7 @@ def _serve_dataset(
         if dataset_requires_scaler(runtime.dataset)
         else run_dataset_pipeline
     )
-    vectors = run(
+    samples = run(
         context,
         feature_cfgs,
         cadence,
@@ -295,7 +295,7 @@ def _serve_dataset(
         return RuntimeOutputBatch(
             outputs=(
                 _parquet_sample_output(
-                    vectors,
+                    samples,
                     target,
                     limit,
                     throttle_ms,
@@ -309,7 +309,7 @@ def _serve_dataset(
             ),
         )
     return RuntimeOutputBatch(
-        outputs=(_sample_output(vectors, target, limit, throttle_ms),),
+        outputs=(_sample_output(samples, target, limit, throttle_ms),),
     )
 
 
@@ -361,7 +361,7 @@ def _serve_fold_outputs(
             rectangular=True,
             sample_keys=sample_keys,
         )
-        rows = throttle_vectors(_managed_items(samples), throttle_ms)
+        rows = throttle_samples(_managed_items(samples), throttle_ms)
         output_targets = {
             output_id: target.for_output(output_id) for output_id in labels_by_output
         }

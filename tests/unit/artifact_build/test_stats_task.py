@@ -104,7 +104,7 @@ def test_materialize_vector_stats_writes_bounded_v3_summary(
         "datapipeline.operations.artifacts.stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
+        "datapipeline.operations.artifacts.stats.open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(
@@ -145,7 +145,7 @@ def test_assembled_stats_do_not_apply_postprocess(monkeypatch, tmp_path) -> None
         "datapipeline.operations.artifacts.stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
+        "datapipeline.operations.artifacts.stats.open_samples",
         lambda *_args, **_kwargs: iter(()),
     )
 
@@ -178,7 +178,7 @@ def test_postprocessed_stats_keep_planned_columns_when_every_sample_is_dropped(
         "datapipeline.operations.artifacts.stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_vector_pipeline",
+        "datapipeline.operations.artifacts.stats.open_samples",
         lambda *_args, **_kwargs: iter((sample,)),
     )
     monkeypatch.setattr(

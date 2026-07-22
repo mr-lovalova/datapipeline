@@ -7,7 +7,7 @@ from datapipeline.config.tasks import StatsTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.runtime import Runtime
 from datapipeline.utils.json_artifact import write_json_artifact
 
@@ -21,7 +21,7 @@ def materialize_vector_stats(
     metadata = context.require_artifact(VECTOR_METADATA_SPEC)
     context.window_bounds(rectangular_required=True)
 
-    samples = build_vector_pipeline(
+    samples = open_samples(
         context,
         dataset.features,
         dataset.sample.cadence,

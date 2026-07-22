@@ -22,7 +22,7 @@ from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 
 
-def _vector_samples(project_yaml):
+def _dataset_samples(project_yaml):
     definition = load_pipeline(project_yaml)
     runtime = compile_runtime(definition)
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
@@ -67,10 +67,10 @@ def _vector_samples(project_yaml):
     )
 
 
-def test_incomplete_prices_project_vectors(copy_fixture):
+def test_incomplete_prices_project_samples(copy_fixture):
     project_root = copy_fixture("incomplete_prices_project")
     project = project_root / "project.yaml"
-    samples = _vector_samples(project)
+    samples = _dataset_samples(project)
 
     assert len(samples) == 8
 
@@ -97,7 +97,7 @@ def test_incomplete_prices_project_vectors(copy_fixture):
 def test_incomplete_generation_project_alignment(copy_fixture):
     project_root = copy_fixture("incomplete_generation_project")
     project = project_root / "project.yaml"
-    samples = _vector_samples(project)
+    samples = _dataset_samples(project)
 
     assert len(samples) == 9
 

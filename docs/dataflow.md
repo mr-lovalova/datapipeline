@@ -182,13 +182,13 @@ Expected behavior:
 Run command:
 
 ```bash
-jerry serve --output-transport fs --output-format jsonl --output-directory vectors
+jerry serve --output-transport fs --output-format jsonl --output-directory outputs
 ```
 
 Output layout:
 
 ```text
-vectors/
+outputs/
   runs/<run_id>/
     dataset/
       dataset.test.jsonl

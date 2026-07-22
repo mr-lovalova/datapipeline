@@ -13,7 +13,7 @@ def _close_iterator(iterator) -> None:
         closer()
 
 
-def vector_assemble_stage(
+def assemble_vectors(
     merged: Iterator[tuple[tuple, SeriesRecord | SeriesSequence]],
 ) -> Iterator[tuple[tuple, Vector]]:
     try:
@@ -36,9 +36,7 @@ def vector_assemble_stage(
                     items.append(record.value)
             values = {
                 series_id: (
-                    items
-                    if series_id in sequence_ids or len(items) != 1
-                    else items[0]
+                    items if series_id in sequence_ids or len(items) != 1 else items[0]
                 )
                 for series_id, items in values_by_series_id.items()
             }
@@ -47,7 +45,7 @@ def vector_assemble_stage(
         _close_iterator(merged)
 
 
-def align_stream(
+def align_vectors_to_keys(
     stream: Iterator[tuple[tuple, Vector]],
     keys: Iterator[tuple] | None,
 ) -> Iterator[tuple[tuple, Vector]]:
@@ -74,7 +72,7 @@ def align_stream(
         _close_iterator(keys_iter)
 
 
-def sample_assemble_stage(
+def assemble_samples(
     feature_vectors: Iterator[tuple[tuple, Vector]],
     target_vectors: Iterator[tuple[tuple, Vector]] | None = None,
 ) -> Iterator[Sample]:

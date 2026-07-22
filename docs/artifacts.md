@@ -9,7 +9,7 @@ filenames, such as `operations/model_grid.yaml`.
 
 - `build/series/manifest.json` plus compressed feature/target shards under
   `build/series/manifest.shards/`:
-  durable inputs consumed by vector assembly. Values may contain only `None`,
+  durable inputs consumed by sample assembly. Values may contain only `None`,
   `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
   sample-key components may use only those scalar types. Other Python objects
   fail the build instead of being converted to strings. Each successful build

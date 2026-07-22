@@ -1,6 +1,6 @@
 # Sample Postprocessing
 
-Postprocessing runs after vector assembly. Configure its structural policies
+Postprocessing runs after sample assembly. Configure its structural policies
 under `postprocess:` in `dataset.yaml`:
 
 ```yaml

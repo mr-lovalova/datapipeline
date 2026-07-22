@@ -261,7 +261,7 @@ class VectorStatsSection(BaseModel):
 
 
 class VectorStatsArtifact(BaseModel):
-    """Bounded summary of assembled or postprocessed vector samples."""
+    """Bounded summary of samples before or after postprocessing."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

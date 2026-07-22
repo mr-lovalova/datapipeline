@@ -105,7 +105,7 @@ def _patch_matrix(monkeypatch) -> None:
     monkeypatch.setattr(matrix_ops, "PipelineContext", _MatrixContext)
     monkeypatch.setattr(
         matrix_ops,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: iter(
             [Sample(key="g0", features=Vector(values={"speed": 1.0}))]
         ),
@@ -264,7 +264,7 @@ def test_matrix_limit_caps_samples_after_postprocess(monkeypatch) -> None:
     ]
     monkeypatch.setattr(
         matrix_ops,
-        "build_vector_pipeline",
+        "open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
 

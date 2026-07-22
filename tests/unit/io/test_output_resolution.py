@@ -46,6 +46,21 @@ def test_resolve_output_target_honors_custom_filename(tmp_path):
     assert target.encoding == "utf-8"
 
 
+def test_resolve_output_target_defaults_to_dataset_filename(tmp_path):
+    config = ServeOutputConfig(
+        transport="fs",
+        format="jsonl",
+        directory=tmp_path,
+    )
+
+    target = resolve_output_target(
+        cli_output=None,
+        config_output=config,
+    )
+
+    assert target.destination == (tmp_path / "dataset.jsonl").resolve()
+
+
 @pytest.mark.parametrize("format_", ["jsonl", "csv"])
 def test_resolve_output_target_adds_compressed_suffix(tmp_path, format_) -> None:
     config = ServeOutputConfig(

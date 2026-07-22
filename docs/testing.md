@@ -12,8 +12,8 @@ missing from that contract.
   contract for every model.
 - Integration tests use normal project loading, profile planning, artifact
   building, runtime execution, and persistence. They must not construct an
-  alternative test-only vector pipeline or inject artifacts that production
-  would build.
+  alternative test-only sample assembly path or inject artifacts that
+  production would build.
 - Regression fixtures are small, readable, and behavior-dense. Prefer JSONL or
   CSV that can be reviewed in a diff over opaque serialized objects or large
   real-world dumps.

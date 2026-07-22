@@ -18,7 +18,7 @@ from datapipeline.domain.series import SeriesRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
 from datapipeline.pipelines.series.pipeline import run_series_pipeline
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.runtime import Runtime, SourceRuntimeStream
 from datapipeline.transforms.vector.scaler import SampleScaler, ScalerAccumulator
 from tests.series_helpers import register_series
@@ -129,7 +129,7 @@ def _register_scaler(
     )
 
 
-def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
+def test_sample_targets_respect_partitioned_ids(tmp_path) -> None:
     def _partitioned_record(value: float, code: str) -> TemporalRecord:
         rec = _record(_ts(0), value)
         setattr(rec, "municipality", code)
@@ -173,7 +173,7 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     register_series(runtime, feature_cfgs, "1h", targets=target_cfgs)
 
     samples = list(
-        build_vector_pipeline(context, feature_cfgs, "1h", target_configs=target_cfgs)
+        open_samples(context, feature_cfgs, "1h", target_configs=target_cfgs)
     )
 
     assert len(samples) == 1
@@ -186,7 +186,7 @@ def test_vector_targets_respect_partitioned_ids(tmp_path) -> None:
     assert all(not key.startswith("wind_production") for key in sample.features.keys())
 
 
-def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
+def test_samples_can_group_by_record_key_fields(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -229,7 +229,7 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     )
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             context,
             feature_cfgs,
             "1h",
@@ -256,7 +256,7 @@ def test_vector_samples_can_group_by_record_key_fields(tmp_path) -> None:
     ]
 
 
-def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
+def test_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     def _equity_record(hour: int, security_id: str, value: float) -> TemporalRecord:
         rec = _record(_ts(hour), value)
         setattr(rec, "security_id", security_id)
@@ -298,7 +298,7 @@ def test_vector_samples_keep_entity_buckets_contiguous(tmp_path) -> None:
     )
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             context,
             feature_cfgs,
             "1d",
@@ -353,7 +353,7 @@ def test_sequence_series_are_windowed_by_sample_keys(tmp_path) -> None:
     )
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             context,
             feature_cfgs,
             "1h",
@@ -407,7 +407,7 @@ def test_partition_fields_outside_sample_keys_form_wide_feature_identity(
     )
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             context,
             feature_cfgs,
             "1h",
@@ -469,7 +469,7 @@ def test_stream_transforms_use_explicit_stream_partition(tmp_path) -> None:
     )
 
     samples = list(
-        build_vector_pipeline(
+        open_samples(
             context,
             feature_cfgs,
             "1h",
@@ -536,7 +536,7 @@ def test_regression_scaled_shapes_airpressure_high_freq_and_windspeed_hourly(
     register_series(runtime, configs, group_by)
     context = PipelineContext(runtime)
 
-    raw = build_vector_pipeline(context, configs, group_by)
+    raw = open_samples(context, configs, group_by)
     out = list(
         SampleScaler(
             context.require_artifact(SCALER_SPEC),
@@ -626,7 +626,7 @@ def test_regression_fill_then_scale_with_missing_values(tmp_path) -> None:
     _register_scaler(runtime, configs, group_by)
     register_series(runtime, configs, group_by)
     context = PipelineContext(runtime)
-    raw = build_vector_pipeline(context, configs, group_by)
+    raw = open_samples(context, configs, group_by)
     out = list(
         SampleScaler(
             context.require_artifact(SCALER_SPEC),

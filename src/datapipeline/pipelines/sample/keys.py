@@ -66,7 +66,7 @@ class RectangularKeyPlan:
         )
 
 
-def group_key_for(
+def sample_key_for(
     item: SeriesRecord | SeriesSequence,
     cadence: timedelta,
 ) -> tuple:

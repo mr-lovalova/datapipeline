@@ -40,7 +40,7 @@ flowchart LR
   definition --> runtime["Runtime.streams<br/>id -> compiled stream"]
   runtime --> records["linear record pipeline"]
   records --> projection["feature/target projection"] --> inputs["series"]
-  inputs --> vectors["vector assembly"] --> postprocess["postprocess stages"]
+  inputs --> samples["sample assembly"] --> postprocess["postprocess stages"]
   postprocess --> output["samples / output"]
 ```
 
@@ -128,7 +128,7 @@ The dataset pipeline has one fixed postprocess order:
 
 ```text
 dataset
-  vector_assemble
+  assemble_samples
   optional select_features
   optional select_targets
   normalize_features

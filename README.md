@@ -2,7 +2,7 @@
 
 Jerry Thomas is a time-series data pipeline runtime. It reads source data,
 maps it into ordered record streams, applies declarative transforms, and serves
-feature vectors for analysis or model training.
+datasets for analysis or model training.
 
 The runtime is iterator-first: streams are processed on demand, with explicit
 sorting, artifacts, observability, built-in transforms, and plugin entry points
@@ -11,7 +11,7 @@ for custom loaders, parsers, mappers, and stream combiners.
 > **Core assumptions**
 >
 > - Every record carries a timezone-aware `time` attribute. Time-zone awareness
->   is a quality gate for correct vector assembly.
+>   is a quality gate for correct sample assembly.
 > - Samples are grouped by `sample.cadence`, plus optional
 >   `sample.keys` such as `security_id`.
 > - `partition_by` is the complete identity of an independent record series.
@@ -35,7 +35,7 @@ for custom loaders, parsers, mappers, and stream combiners.
 
 ## Quick Start
 
-From zero to served vectors:
+From zero to a served dataset:
 
 ![Jerry demo](docs/assets/demo.gif)
 
@@ -147,7 +147,7 @@ These live under `lib/<plugin>/src/<package>/`:
 - Custom loaders are for behavior such as pagination, authentication, or
   proprietary protocols. See [Extending the runtime](docs/extending.md).
 
-### Transforms (Preprocess -> Ordered Stream -> Series -> Vector)
+### Transforms (Preprocess -> Ordered Stream -> Series -> Sample)
 
 - **Preprocess transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure source-backed streams under `preprocess:`.
 - **Ordered transforms** run after ordering (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure streams under `transforms:`.
@@ -163,7 +163,7 @@ These live under `lib/<plugin>/src/<package>/`:
 
 - **Source alias**: `sources/*.yaml:id` (referenced by source-backed streams under `from.source`).
 - **Stream id**: `streams/*.yaml:id` (referenced by `dataset.yaml` under `stream:`).
-- **Sample key**: vector identity: floored time plus optional `dataset.sample.keys`.
+- **Sample key**: sample identity: floored time plus optional `dataset.sample.keys`.
 - **Partition**: complete identity of an independent record series, declared by
   stream `partition_by` and used as the state boundary for history-based
   transforms.

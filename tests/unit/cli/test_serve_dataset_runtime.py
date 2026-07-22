@@ -132,8 +132,8 @@ def _sample_preview_pipeline():
         name="dataset",
         nodes=(
             SourceNode(
-                name="vector_assemble",
-                open=lambda: iter(["vector"]),
+                name="assemble_samples",
+                open=lambda: iter(["sample"]),
             ),
             PipelineNode(
                 name="normalize_features",
@@ -181,10 +181,10 @@ def test_dataset_operation_reraises_keyboard_interrupt_and_marks_run_failed(
     )
     monkeypatch.setattr(
         "datapipeline.operations.runtime.dataset.run_dataset_pipeline",
-        lambda *args, **kwargs: _vectors(),
+        lambda *args, **kwargs: _samples(),
     )
 
-    def _vectors():
+    def _samples():
         raise KeyboardInterrupt()
         yield None
 
@@ -254,7 +254,7 @@ def test_dataset_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         )
     )
     runtime.dataset = dataset
-    target = _fs_target(tmp_path / "vectors.jsonl")
+    target = _fs_target(tmp_path / "dataset.jsonl")
     samples = [
         Sample(key="2020-01-01T00:00:00Z", features=Vector(values={"x": 1})),
         Sample(key="2022-01-01T00:00:00Z", features=Vector(values={"x": 2})),
@@ -277,11 +277,11 @@ def test_dataset_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     assert isinstance(output, RoutedRuntimeOutput)
     assert (
         output.targets["holdout.train"].destination
-        == tmp_path / "vectors.holdout.train.jsonl"
+        == tmp_path / "dataset.holdout.train.jsonl"
     )
     assert (
         output.targets["holdout.validation"].destination
-        == tmp_path / "vectors.holdout.validation.jsonl"
+        == tmp_path / "dataset.holdout.validation.jsonl"
     )
     routed = list(output.rows)
     assert [output.output_for_row(sample) for sample in routed] == [
@@ -330,7 +330,7 @@ def test_dataset_operation_returns_parquet_split_outputs(monkeypatch, tmp_path):
     result = _serve(
         runtime,
         dataset,
-        _parquet_target(tmp_path / "vectors.parquet"),
+        _parquet_target(tmp_path / "dataset.parquet"),
         preview=None,
     )
 
@@ -340,8 +340,8 @@ def test_dataset_operation_returns_parquet_split_outputs(monkeypatch, tmp_path):
         for target in result.outputs[0].targets.values()
         if target.destination is not None
     } == {
-        "vectors.holdout.train.parquet",
-        "vectors.holdout.validation.parquet",
+        "dataset.holdout.train.parquet",
+        "dataset.holdout.validation.parquet",
     }
 
 
@@ -365,7 +365,7 @@ def test_samples_preview_stops_before_postprocess(monkeypatch):
     assert runtime.window_bounds == ("start", "end")
     assert len(result.outputs) == 1
     assert result.outputs[0].target == target
-    assert list(result.outputs[0].rows) == ["vector"]
+    assert list(result.outputs[0].rows) == ["sample"]
 
 
 def test_samples_preview_writes_schema_aware_parquet(monkeypatch, tmp_path):
@@ -375,7 +375,7 @@ def test_samples_preview_writes_schema_aware_parquet(monkeypatch, tmp_path):
     )
     pipeline = Pipeline(
         name="dataset",
-        nodes=(SourceNode(name="vector_assemble", open=lambda: iter((sample,))),),
+        nodes=(SourceNode(name="assemble_samples", open=lambda: iter((sample,))),),
     )
     monkeypatch.setattr(
         "datapipeline.operations.runtime.dataset.resolve_window_bounds",
@@ -516,7 +516,7 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
 
     result = _serve(runtime, dataset, target, preview="postprocess")
 
-    assert list(result.outputs[0].rows) == ["post:vector"]
+    assert list(result.outputs[0].rows) == ["post:sample"]
 
 
 @pytest.mark.parametrize(
@@ -526,8 +526,8 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
         ("canonical", "mapped:source", "derived.prices"),
         ("records", "records:transformed:mapped:source", "derived.prices"),
         ("series", "series", "price"),
-        ("samples", "vector", None),
-        ("postprocess", "post:vector", None),
+        ("samples", "sample", None),
+        ("postprocess", "post:sample", None),
     ],
 )
 def test_all_preview_stages_write_gzip_through_the_shared_output_path(

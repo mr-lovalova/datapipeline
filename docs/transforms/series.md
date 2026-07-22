@@ -1,7 +1,7 @@
 # Series Shaping
 
 `dataset.yaml` exposes two distinct policies. `sequence` shapes series
-before vector assembly. `scale` marks assembled vector values for output
+before sample assembly. `scale` marks assembled vector values for output
 scaling with the selected dataset fold.
 
 ## Built-In Policies

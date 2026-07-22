@@ -19,7 +19,7 @@ from datapipeline.operations.artifacts.series import (
     materialize_series,
 )
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
-from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
+from datapipeline.pipelines.sample.source import open_samples
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
 
@@ -47,9 +47,7 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         )
     series_rel = materialize_series(
         runtime,
-        SeriesTask(
-            id="series", output="series/manifest.json"
-        ),
+        SeriesTask(id="series", output="series/manifest.json"),
     )
     runtime.artifacts.register(
         SERIES,
@@ -75,14 +73,14 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
     dataset = runtime.dataset
     ctx = PipelineContext(runtime)
 
-    vectors = build_vector_pipeline(
+    assembled_samples = open_samples(
         ctx,
         dataset.features,
         dataset.sample.cadence,
         target_configs=dataset.targets,
         rectangular=False,
     )
-    samples = list(apply_postprocess(ctx, vectors))
+    samples = list(apply_postprocess(ctx, assembled_samples))
 
     assert all(
         "spot_eur_sequence__@area:DK1" not in sample.features.values

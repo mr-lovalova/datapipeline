@@ -153,8 +153,8 @@ output:
   # view: raw # optional; csv/parquet default to flat; jsonl/pickle default to raw
   # encoding: utf-8 # fs jsonl/csv only
   # compression: gzip # optional; fs jsonl/csv only
-limit: 100 # cap vectors per output
-throttle_ms: null # milliseconds to sleep between emitted vectors
+limit: 100 # cap samples per output
+throttle_ms: null # milliseconds to sleep between emitted samples
 # Optional overrides:
 # observability:
 #   visuals: ON      # ON | OFF
@@ -174,7 +174,8 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   and CLI flags still win where available (see
   _Configuration & Resolution Order_). Filesystem runs write under
   `<directory>/runs/<run_id>/dataset/`; normal outputs use `<profile>.<ext>` and
-  split outputs use `<profile>.<fold-id>.<role>.<ext>`.
+  split outputs use `<profile>.<fold-id>.<role>.<ext>`. When neither a profile
+  nor `output.filename` supplies the base name, it defaults to `dataset`.
 - `output.encoding` is supported for fs `jsonl`/`csv` outputs (default `utf-8`); it is invalid for `stdout`, `parquet`, and `pickle`.
 - `output.compression: gzip` writes fs `jsonl`/`csv` outputs with a `.gz`
   suffix. This applies unchanged to full dataset, split, inspect, and preview
@@ -192,7 +193,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
   `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
   using the same `<fold-id>.<role>` IDs. Split fanout requires filesystem
   output. When set, `output.filename` becomes the base name, producing files
-  such as `vectors.holdout.train.jsonl`.
+  such as `dataset.holdout.train.jsonl`.
 - Preview bypasses automatic split fanout and emits one combined stage output.
   A profile cannot combine explicit `include_outputs` with preview.
 - Before any selected serve profile runs, Jerry unions their artifact
@@ -626,7 +627,7 @@ Notes:
 
 ### `dataset.yaml`
 
-Defines which canonical streams become features/targets and the vector bucketing.
+Defines which canonical streams become features and targets and how samples are grouped.
 
 ```yaml
 sample:
@@ -670,7 +671,7 @@ postprocess:
       threshold: 0.95
 ```
 
-- `sample.cadence` controls the time bucket for vector samples (must match
+- `sample.cadence` controls the time bucket for samples (must match
   `^\\d+(m|min|h|d)$`, e.g. `10m`, `60min`, `1h`, `1d`).
 - `sample.keys` optionally adds record fields to the sample key. For example,
   `keys: [security_id]` emits one sample per `(time, security_id)`. Every sample

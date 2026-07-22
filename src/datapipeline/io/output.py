@@ -43,8 +43,7 @@ def _default_filename_for_format(
     fmt: Format,
     compression: Compression | None,
 ) -> str:
-    suffix = _output_suffix(fmt, compression)
-    return f"vectors{suffix}"
+    return f"dataset{_output_suffix(fmt, compression)}"
 
 
 @dataclass(frozen=True)

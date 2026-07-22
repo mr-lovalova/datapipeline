@@ -110,7 +110,7 @@ only_mutate = [
   "src/datapipeline/pipelines/dataset/split.py",
   "src/datapipeline/pipelines/series/projector.py",
   "src/datapipeline/pipelines/sort.py",
-  "src/datapipeline/pipelines/vector/keygen.py",
+  "src/datapipeline/pipelines/sample/keys.py",
   "src/datapipeline/transforms/rolling_slope.py",
   "src/datapipeline/transforms/stream/forward_sum.py",
   "src/datapipeline/transforms/stream/logarithm.py",

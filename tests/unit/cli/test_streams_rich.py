@@ -453,7 +453,7 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
         status=Text("last report at 0:03:00 · write_output · 1,974,178 rows"),
     )
     progress.add_task(
-        "[dataset:fold_1/vector_assemble]",
+        "[dataset:fold_1/assemble_samples]",
         completed=7_605_305,
         total=8_600_417,
         status=Text("emitting · 7,605,305/8,600,417 items"),
