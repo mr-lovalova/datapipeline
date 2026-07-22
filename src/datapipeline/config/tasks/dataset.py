@@ -2,13 +2,11 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .base import OperationTask
+from .base import RuntimeTask
 
 
-class PipelineTask(OperationTask[dict[str, object]]):
-    entrypoint: Literal["core.runtime.pipeline"] = Field(
-        default="core.runtime.pipeline"
-    )
+class DatasetTask(RuntimeTask[dict[str, object]]):
+    entrypoint: Literal["core.runtime.dataset"] = Field(default="core.runtime.dataset")
     options: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("options")

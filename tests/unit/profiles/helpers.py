@@ -4,7 +4,7 @@ from pathlib import Path
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.config.streams import StreamsConfig
-from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.config.tasks import ArtifactTask, RuntimeTask
 from datapipeline.services.definitions import (
     ArtifactHashes,
     PipelineDefinition,
@@ -18,7 +18,7 @@ def pipeline_definition(
     dataset: DatasetConfig | None = None,
     streams: StreamsConfig | None = None,
     artifact_operations: Sequence[ArtifactTask] = (),
-    runtime_operations: Sequence[OperationTask] = (),
+    runtime_operations: Sequence[RuntimeTask] = (),
     artifact_hash: str = "artifact-hash",
 ) -> PipelineDefinition:
     project_path = project_path.resolve()

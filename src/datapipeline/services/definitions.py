@@ -6,7 +6,7 @@ from typing import Any, Mapping
 from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.project import ProjectConfig
 from datapipeline.config.streams import StreamsConfig
-from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.config.tasks import ArtifactTask, RuntimeTask
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,5 +40,5 @@ class PipelineDefinition:
     dataset: DatasetConfig
     streams: StreamsConfig
     artifact_operations: tuple[ArtifactTask, ...]
-    runtime_operations: tuple[OperationTask, ...]
+    runtime_operations: tuple[RuntimeTask, ...]
     artifact_hashes: ArtifactHashes

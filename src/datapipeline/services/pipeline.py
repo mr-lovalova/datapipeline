@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
-from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.config.tasks import ArtifactTask, RuntimeTask
 from datapipeline.services.dataset import (
     dataset_from_document,
     validate_dataset_streams,
@@ -28,7 +28,7 @@ def load_pipeline(project_yaml: Path) -> PipelineDefinition:
         operation for operation in operations if isinstance(operation, ArtifactTask)
     )
     runtime_operations = tuple(
-        operation for operation in operations if isinstance(operation, OperationTask)
+        operation for operation in operations if isinstance(operation, RuntimeTask)
     )
     artifact_hashes = calculate_artifact_hashes(
         project,

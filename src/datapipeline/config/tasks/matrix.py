@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .base import OperationTask
+from .base import RuntimeTask
 
 
 class MatrixOptions(BaseModel):
@@ -12,6 +12,6 @@ class MatrixOptions(BaseModel):
     max_cells: StrictInt = Field(default=1_000_000, gt=0)
 
 
-class MatrixTask(OperationTask[MatrixOptions]):
+class MatrixTask(RuntimeTask[MatrixOptions]):
     entrypoint: Literal["core.runtime.matrix"] = Field(default="core.runtime.matrix")
     options: MatrixOptions = Field(default_factory=MatrixOptions)

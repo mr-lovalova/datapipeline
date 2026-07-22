@@ -1,9 +1,9 @@
 from math import log, log1p
 
+from datapipeline.domain.record import TemporalRecord
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import PipelineEvent, PipelineStarted
-from datapipeline.domain.record import TemporalRecord
-from datapipeline.operations.runtime.pipeline import _record_preview_stream
+from datapipeline.operations.runtime.dataset import _record_preview_stream
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
     run_stream_pipeline,

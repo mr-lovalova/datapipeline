@@ -4,7 +4,7 @@ from typing import Literal, Sequence
 from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.preview import PreviewStage
-from datapipeline.config.tasks import ArtifactTask, OperationTask
+from datapipeline.config.tasks import ArtifactTask, RuntimeTask
 from datapipeline.execution.settings import (
     ObservabilitySettings,
 )
@@ -29,7 +29,7 @@ class BuildJob:
 @dataclass(frozen=True)
 class RuntimeJob:
     name: str
-    task: OperationTask
+    task: RuntimeTask
     runtime: Runtime
     output: OutputTarget
     observability: ObservabilitySettings

@@ -28,20 +28,20 @@ from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixTask,
     MetadataTask,
-    OperationTask,
-    PipelineTask,
+    RuntimeTask,
+    SeriesTask,
     StatsTask,
     TicksTask,
-    SeriesTask,
 )
+from datapipeline.execution.observability import CommandFinished
 from datapipeline.execution.settings import (
     LogLevelDecision,
     LogOutputSettings,
     ObservabilitySettings,
 )
-from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.runs import (
     RunPaths,
@@ -163,7 +163,7 @@ def _materialize_output(path: Path) -> OutputTarget:
 
 def _runtime_job(
     name: str,
-    task: OperationTask,
+    task: RuntimeTask,
     runtime,
     *,
     limit: int | None = None,
@@ -540,7 +540,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
 ) -> None:
     series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="dataset")
+    dataset_task = DatasetTask(id="dataset")
     first_runtime = _runtime(tmp_path, "first-job")
     second_runtime = _runtime(tmp_path, "second-job")
     canonical_runtime = _runtime(tmp_path, "canonical-build")
@@ -553,13 +553,13 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
         jobs=[
             _runtime_job(
                 "records-preview",
-                pipeline,
+                dataset_task,
                 first_runtime,
                 preview="records",
             ),
             _runtime_job(
                 "postprocess-preview",
-                pipeline,
+                dataset_task,
                 second_runtime,
                 preview="postprocess",
             ),
@@ -639,7 +639,7 @@ def test_custom_runtime_artifact_requirement_is_prepared(
         entrypoint="plugin.snapshot",
         output="build/snapshot.json",
     )
-    report = OperationTask(
+    report = RuntimeTask(
         id="report",
         entrypoint="plugin.runtime.report",
         requires=("snapshot",),
@@ -678,7 +678,7 @@ def test_custom_runtime_artifact_requirement_is_prepared(
 def test_custom_runtime_missing_required_producer_is_rejected_before_execution(
     tmp_path: Path,
 ) -> None:
-    report = OperationTask(
+    report = RuntimeTask(
         id="report",
         entrypoint="plugin.runtime.report",
         requires=("custom_snapshot",),
@@ -697,19 +697,19 @@ def test_missing_runtime_artifact_producer_is_rejected_before_execution(
     tmp_path: Path,
 ) -> None:
     metadata = MetadataTask(id="metadata")
-    pipeline = PipelineTask(id="dataset")
+    dataset_task = DatasetTask(id="dataset")
     request = _runtime_request(
         tmp_path,
         command="serve",
         artifact_tasks=[metadata],
-        jobs=[_runtime_job("serve", pipeline, _runtime(tmp_path))],
+        jobs=[_runtime_job("serve", dataset_task, _runtime(tmp_path))],
     )
 
     _assert_preflight_rejected(request)
 
 
 def test_v5_features_preview_is_rejected_before_starting_run(tmp_path: Path) -> None:
-    pipeline = PipelineTask(id="dataset")
+    dataset_task = DatasetTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     request = _runtime_request(
         tmp_path,
@@ -718,7 +718,7 @@ def test_v5_features_preview_is_rejected_before_starting_run(tmp_path: Path) -> 
         jobs=[
             _runtime_job(
                 "preview",
-                pipeline,
+                dataset_task,
                 _runtime(tmp_path),
                 preview="features",  # type: ignore[arg-type]
             )
@@ -736,7 +736,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    task = PipelineTask(id="dataset")
+    task = DatasetTask(id="dataset")
     execution = ExecutionConfig(sort_buffer_mb=16)
     jobs = [
         _runtime_job(
@@ -808,7 +808,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
 ) -> None:
     runtime = _runtime(tmp_path)
     runtime.execution = ExecutionConfig(sort_buffer_mb=24)
-    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    task = RuntimeTask(id="report", entrypoint="plugin.runtime.report")
     job = _runtime_job("coverage", task, runtime)
     messages: list[tuple[str, int]] = []
 
@@ -847,7 +847,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
 def test_runtime_job_does_not_hide_plugin_value_errors(
     monkeypatch, tmp_path: Path
 ) -> None:
-    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    task = RuntimeTask(id="report", entrypoint="plugin.runtime.report")
     job = _runtime_job("coverage", task, _runtime(tmp_path))
     monkeypatch.setattr(
         "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
@@ -872,7 +872,7 @@ def test_runtime_job_does_not_hide_plugin_value_errors(
 
 
 def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) -> None:
-    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    task = RuntimeTask(id="report", entrypoint="plugin.runtime.report")
     job = _runtime_job("report", task, _runtime(tmp_path))
     monkeypatch.setattr(
         "datapipeline.profiles.execution.hydrate_runtime_artifacts_for_pipeline",
@@ -896,7 +896,7 @@ def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) 
 def test_runtime_plugin_receives_the_documented_contract(
     monkeypatch, tmp_path: Path
 ) -> None:
-    task = OperationTask(id="report", entrypoint="plugin.runtime.report")
+    task = RuntimeTask(id="report", entrypoint="plugin.runtime.report")
     job = _runtime_job("report", task, _runtime(tmp_path), limit=7)
     received = None
 
@@ -918,6 +918,29 @@ def test_runtime_plugin_receives_the_documented_contract(
 
     assert run_runtime_operation(job) == "result"
     assert received == (job.runtime, task, 7)
+
+
+def test_dataset_operation_uses_its_core_runner(monkeypatch, tmp_path: Path) -> None:
+    task = DatasetTask(id="dataset")
+    job = _runtime_job("dataset", task, _runtime(tmp_path), limit=5)
+    received = None
+
+    def run_dataset(runtime, limit, output, throttle_ms, preview):
+        nonlocal received
+        received = runtime, limit, output, throttle_ms, preview
+        return "dataset"
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.run_dataset_operation",
+        run_dataset,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.execution.load_ep",
+        lambda *_args: pytest.fail("core operations must not load plugin entry points"),
+    )
+
+    assert run_runtime_operation(job) == "dataset"
+    assert received == (job.runtime, 5, job.output, None, None)
 
 
 def test_matrix_operation_uses_its_core_runner(monkeypatch, tmp_path: Path) -> None:
@@ -980,7 +1003,7 @@ def test_parquet_output_rejects_record_preview_before_planning(
 ) -> None:
     job = _runtime_job(
         "dataset",
-        PipelineTask(id="dataset"),
+        DatasetTask(id="dataset"),
         _runtime(tmp_path),
         preview="records",
         output=OutputTarget(
@@ -997,7 +1020,7 @@ def test_parquet_output_rejects_record_preview_before_planning(
 
 
 def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime")
     run_paths = _run_paths(tmp_path)
     request = _runtime_request(
         tmp_path,
@@ -1035,7 +1058,7 @@ def test_shared_serve_run_is_finalized_once(monkeypatch, tmp_path: Path) -> None
 
 
 def test_job_failure_marks_shared_run_failed(monkeypatch, tmp_path: Path) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime")
     run_paths = _run_paths(tmp_path)
     request = _runtime_request(
         tmp_path,
@@ -1084,7 +1107,7 @@ def test_latest_failure_still_finalizes_all_runs(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime")
     first = _run_paths(tmp_path / "first")
     second = _run_paths(tmp_path / "second")
     request = _runtime_request(
@@ -1171,7 +1194,7 @@ def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(
             ),
         )
     )
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime")
     request = _runtime_request(
         tmp_path,
         command="serve",
@@ -1231,7 +1254,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    pipeline = PipelineTask(id="dataset")
+    dataset_task = DatasetTask(id="dataset")
     run_paths = _run_paths(tmp_path)
     runtime = _runtime(tmp_path)
     request = _runtime_request(
@@ -1241,7 +1264,7 @@ def test_preview_run_exists_at_job_boundary_and_is_not_latest(
         jobs=[
             _runtime_job(
                 "preview",
-                pipeline,
+                dataset_task,
                 runtime,
                 preview="records",
                 heartbeat_interval_seconds=15,
@@ -1290,7 +1313,7 @@ def test_later_run_start_failure_fails_only_started_run(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime")
     first = _run_paths(tmp_path / "first")
     second = _run_paths(tmp_path / "second")
     request = _runtime_request(

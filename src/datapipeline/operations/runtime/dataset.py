@@ -7,8 +7,8 @@ from typing import TypeVar
 
 from datapipeline.artifacts.models import VectorMetadataEntry
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
-from datapipeline.artifacts.specs import SERIES, dataset_requires_scaler
 from datapipeline.artifacts.series import load_series_manifest
+from datapipeline.artifacts.specs import SERIES, dataset_requires_scaler
 from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
@@ -19,22 +19,22 @@ from datapipeline.config.preview import PreviewStage
 from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.io.dataset_table import DatasetTable
+from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.operations.persistence import (
     DatasetTableOutput,
-    RoutedRuntimeOutput,
     RoutedDatasetTableOutput,
+    RoutedRuntimeOutput,
     RuntimeOutput,
     RuntimeOutputBatch,
 )
+from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
-    run_fold_dataset_pipeline,
     run_dataset_pipeline,
+    run_fold_dataset_pipeline,
     run_scaled_dataset_pipeline,
 )
-from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.series.pipeline import run_series_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
@@ -443,9 +443,7 @@ def _dataset_table(
     scaled_feature_ids: tuple[str, ...] = (),
     scaled_target_ids: tuple[str, ...] = (),
 ) -> DatasetTable:
-    manifest = load_series_manifest(
-        context.resolve_artifact_path(SERIES)
-    )
+    manifest = load_series_manifest(context.resolve_artifact_path(SERIES))
     if manifest.sample_keys != tuple(sample_keys):
         raise RuntimeError(
             "Series sample keys do not match the dataset table contract."
@@ -488,7 +486,7 @@ def _selected_fold_outputs(
     return list(selected.values())
 
 
-def run_pipeline_operation(
+def run_dataset_operation(
     runtime: Runtime,
     limit: int | None,
     target: OutputTarget,

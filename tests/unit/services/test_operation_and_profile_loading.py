@@ -6,10 +6,10 @@ from datapipeline.config.profiles import MaterializeProfile
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixOptions,
     MatrixTask,
-    OperationTask,
-    PipelineTask,
+    RuntimeTask,
 )
 from datapipeline.profiles.loader import (
     apply_profile_defaults,
@@ -95,9 +95,9 @@ def _profile_kind_dir(project_yaml: Path) -> Path:
     return path
 
 
-def test_operation_task_rejects_non_serializable_options() -> None:
+def test_runtime_task_rejects_non_serializable_options() -> None:
     with pytest.raises(ValueError, match="JSON-serializable"):
-        OperationTask(
+        RuntimeTask(
             id="plugin",
             entrypoint="plugin.runtime",
             options={"value": object()},
@@ -138,7 +138,7 @@ def test_core_operations_load_without_configuration(tmp_path):
 
     tasks = _tasks(project_yaml)
     artifact_tasks = [task for task in tasks if isinstance(task, ArtifactTask)]
-    runtime_tasks = [task for task in tasks if isinstance(task, OperationTask)]
+    runtime_tasks = [task for task in tasks if isinstance(task, RuntimeTask)]
 
     assert [task.id for task in artifact_tasks] == [
         "scaler",
@@ -954,8 +954,8 @@ def test_dataset_operation_loads(tmp_path):
     project_yaml = _write_project(tmp_path)
 
     task = next(task for task in _all_tasks(project_yaml) if task.id == "dataset")
-    assert isinstance(task, PipelineTask)
-    assert task.entrypoint == "core.runtime.pipeline"
+    assert isinstance(task, DatasetTask)
+    assert task.entrypoint == "core.runtime.dataset"
 
 
 def test_coverage_operation_options_are_typed(tmp_path):
@@ -975,14 +975,14 @@ def test_coverage_operation_options_are_typed(tmp_path):
 @pytest.mark.parametrize(
     ("entrypoint", "model_cls"),
     [
-        ("core.runtime.pipeline", PipelineTask),
+        ("core.runtime.dataset", DatasetTask),
         ("core.runtime.matrix", MatrixTask),
     ],
 )
 def test_runtime_tasks_without_options_accept_empty_options(
     tmp_path: Path,
     entrypoint: str,
-    model_cls: type[OperationTask],
+    model_cls: type[RuntimeTask],
 ) -> None:
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
@@ -1001,10 +1001,29 @@ def test_runtime_tasks_without_options_accept_empty_options(
 
 
 @pytest.mark.parametrize(
+    "entrypoint",
+    ["core.runtime.pipeline", "core.runtime.typo"],
+)
+def test_unknown_core_runtime_entrypoint_is_rejected_during_loading(
+    tmp_path: Path,
+    entrypoint: str,
+) -> None:
+    project_yaml = _write_project(tmp_path, operations_ref="operations")
+    config_dir = _operations_dir(project_yaml)
+    (config_dir / "invalid.yaml").write_text(
+        f"kind: runtime\nentrypoint: {entrypoint}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported core runtime entrypoint"):
+        _all_tasks(project_yaml)
+
+
+@pytest.mark.parametrize(
     ("entrypoint", "option", "error"),
     [
         (
-            "core.runtime.pipeline",
+            "core.runtime.dataset",
             "  sort: missing\n",
             "dataset operation does not accept options",
         ),
@@ -1088,7 +1107,7 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
 
     task = next(task for task in _all_tasks(project_yaml) if task.id == "custom")
 
-    assert type(task) is OperationTask
+    assert type(task) is RuntimeTask
     assert task.requires == ("custom_snapshot",)
     assert task.options == {"nested": {"value": 3}}
 
@@ -1277,8 +1296,8 @@ def test_legacy_config_directory_is_not_loaded(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     tasks_root = project_yaml.parent / "tasks"
     tasks_root.mkdir(parents=True, exist_ok=True)
-    (tasks_root / "pipeline.yaml").write_text(
-        "id: pipeline\nkind: runtime\nentrypoint: core.runtime.pipeline\n",
+    (tasks_root / "report.yaml").write_text(
+        "id: report\nkind: runtime\nentrypoint: core.runtime.dataset\n",
         encoding="utf-8",
     )
 

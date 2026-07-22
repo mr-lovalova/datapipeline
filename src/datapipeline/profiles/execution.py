@@ -11,14 +11,14 @@ from datapipeline.cli.visuals.execution import emit_execution_message
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixTask,
-    PipelineTask,
 )
 from datapipeline.execution.observability import operation_scope
 from datapipeline.operations.persistence import persist_runtime_result
 from datapipeline.operations.runtime.coverage import run_coverage_operation
+from datapipeline.operations.runtime.dataset import run_dataset_operation
 from datapipeline.operations.runtime.matrix import run_matrix_operation
-from datapipeline.operations.runtime.pipeline import run_pipeline_operation
 from datapipeline.plugins import RUNTIME_OPERATIONS_EP
 from datapipeline.services.definitions import PipelineDefinition
 from datapipeline.utils.load import load_ep
@@ -51,7 +51,7 @@ def plan_runtime_job(
     graph: ArtifactGraph,
     definition: PipelineDefinition,
 ) -> RuntimeJobPlan:
-    if job.output.format == "parquet" and not isinstance(job.task, PipelineTask):
+    if job.output.format == "parquet" and not isinstance(job.task, DatasetTask):
         raise ValueError("Parquet output is supported only by the dataset operation.")
     if job.output.format == "parquet" and job.preview not in {
         None,
@@ -63,11 +63,11 @@ def plan_runtime_job(
         )
     if isinstance(job.task, CoverageTask) and job.limit is not None:
         raise ValueError("The coverage operation does not support a record limit.")
-    if not isinstance(job.task, PipelineTask) and job.preview is not None:
+    if not isinstance(job.task, DatasetTask) and job.preview is not None:
         raise ValueError("Only the dataset operation supports preview.")
-    if not isinstance(job.task, PipelineTask) and job.throttle_ms is not None:
+    if not isinstance(job.task, DatasetTask) and job.throttle_ms is not None:
         raise ValueError("Only the dataset operation supports throttle_ms.")
-    if not isinstance(job.task, PipelineTask) and job.output_ids:
+    if not isinstance(job.task, DatasetTask) and job.output_ids:
         raise ValueError("Only the dataset operation supports routed outputs.")
     required_artifacts = graph.runtime_dependency_closure(
         job.task,
@@ -80,8 +80,8 @@ def plan_runtime_job(
 
 def run_runtime_operation(job: RuntimeJob) -> object:
     task = job.task
-    if isinstance(task, PipelineTask):
-        return run_pipeline_operation(
+    if isinstance(task, DatasetTask):
+        return run_dataset_operation(
             job.runtime,
             job.limit,
             job.output,

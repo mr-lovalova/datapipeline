@@ -41,7 +41,7 @@ from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.artifacts.series import (
     materialize_series,
 )
-from datapipeline.operations.runtime.pipeline import _record_preview_stream
+from datapipeline.operations.runtime.dataset import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.dataset.pipeline import (

@@ -60,15 +60,15 @@ class ArtifactTask(Task):
         return output
 
 
-OperationOptionsT = TypeVar("OperationOptionsT")
+RuntimeOptionsT = TypeVar("RuntimeOptionsT")
 
 
-class OperationTask(Task, Generic[OperationOptionsT]):
+class RuntimeTask(Task, Generic[RuntimeOptionsT]):
     kind: Literal["runtime"] = Field(default="runtime")
     requires: tuple[str, ...] = ()
-    # Bare OperationTask is the plugin fallback; concrete tasks replace this
+    # Bare RuntimeTask is the plugin fallback; concrete tasks replace this
     # default with their own option type.
-    options: OperationOptionsT = Field(default_factory=dict)  # type: ignore[assignment]
+    options: RuntimeOptionsT = Field(default_factory=dict)  # type: ignore[assignment]
 
     @field_validator("requires", mode="before")
     @classmethod

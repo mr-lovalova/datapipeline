@@ -33,7 +33,7 @@ iterator-oriented `datapipeline.mappers` group.
 A custom runtime operation receives exactly three positional arguments:
 
 ```python
-from datapipeline.config.tasks import OperationTask
+from datapipeline.config.tasks import RuntimeTask
 from datapipeline.operations.persistence import (
     RoutedRuntimeOutput,
     RuntimeOutput,
@@ -44,13 +44,13 @@ from datapipeline.runtime import Runtime
 
 def run_report(
     runtime: Runtime,
-    task: OperationTask,
+    task: RuntimeTask,
     limit: int | None,
 ) -> RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch | None:
     ...
 ```
 
-`runtime` is the compiled `Runtime`, `task` is the configured `OperationTask`,
+`runtime` is the compiled `Runtime`, `task` is the configured `RuntimeTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `RoutedRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
 using the profile output. A routed output's `output_for_row` callback returns a

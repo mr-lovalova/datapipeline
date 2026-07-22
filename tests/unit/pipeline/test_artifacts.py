@@ -30,14 +30,14 @@ from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixTask,
     MetadataTask,
-    OperationTask,
-    PipelineTask,
+    RuntimeTask,
     ScalerTask,
+    SeriesTask,
     StatsTask,
     TicksTask,
-    SeriesTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.definitions import ArtifactHashes
@@ -602,12 +602,12 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
         ("postprocess", {VECTOR_METADATA}),
     ],
 )
-def test_pipeline_runtime_requirements_follow_preview_stage(
+def test_dataset_runtime_requirements_follow_preview_stage(
     preview,
     expected,
 ):
     graph = build_artifact_graph([])
-    task = PipelineTask(id="dataset")
+    task = DatasetTask(id="dataset")
 
     assert (
         graph.runtime_requirements(
@@ -620,13 +620,13 @@ def test_pipeline_runtime_requirements_follow_preview_stage(
 
 @pytest.mark.parametrize(
     "entrypoint",
-    ["core.runtime.pipeline", "core.runtime.coverage"],
+    ["core.runtime.dataset", "core.runtime.coverage"],
 )
 def test_plugin_task_cannot_claim_core_requirements_by_entrypoint(
     entrypoint: str,
 ) -> None:
     graph = build_artifact_graph([])
-    task = OperationTask(id="plugin", entrypoint=entrypoint, requires=("declared",))
+    task = RuntimeTask(id="plugin", entrypoint=entrypoint, requires=("declared",))
 
     assert graph.runtime_requirements(task, preview=None) == {"declared"}
 
@@ -664,7 +664,7 @@ def test_record_and_series_previews_require_declared_ticks(
         }
     )
     graph = build_artifact_graph([tick_task, unused_tick], dataset, streams)
-    task = PipelineTask(id="dataset")
+    task = DatasetTask(id="dataset")
 
     assert "dataset_ticks" in graph.runtime_requirements(
         task,
@@ -673,9 +673,9 @@ def test_record_and_series_previews_require_declared_ticks(
     assert "unused_ticks" not in graph.runtime_requirements(task, preview=preview)
 
 
-def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
+def test_invalid_dataset_preview_is_rejected_for_empty_dataset() -> None:
     graph = build_artifact_graph([])
-    task = PipelineTask(id="dataset")
+    task = DatasetTask(id="dataset")
     dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))
 
     with pytest.raises(ValueError, match="preview must be one of"):
@@ -774,7 +774,7 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
     )
 
     assert graph.runtime_dependency_closure(
-        PipelineTask(id="dataset"),
+        DatasetTask(id="dataset"),
         preview=None,
         dataset=dataset,
     ) == (
@@ -784,9 +784,9 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
     )
 
 
-def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
+def test_empty_dataset_has_no_runtime_artifact_requirements():
     graph = build_artifact_graph([])
-    task = PipelineTask(id="dataset")
+    task = DatasetTask(id="dataset")
     dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))
 
     assert (
@@ -809,7 +809,7 @@ def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
 
 def test_custom_runtime_task_has_no_inferred_artifact_dependencies():
     graph = build_artifact_graph([])
-    task = OperationTask(id="pipeline", entrypoint="plugin.runtime.pipeline")
+    task = RuntimeTask(id="pipeline", entrypoint="plugin.runtime.pipeline")
 
     assert graph.runtime_requirements(task, preview=None) == set()
 
@@ -821,7 +821,7 @@ def test_custom_runtime_task_uses_declared_artifact_dependencies():
         output="build/custom.json",
     )
     graph = build_artifact_graph([snapshot])
-    task = OperationTask(
+    task = RuntimeTask(
         id="report",
         entrypoint="plugin.runtime.report",
         requires=("custom_snapshot",),
@@ -834,14 +834,14 @@ def test_custom_runtime_task_uses_declared_artifact_dependencies():
     ) == ("custom_snapshot",)
 
 
-def test_empty_pipeline_dataset_keeps_explicit_artifact_dependencies():
+def test_empty_dataset_keeps_explicit_artifact_dependencies():
     snapshot = ArtifactTask(
         id="custom_snapshot",
         entrypoint="plugin.snapshot",
         output="build/custom.json",
     )
     graph = build_artifact_graph([snapshot])
-    task = PipelineTask(id="dataset", requires=("custom_snapshot",))
+    task = DatasetTask(id="dataset", requires=("custom_snapshot",))
 
     assert graph.runtime_dependency_closure(
         task,
@@ -852,7 +852,7 @@ def test_empty_pipeline_dataset_keeps_explicit_artifact_dependencies():
 
 def test_runtime_task_rejects_unknown_declared_artifact_dependency():
     graph = build_artifact_graph([])
-    task = OperationTask(
+    task = RuntimeTask(
         id="report",
         entrypoint="plugin.runtime.report",
         requires=("missing",),
@@ -868,7 +868,7 @@ def test_runtime_task_rejects_unknown_declared_artifact_dependency():
 
 def test_runtime_task_rejects_inactive_declared_artifact_dependency():
     graph = build_artifact_graph([ScalerTask(id="scaler")])
-    task = OperationTask(
+    task = RuntimeTask(
         id="report",
         entrypoint="plugin.runtime.report",
         requires=("scaler",),

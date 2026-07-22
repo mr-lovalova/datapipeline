@@ -11,14 +11,14 @@ from datapipeline.config.dataset.split import (
     TimeInterval,
     TimeSplitConfig,
 )
+from datapipeline.config.preview import PreviewStage
 from datapipeline.config.profiles import (
     BuildProfile,
     InspectProfile,
     ServeOutputConfig,
     ServeProfile,
 )
-from datapipeline.config.preview import PreviewStage
-from datapipeline.config.tasks import OperationTask, PipelineTask
+from datapipeline.config.tasks import DatasetTask, RuntimeTask
 from datapipeline.execution.settings import LogOutputTarget
 from datapipeline.profiles.runtime_profiles import (
     resolve_inspect_profiles,
@@ -30,7 +30,7 @@ from tests.unit.profiles.helpers import pipeline_definition
 def _definition(
     project_path: Path,
     split: HashSplitConfig | TimeSplitConfig | None = None,
-    runtime_operations: tuple[OperationTask, ...] = (),
+    runtime_operations: tuple[RuntimeTask, ...] = (),
 ):
     return pipeline_definition(
         project_path,
@@ -51,7 +51,7 @@ def _resolve_serve(
     cli_log_outputs: list[LogOutputTarget] | None = None,
     cli_heartbeat_interval_seconds: float | None = None,
     split: HashSplitConfig | TimeSplitConfig | None = None,
-    runtime_operations: tuple[OperationTask, ...] = (),
+    runtime_operations: tuple[RuntimeTask, ...] = (),
 ):
     return resolve_serve_profiles(
         definition=_definition(project_path, split, runtime_operations),
@@ -179,7 +179,7 @@ def test_runtime_profiles_resolve_heartbeat_setting(tmp_path):
     assert cli_override.observability.heartbeat_interval_seconds == 0
 
 
-def test_pipeline_serve_defaults_to_dataset_output_ids(tmp_path):
+def test_dataset_serve_defaults_to_dataset_output_ids(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -205,13 +205,13 @@ def test_pipeline_serve_defaults_to_dataset_output_ids(tmp_path):
         tmp_path / "project.yaml",
         [profile],
         split=split,
-        runtime_operations=(PipelineTask(id="dataset"),),
+        runtime_operations=(DatasetTask(id="dataset"),),
     )[0]
 
     assert resolved.output_ids == ("default.train", "default.validation")
 
 
-def test_pipeline_serve_defaults_to_every_walk_forward_output(tmp_path):
+def test_dataset_serve_defaults_to_every_walk_forward_output(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -249,7 +249,7 @@ def test_pipeline_serve_defaults_to_every_walk_forward_output(tmp_path):
         tmp_path / "project.yaml",
         [profile],
         split=split,
-        runtime_operations=(PipelineTask(id="dataset"),),
+        runtime_operations=(DatasetTask(id="dataset"),),
     )[0]
 
     assert resolved.output_ids == (
@@ -260,7 +260,7 @@ def test_pipeline_serve_defaults_to_every_walk_forward_output(tmp_path):
     )
 
 
-def test_pipeline_serve_without_dataset_split_emits_combined_output(tmp_path):
+def test_dataset_serve_without_dataset_split_emits_combined_output(tmp_path):
     profile = ServeProfile.model_validate(
         {"cmd": "serve", "name": "dataset", "operation": "dataset"}
     )
@@ -268,13 +268,13 @@ def test_pipeline_serve_without_dataset_split_emits_combined_output(tmp_path):
     resolved = _resolve_serve(
         tmp_path / "project.yaml",
         [profile],
-        runtime_operations=(PipelineTask(id="dataset"),),
+        runtime_operations=(DatasetTask(id="dataset"),),
     )[0]
 
     assert resolved.output_ids == ()
 
 
-def test_pipeline_preview_bypasses_default_routed_outputs(tmp_path):
+def test_dataset_preview_bypasses_default_routed_outputs(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -296,14 +296,14 @@ def test_pipeline_preview_bypasses_default_routed_outputs(tmp_path):
             ratios={"train": 0.8, "test": 0.2},
             folds=[DatasetFold(id="default", train=["train"], test=["test"])],
         ),
-        runtime_operations=(PipelineTask(id="dataset"),),
+        runtime_operations=(DatasetTask(id="dataset"),),
     )[0]
 
     assert resolved.preview == "postprocess"
     assert resolved.output_ids == ()
 
 
-def test_pipeline_preview_rejects_explicit_include_outputs(tmp_path):
+def test_dataset_preview_rejects_explicit_include_outputs(tmp_path):
     profile = ServeProfile.model_validate(
         {
             "cmd": "serve",
@@ -322,7 +322,7 @@ def test_pipeline_preview_rejects_explicit_include_outputs(tmp_path):
                 ratios={"train": 1.0},
                 folds=[DatasetFold(id="default", train=["train"])],
             ),
-            runtime_operations=(PipelineTask(id="dataset"),),
+            runtime_operations=(DatasetTask(id="dataset"),),
         )
 
 
@@ -339,7 +339,7 @@ def test_non_dataset_serve_profile_does_not_inherit_routed_outputs(tmp_path):
             folds=[DatasetFold(id="default", train=["train"])],
         ),
         runtime_operations=(
-            OperationTask(id="custom", entrypoint="plugin.runtime.custom"),
+            RuntimeTask(id="custom", entrypoint="plugin.runtime.custom"),
         ),
     )
 
@@ -471,7 +471,7 @@ def test_include_outputs_cannot_publish_internal_dataset_label(tmp_path):
             tmp_path / "project.yaml",
             [profile],
             split=split,
-            runtime_operations=(PipelineTask(id="dataset"),),
+            runtime_operations=(DatasetTask(id="dataset"),),
         )
 
 
@@ -508,7 +508,7 @@ def test_default_split_output_rejects_stdout(tmp_path):
                 ratios={"train": 1.0},
                 folds=[DatasetFold(id="default", train=["train"])],
             ),
-            runtime_operations=(PipelineTask(id="dataset"),),
+            runtime_operations=(DatasetTask(id="dataset"),),
         )
 
 
@@ -564,7 +564,7 @@ def test_default_split_output_uses_explicit_filename_as_base(tmp_path):
             ratios={"train": 1.0},
             folds=[DatasetFold(id="default", train=["train"])],
         ),
-        runtime_operations=(PipelineTask(id="dataset"),),
+        runtime_operations=(DatasetTask(id="dataset"),),
     )[0]
 
     assert (

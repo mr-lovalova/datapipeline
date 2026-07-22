@@ -187,7 +187,7 @@ throttle_ms: null # milliseconds to sleep between emitted vectors
 - Output values use `None` as the canonical missing value. A transient floating
   `NaN` is emitted as null (`None` in pickle and an empty CSV cell); positive
   and negative infinity fail the output operation.
-- A full pipeline serve with `dataset.yaml:split` writes one output file per
+- A full dataset serve with `dataset.yaml:split` writes one output file per
   configured fold role, using profile-qualified filenames such as
   `dataset.holdout.train.jsonl`. `include_outputs` optionally narrows that set
   using the same `<fold-id>.<role>` IDs. Split fanout requires filesystem
@@ -353,7 +353,7 @@ options: {}
   built-in operations. Each referenced artifact and its dependency chain must
   have available producer operations.
 - Built-in runtime operation options are entrypoint-specific:
-  - The `dataset` operation uses `core.runtime.pipeline` internally and accepts
+  - The `dataset` operation uses `core.runtime.dataset` internally and accepts
     no operation options. Limit, preview, throttle, output, and visuals can be
     set by the serve profile or CLI. Dataset split output comes from
     `dataset.yaml`; `include_outputs` can narrow it. Preview, throttle, and split
@@ -371,6 +371,13 @@ options: {}
 - A custom runtime entry point has one positional contract: `(runtime, task,
   limit)`. It returns `RuntimeOutput`, `RoutedRuntimeOutput`,
   `RuntimeOutputBatch`, or `None`; shared persistence applies the profile output.
+
+Jerry 7 names the built-in dataset runtime consistently. Explicit
+`core.runtime.pipeline` references become `core.runtime.dataset`; Python users
+replace `OperationTask` with `RuntimeTask`, `PipelineTask` with `DatasetTask`,
+and `run_pipeline_operation` with `run_dataset_operation`. Normal
+`operation: dataset` profiles require no change, and this rename does not
+invalidate artifacts.
 
 ### Workspace Routing (`jerry.yaml`)
 
@@ -816,7 +823,7 @@ epsilon: 1.0e-12
 - Profiles select operations by ID through `operation`.
 - Build profiles reference artifact operations. Serve and inspect profiles
   reference runtime operations. The built-in `dataset` operation uses
-  `core.runtime.pipeline`; custom runtime entry points are also supported.
+  `core.runtime.dataset`; custom runtime entry points are also supported.
 - Observability defaults (visuals/logging outputs) belong in profile files (`serve.<name>.yaml`, `build.<name>.yaml`, `inspect.<name>.yaml`) or per-kind defaults (`<kind>.defaults.yaml`).
 
 ---

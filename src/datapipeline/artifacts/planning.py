@@ -20,9 +20,9 @@ from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixTask,
-    OperationTask,
-    PipelineTask,
+    RuntimeTask,
     TicksTask,
 )
 from datapipeline.config.transforms import EnsureTicksConfig
@@ -181,7 +181,7 @@ class ArtifactGraph:
 
     def runtime_requirements(
         self,
-        task: OperationTask,
+        task: RuntimeTask,
         *,
         preview: PreviewStage | None,
     ) -> set[str]:
@@ -191,7 +191,7 @@ class ArtifactGraph:
             for dependency in self.definition(SERIES).dependencies
             if isinstance(self.tasks_by_id.get(dependency), TicksTask)
         }
-        if isinstance(task, PipelineTask):
+        if isinstance(task, DatasetTask):
             if preview is None:
                 return declared | {VECTOR_METADATA}
             if preview not in PREVIEW_STAGES:
@@ -208,21 +208,21 @@ class ArtifactGraph:
 
     def runtime_dependency_closure(
         self,
-        task: OperationTask,
+        task: RuntimeTask,
         *,
         preview: PreviewStage | None,
         dataset: DatasetConfig | None,
     ) -> tuple[str, ...]:
         roots = self.runtime_requirements(task, preview=preview)
         if (
-            isinstance(task, PipelineTask)
+            isinstance(task, DatasetTask)
             and dataset is not None
             and not dataset.features
             and not dataset.targets
         ):
             roots = set(task.requires)
         elif (
-            isinstance(task, PipelineTask)
+            isinstance(task, DatasetTask)
             and preview is None
             and dataset is not None
             and dataset_requires_scaler(dataset)

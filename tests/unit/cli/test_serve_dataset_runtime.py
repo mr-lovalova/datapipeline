@@ -9,22 +9,22 @@ import pytest
 
 from datapipeline.artifacts.models import ScalarVectorMetadataEntry
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.dataset.series import SeriesConfig
+from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.node import PipelineNode, SourceNode
 from datapipeline.execution.pipeline import Pipeline
-from datapipeline.io.output import OutputTarget
 from datapipeline.io.dataset_table import DatasetTable
+from datapipeline.io.output import OutputTarget
 from datapipeline.operations.persistence import (
     DatasetTableOutput,
     RoutedDatasetTableOutput,
     RoutedRuntimeOutput,
     persist_runtime_result,
 )
-from datapipeline.operations.runtime.pipeline import run_pipeline_operation
+from datapipeline.operations.runtime.dataset import run_dataset_operation
 
 
 def _runtime(streams=None):
@@ -118,7 +118,7 @@ def _serve(
     preview: PreviewStage | None,
 ):
     runtime.dataset = dataset
-    return run_pipeline_operation(
+    return run_dataset_operation(
         runtime=runtime,
         limit=None,
         target=target,
@@ -167,7 +167,7 @@ def _record_preview_pipeline():
     )
 
 
-def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
+def test_dataset_operation_reraises_keyboard_interrupt_and_marks_run_failed(
     monkeypatch,
 ):
     runtime = _runtime()
@@ -176,11 +176,11 @@ def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
     target = _target()
 
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.run_dataset_pipeline",
         lambda *args, **kwargs: _vectors(),
     )
 
@@ -188,7 +188,7 @@ def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
         raise KeyboardInterrupt()
         yield None
 
-    result = run_pipeline_operation(
+    result = run_dataset_operation(
         runtime=runtime,
         limit=None,
         target=target,
@@ -204,19 +204,19 @@ def test_pipeline_operation_reraises_keyboard_interrupt_and_marks_run_failed(
         )
 
 
-def test_pipeline_operation_returns_parquet_dataset_output(monkeypatch, tmp_path):
+def test_dataset_operation_returns_parquet_dataset_output(monkeypatch, tmp_path):
     runtime = _runtime()
     dataset = _dataset()
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.run_dataset_pipeline",
         lambda *args, **kwargs: iter(()),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline._served_dataset_table",
+        "datapipeline.operations.runtime.dataset._served_dataset_table",
         lambda *args: _parquet_table(),
     )
 
@@ -230,7 +230,7 @@ def test_pipeline_operation_returns_parquet_dataset_output(monkeypatch, tmp_path
     assert isinstance(result.outputs[0], DatasetTableOutput)
 
 
-def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
+def test_dataset_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
@@ -261,11 +261,11 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     ]
 
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_fold_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.run_fold_dataset_pipeline",
         lambda *args, **kwargs: iter(samples),
     )
 
@@ -290,7 +290,7 @@ def test_pipeline_operation_returns_split_fanout_output(monkeypatch, tmp_path):
     ]
 
 
-def test_pipeline_operation_returns_parquet_split_outputs(monkeypatch, tmp_path):
+def test_dataset_operation_returns_parquet_split_outputs(monkeypatch, tmp_path):
     runtime = SimpleNamespace(
         window_bounds=None,
         pipeline_observer=None,
@@ -315,15 +315,15 @@ def test_pipeline_operation_returns_parquet_split_outputs(monkeypatch, tmp_path)
     )
     runtime.dataset = dataset
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_fold_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.run_fold_dataset_pipeline",
         lambda *args, **kwargs: iter(()),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline._served_dataset_table",
+        "datapipeline.operations.runtime.dataset._served_dataset_table",
         lambda *args: _parquet_table(),
     )
 
@@ -352,11 +352,11 @@ def test_samples_preview_stops_before_postprocess(monkeypatch):
     )
     target = _target()
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.build_dataset_pipeline",
         lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 
@@ -378,15 +378,15 @@ def test_samples_preview_writes_schema_aware_parquet(monkeypatch, tmp_path):
         nodes=(SourceNode(name="vector_assemble", open=lambda: iter((sample,))),),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.build_dataset_pipeline",
         lambda *args, **kwargs: pipeline,
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline._assembled_dataset_table",
+        "datapipeline.operations.runtime.dataset._assembled_dataset_table",
         lambda *args: _parquet_table(),
     )
     target = _parquet_target(tmp_path / "samples.parquet")
@@ -409,7 +409,7 @@ def test_parquet_preview_rejects_non_dataset_stage_before_opening_stream(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        "datapipeline.operations.runtime.dataset.build_stream_pipeline",
         lambda *args, **kwargs: pytest.fail("record preview must not be opened"),
     )
 
@@ -438,7 +438,7 @@ def test_record_previews_stop_at_the_named_stage(monkeypatch, preview, expected)
         return _record_preview_pipeline()
 
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        "datapipeline.operations.runtime.dataset.build_stream_pipeline",
         build_pipeline,
     )
     result = _serve(
@@ -454,7 +454,7 @@ def test_record_previews_stop_at_the_named_stage(monkeypatch, preview, expected)
 
 def test_series_preview_returns_processed_series(monkeypatch):
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_series_pipeline",
+        "datapipeline.operations.runtime.dataset.run_series_pipeline",
         lambda *args, **kwargs: iter(["series"]),
     )
 
@@ -480,7 +480,7 @@ def test_series_preview_rejects_duplicate_resolved_destinations(
         sample=SampleConfig(cadence="1d"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_series_pipeline",
+        "datapipeline.operations.runtime.dataset.run_series_pipeline",
         lambda *args, **kwargs: pytest.fail(
             "preview streams must not be opened before destinations are validated"
         ),
@@ -506,11 +506,11 @@ def test_postprocess_preview_runs_postprocess(monkeypatch):
     target = _target()
 
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.build_dataset_pipeline",
         lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 
@@ -538,19 +538,19 @@ def test_all_preview_stages_write_gzip_through_the_shared_output_path(
     output_id,
 ) -> None:
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_stream_pipeline",
+        "datapipeline.operations.runtime.dataset.build_stream_pipeline",
         lambda *args, **kwargs: _record_preview_pipeline(),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.run_series_pipeline",
+        "datapipeline.operations.runtime.dataset.run_series_pipeline",
         lambda *args, **kwargs: iter(["series"]),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.resolve_window_bounds",
+        "datapipeline.operations.runtime.dataset.resolve_window_bounds",
         lambda runtime_obj, rectangular_required: (None, None),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.pipeline.build_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.build_dataset_pipeline",
         lambda *args, **kwargs: _sample_preview_pipeline(),
     )
 

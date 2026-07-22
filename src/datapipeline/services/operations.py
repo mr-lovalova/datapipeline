@@ -3,15 +3,15 @@ from typing import Any
 from datapipeline.config.tasks import (
     ArtifactTask,
     CoverageTask,
+    DatasetTask,
     MatrixTask,
     MetadataTask,
-    OperationTask,
-    PipelineTask,
+    RuntimeTask,
     ScalerTask,
+    SeriesTask,
     StatsTask,
     Task,
     TicksTask,
-    SeriesTask,
 )
 from datapipeline.services.config_inventory import pipeline_yaml_files
 from datapipeline.services.config_refs import (
@@ -26,12 +26,12 @@ CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "series": SeriesTask,
     "metadata": MetadataTask,
     "stats": StatsTask,
-    "dataset": PipelineTask,
+    "dataset": DatasetTask,
     "coverage": CoverageTask,
     "matrix": MatrixTask,
 }
-CORE_RUNTIME_MODELS: dict[str, type[OperationTask[Any]]] = {
-    "core.runtime.pipeline": PipelineTask,
+CORE_RUNTIME_MODELS: dict[str, type[RuntimeTask[Any]]] = {
+    "core.runtime.dataset": DatasetTask,
     "core.runtime.coverage": CoverageTask,
     "core.runtime.matrix": MatrixTask,
 }
@@ -59,11 +59,17 @@ def _custom_operation(operation_id: str, entry: dict[str, object]) -> Task:
             "outer whitespace."
         )
     if kind == "runtime":
-        model = (
-            CORE_RUNTIME_MODELS.get(entrypoint, OperationTask)
-            if isinstance(entrypoint, str)
-            else OperationTask
-        )
+        model: type[RuntimeTask[Any]] = RuntimeTask
+        if isinstance(entrypoint, str):
+            core_model = CORE_RUNTIME_MODELS.get(entrypoint)
+            if core_model is not None:
+                model = core_model
+            elif entrypoint.startswith("core.runtime."):
+                supported = ", ".join(sorted(CORE_RUNTIME_MODELS))
+                raise ValueError(
+                    f"Unsupported core runtime entrypoint '{entrypoint}'. "
+                    f"Supported entrypoints: {supported}."
+                )
         return model.model_validate({"id": operation_id, **entry})
     if kind != "artifact":
         raise ValueError(

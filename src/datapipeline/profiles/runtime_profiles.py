@@ -9,7 +9,7 @@ from datapipeline.config.profiles import (
     ServeOutputConfig,
     ServeProfile,
 )
-from datapipeline.config.tasks import OperationTask, PipelineTask
+from datapipeline.config.tasks import DatasetTask, RuntimeTask
 from datapipeline.execution.settings import (
     LogOutputTarget,
     ObservabilitySettings,
@@ -41,7 +41,7 @@ def _resolve_serve_output_ids(
     definition: PipelineDefinition,
     profile: ServeProfile,
     preview: PreviewStage | None,
-    operation: OperationTask | None,
+    operation: RuntimeTask | None,
 ) -> tuple[str, ...]:
     include_outputs = tuple(profile.include_outputs or ())
     if include_outputs and preview is not None:
@@ -70,7 +70,7 @@ def _resolve_serve_output_ids(
                 f"by the dataset: {unknown}"
             )
 
-    if isinstance(operation, PipelineTask) and preview is None and not include_outputs:
+    if isinstance(operation, DatasetTask) and preview is None and not include_outputs:
         return dataset_output_ids
     return include_outputs
 
