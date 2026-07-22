@@ -70,6 +70,9 @@ class _ProgressRowColumn(ProgressColumn):
             row.add_column(no_wrap=True)
             cells.append(self._bar.render(task))
         if status:
+            if task.total is None:
+                row.add_column(no_wrap=True)
+                cells.append(Text("·", style="dim"))
             row.add_column(overflow="ellipsis")
             status = status.copy()
             status.no_wrap = True

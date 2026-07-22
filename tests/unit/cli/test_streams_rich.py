@@ -179,7 +179,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
         (status.plain[span.start : span.end], str(span.style)) for span in status.spans
     ] == [("2/17", "cyan"), ("20,000", "cyan")]
     assert _render_progress_row(open_source) == (
-        '[stream:adv.20/open_source] 0:00:00 2/17 "2011.jsonl" · 20,000 records'
+        '[stream:adv.20/open_source] 0:00:00 · 2/17 "2011.jsonl" · 20,000 records'
     )
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
@@ -344,7 +344,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     row_column = _ProgressRowColumn(Column())
     assert _render_progress_row(root_task) == "[stream:adv.20] 0:00:00"
     assert _render_progress_row(order_task) == (
-        "[stream:adv.20/order_records] 0:00:00 0 out"
+        "[stream:adv.20/order_records] 0:00:00 · 0 out"
     )
     assert source_task.completed == 25
     assert source_task.total == 100
@@ -410,7 +410,7 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
         (status.plain[span.start : span.end], str(span.style)) for span in status.spans
     ] == [("2,592,885", "cyan")]
     assert _render_progress_row(operation) == (
-        "Operation serve:dataset 0:00:10 last report: write_output · 2,592,885 rows"
+        "Operation serve:dataset 0:00:10 · last report: write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
@@ -461,7 +461,7 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
 
     lines = output.getvalue().splitlines()
     assert len(lines) == 2
-    assert "Operation serve:dataset 0:00:00 last report:" in lines[0]
+    assert "Operation serve:dataset 0:00:00 · last report:" in lines[0]
     assert "0:00:00" in lines[1]
     assert "━" in lines[1]
     assert "emitting" in lines[1]
