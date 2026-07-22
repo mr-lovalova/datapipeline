@@ -29,14 +29,14 @@ missing from that contract.
 | File layout | Single-file and deliberately misnamed multi-file glob inputs agree |
 | Bounded sorting | A forced external spill produces the same persisted dataset |
 | Long identity | `sample.keys` preserve entity identity in row keys |
-| Wide identity | Remaining partition fields produce deterministic variable IDs |
+| Wide identity | Remaining partition fields produce deterministic series IDs |
 | Hybrid identity | Entity row keys and widened metric columns coexist |
 | Alignment | Sparse aligned inputs only derive values at matching keys |
 | Broadcast | Exact global records are reused across partitions and persisted with stable identity |
 | Bivariate rolling | Strict slopes preserve partition state, missing resets, and numerical stability |
 | Forward windows | Future-only sums exclude the current row and preserve strict terminal nulls |
 | Logarithms | Natural-log domains, missing values, and near-zero `log1p` precision are exact |
-| Non-finite values | Variable and output boundaries normalize `NaN` to null and reject infinity |
+| Non-finite values | Series and output boundaries normalize `NaN` to null and reject infinity |
 | Sequencing | Fixed windows, stride, missing elements, and column order are golden |
 | Scaling | Standard and folded feature/target statistics and values are golden |
 | Leakage | Changing validation/test values cannot change fitted train statistics |

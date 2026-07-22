@@ -106,7 +106,7 @@ def test_template_profiles_separate_builds_from_runtime_actions() -> None:
         "build.defaults.yaml",
         "build.metadata.yaml",
         "build.scaler.yaml",
-        "build.variable_records.yaml",
+        "build.series.yaml",
         "inspect.coverage.yaml",
         "inspect.defaults.yaml",
         "inspect.matrix.yaml",

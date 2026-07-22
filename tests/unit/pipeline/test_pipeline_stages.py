@@ -7,16 +7,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import datapipeline.operations.artifacts.variable_records as variable_records_operation
+import datapipeline.operations.artifacts.series as series_operation
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.specs import (
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
+from datapipeline.config.dataset.series import SeriesConfig, SequenceConfig
 from datapipeline.config.execution import ExecutionConfig
-from datapipeline.config.tasks import VariableRecordsTask
+from datapipeline.config.tasks import SeriesTask
 from datapipeline.config.transforms import (
     EnsureCadenceConfig,
     EnsureTicksConfig,
@@ -24,7 +24,7 @@ from datapipeline.config.transforms import (
     PreprocessConfig,
     TransformConfig,
 )
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
@@ -38,8 +38,8 @@ from datapipeline.execution.events import (
 )
 from datapipeline.execution.node import SourceNode
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.operations.artifacts.variable_records import (
-    materialize_variable_records,
+from datapipeline.operations.artifacts.series import (
+    materialize_series,
 )
 from datapipeline.operations.runtime.pipeline import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
@@ -48,9 +48,9 @@ from datapipeline.pipelines.dataset.pipeline import (
     build_dataset_pipeline,
     run_dataset_pipeline,
 )
-from datapipeline.pipelines.variable.pipeline import (
-    build_variable_pipeline,
-    run_variable_pipeline,
+from datapipeline.pipelines.series.pipeline import (
+    build_series_pipeline,
+    run_series_pipeline,
 )
 from datapipeline.pipelines.stream.pipeline import (
     build_stream_pipeline,
@@ -75,14 +75,14 @@ from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.source import Source
 from datapipeline.utils.time import parse_cadence
-from datapipeline.artifacts.variable_records import (
-    VariableShard,
-    variable_record_to_row,
-    load_variable_records_manifest,
-    open_variable_records,
-    prune_variable_record_cache,
+from datapipeline.artifacts.series import (
+    SeriesShard,
+    series_record_to_row,
+    load_series_manifest,
+    open_series,
+    prune_series_cache,
 )
-from tests.variable_record_helpers import register_variable_records
+from tests.series_helpers import register_series
 
 
 def _ts(hour: int, minute: int = 0) -> datetime:
@@ -880,23 +880,23 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     runtime = _runtime_with_rows(tmp_path, [{"time": _ts(0), "value": 1.0}])
     _register_price_metadata(runtime)
     context = PipelineContext(runtime)
-    cfg = VariableConfig(stream="stream", id="price", field="value")
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
 
     stream_pipeline = build_stream_pipeline(context, "stream")
-    variable_pipeline = build_variable_pipeline(context, cfg)
+    series_pipeline = build_series_pipeline(context, cfg)
 
     assert [node.name for node in stream_pipeline.nodes[:2]] == [
         "open_source",
         "map_records",
     ]
-    assert [node.name for node in variable_pipeline.nodes] == [
+    assert [node.name for node in series_pipeline.nodes] == [
         "stream:stream/open_source",
         "stream:stream/map_records",
         "stream:stream/order_records",
-        "project_variable_records",
+        "project_series",
     ]
-    assert variable_pipeline.summary is None
-    assert isinstance(variable_pipeline.nodes[0], SourceNode)
+    assert series_pipeline.summary is None
+    assert isinstance(series_pipeline.nodes[0], SourceNode)
 
 
 def test_source_pipeline_orders_by_partition_and_time(tmp_path: Path) -> None:
@@ -999,7 +999,7 @@ def test_ensure_ticks_uses_stream_partition_for_tick_artifact(
     ]
 
 
-def test_variable_pipeline_wraps_record_values(tmp_path: Path) -> None:
+def test_series_pipeline_wraps_record_values(tmp_path: Path) -> None:
     rows = [{"time": _ts(0), "value": 3.0, "symbol": "X"}]
     runtime = _runtime_with_rows(
         tmp_path,
@@ -1007,26 +1007,26 @@ def test_variable_pipeline_wraps_record_values(tmp_path: Path) -> None:
         partition_by=("symbol",),
     )
     ctx = PipelineContext(runtime)
-    cfg = VariableConfig(
+    cfg = SeriesConfig(
         stream="stream",
         id="price",
         field="value",
     )
 
-    preview_pipeline = build_variable_pipeline(ctx, cfg)
-    variables = list(
+    preview_pipeline = build_series_pipeline(ctx, cfg)
+    records = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("project_variable_records"),
+            preview_pipeline.through_node_named("project_series"),
         )
     )
-    assert len(variables) == 1
-    variable = variables[0]
-    assert variable.value == 3.0
-    assert variable.id == "price__@symbol:X"
+    assert len(records) == 1
+    record = records[0]
+    assert record.value == 3.0
+    assert record.id == "price__@symbol:X"
 
 
-def test_unpartitioned_variable_pipeline_preserves_time_order(tmp_path: Path) -> None:
+def test_unpartitioned_series_pipeline_preserves_time_order(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(2), "value": 3.0},
         {"time": _ts(0), "value": 1.0},
@@ -1034,21 +1034,21 @@ def test_unpartitioned_variable_pipeline_preserves_time_order(tmp_path: Path) ->
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
 
-    variables = list(
-        run_variable_pipeline(
+    records = list(
+        run_series_pipeline(
             PipelineContext(runtime),
-            VariableConfig(stream="stream", id="price", field="value"),
+            SeriesConfig(stream="stream", id="price", field="value"),
         )
     )
 
-    assert [(variable.time.hour, variable.value) for variable in variables] == [
+    assert [(record.time.hour, record.value) for record in records] == [
         (0, 1.0),
         (1, 2.0),
         (2, 3.0),
     ]
 
 
-def test_partitioned_variable_pipeline_orders_across_partitions(tmp_path: Path) -> None:
+def test_partitioned_series_pipeline_orders_across_partitions(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0, "symbol": "A"},
         {"time": _ts(2), "value": 3.0, "symbol": "A"},
@@ -1061,21 +1061,21 @@ def test_partitioned_variable_pipeline_orders_across_partitions(tmp_path: Path) 
     )
     context = PipelineContext(runtime)
 
-    variables = list(
-        run_variable_pipeline(
+    records = list(
+        run_series_pipeline(
             context,
-            VariableConfig(stream="stream", id="price", field="value"),
+            SeriesConfig(stream="stream", id="price", field="value"),
         )
     )
 
-    assert [(variable.time.hour, variable.id) for variable in variables] == [
+    assert [(record.time.hour, record.id) for record in records] == [
         (0, "price__@symbol:A"),
         (1, "price__@symbol:B"),
         (2, "price__@symbol:A"),
     ]
 
 
-def test_variable_pipeline_builds_sequences(tmp_path: Path) -> None:
+def test_series_pipeline_builds_sequences(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(0), "value": 1.0},
         {"time": _ts(1), "value": 2.0},
@@ -1084,29 +1084,29 @@ def test_variable_pipeline_builds_sequences(tmp_path: Path) -> None:
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
     ctx = PipelineContext(runtime)
-    cfg = VariableConfig(
+    cfg = SeriesConfig(
         stream="stream",
         id="price",
         field="value",
         sequence={"size": 2, "stride": 2},
     )
 
-    preview_pipeline = build_variable_pipeline(ctx, cfg)
+    preview_pipeline = build_series_pipeline(ctx, cfg)
     sequences = list(
         run_pipeline(
             ctx,
-            preview_pipeline.through_node_named("sequence_variables"),
+            preview_pipeline.through_node_named("sequence_series"),
         )
     )
     assert len(sequences) == 2
-    assert isinstance(sequences[0], VariableSequence)
+    assert isinstance(sequences[0], SeriesSequence)
     assert sequences[0].time == _ts(1)
     assert sequences[0].values == [1.0, 2.0]
     assert sequences[1].time == _ts(3)
     assert sequences[1].values == [3.0, 4.0]
 
 
-def test_variable_pipeline_keeps_scaled_sequence_inputs_raw(
+def test_series_pipeline_keeps_scaled_sequence_inputs_raw(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1116,7 +1116,7 @@ def test_variable_pipeline_keeps_scaled_sequence_inputs_raw(
             {"time": _ts(1), "value": 11.0},
         ],
     )
-    config = VariableConfig(
+    config = SeriesConfig(
         stream="stream",
         id="price",
         field="value",
@@ -1124,13 +1124,13 @@ def test_variable_pipeline_keeps_scaled_sequence_inputs_raw(
         sequence=SequenceConfig(size=2),
     )
 
-    [sequence] = run_variable_pipeline(
+    [sequence] = run_series_pipeline(
         PipelineContext(runtime),
         config,
         group_by_cadence="1h",
     )
 
-    assert isinstance(sequence, VariableSequence)
+    assert isinstance(sequence, SeriesSequence)
     assert sequence.time == _ts(1)
     assert sequence.values == [1.0, 11.0]
 
@@ -1159,8 +1159,8 @@ def test_dataset_pipeline_matches_vector_and_postprocess_chain(tmp_path: Path) -
     runtime = _runtime_with_rows(tmp_path, rows)
     _register_price_metadata(runtime)
     ctx = PipelineContext(runtime)
-    cfg = VariableConfig(stream="stream", id="price", field="value")
-    register_variable_records(runtime, [cfg], "1h")
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
+    register_series(runtime, [cfg], "1h")
 
     pipeline = build_dataset_pipeline(
         ctx,
@@ -1188,9 +1188,9 @@ def test_rectangular_dataset_source_reuses_its_key_plan(
     runtime.window_bounds = (_ts(0, 10), _ts(2, 50))
     _register_price_metadata(runtime)
     context = PipelineContext(runtime)
-    cfg = VariableConfig(stream="stream", id="price", field="value")
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
     feature_configs = [cfg]
-    register_variable_records(runtime, feature_configs, "1h")
+    register_series(runtime, feature_configs, "1h")
 
     original = vector_pipeline.rectangular_key_plan
     plan_count = 0
@@ -1233,9 +1233,9 @@ def test_rectangular_features_and_targets_share_every_planned_key(
         ],
     )
     runtime.window_bounds = (_ts(0), _ts(2))
-    feature = VariableConfig(stream="stream", id="price", field="value")
-    target = VariableConfig(stream="stream", id="return", field="target")
-    register_variable_records(runtime, [feature], "1h", targets=[target])
+    feature = SeriesConfig(stream="stream", id="price", field="value")
+    target = SeriesConfig(stream="stream", id="return", field="target")
+    register_series(runtime, [feature], "1h", targets=[target])
 
     samples = list(
         build_vector_pipeline(
@@ -1256,7 +1256,7 @@ def test_rectangular_features_and_targets_share_every_planned_key(
     assert samples[1].targets.values == {}
 
 
-def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
+def test_series_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     rows = [
         {"time": _ts(1), "id_": "B", "value": 2.0, "other": 20.0},
         {"time": _ts(0), "id_": "A", "value": 1.0, "other": 10.0},
@@ -1269,12 +1269,12 @@ def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         partition_by=("id_",),
     )
     configs = [
-        VariableConfig(
+        SeriesConfig(
             stream="prices",
             id="value_feature",
             field="value",
         ),
-        VariableConfig(
+        SeriesConfig(
             stream="prices",
             id="other_feature",
             field="other",
@@ -1287,13 +1287,13 @@ def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     source = runtime.streams["prices"].source
     assert isinstance(source, _StubSource)
 
-    unrelated = runtime.artifacts_root / "build/variable_records/features/keep.txt"
+    unrelated = runtime.artifacts_root / "build/series/features/keep.txt"
     unrelated.parent.mkdir(parents=True)
     unrelated.write_text("keep", encoding="utf-8")
 
-    result = materialize_variable_records(runtime, VariableRecordsTask())
+    result = materialize_series(runtime, SeriesTask())
     runtime.artifacts.register(
-        VARIABLE_RECORDS,
+        SERIES,
         relative_path=result.relative_path,
         meta=result.meta,
     )
@@ -1324,7 +1324,7 @@ def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
         ("features", "000001.jsonl.gz"),
     ]
     assert result.companion_paths == tuple(
-        str(Path("build/variable_records") / path) for path in shard_paths
+        str(Path("build/series") / path) for path in shard_paths
     )
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert cached == [
@@ -1348,7 +1348,7 @@ def test_variable_records_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     assert source.closes == 1
 
 
-def test_variable_records_shared_stream_matches_independent_variable_pipelines(
+def test_series_shared_stream_matches_independent_series_pipelines(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1388,14 +1388,14 @@ def test_variable_records_shared_stream_matches_independent_variable_pipelines(
         partition_by=("exchange", "symbol"),
     )
     runtime.streams["stream"] = replace(runtime.streams["stream"], presorted=True)
-    price = VariableConfig(
+    price = SeriesConfig(
         stream="stream",
         id="price",
         field="value",
         scale=True,
         sequence=SequenceConfig(size=2),
     )
-    volume = VariableConfig(
+    volume = SeriesConfig(
         stream="stream",
         id="volume",
         field="volume",
@@ -1407,7 +1407,7 @@ def test_variable_records_shared_stream_matches_independent_variable_pipelines(
     )
     context = PipelineContext(runtime)
     expected_price = list(
-        run_variable_pipeline(
+        run_series_pipeline(
             context,
             price,
             sample_keys=["exchange"],
@@ -1415,7 +1415,7 @@ def test_variable_records_shared_stream_matches_independent_variable_pipelines(
         )
     )
     expected_volume = list(
-        run_variable_pipeline(
+        run_series_pipeline(
             context,
             volume,
             sample_keys=["exchange"],
@@ -1430,7 +1430,7 @@ def test_variable_records_shared_stream_matches_independent_variable_pipelines(
     assert isinstance(source, _StubSource)
     source.opens = 0
     source.closes = 0
-    normal_batch_sort = variable_records_operation.batch_sort
+    normal_batch_sort = series_operation.batch_sort
 
     def spilling_batch_sort(items, buffer_bytes, key, progress=None):
         return normal_batch_sort(
@@ -1441,32 +1441,32 @@ def test_variable_records_shared_stream_matches_independent_variable_pipelines(
         )
 
     monkeypatch.setattr(
-        variable_records_operation,
+        series_operation,
         "batch_sort",
         spilling_batch_sort,
     )
 
-    result = materialize_variable_records(runtime, VariableRecordsTask())
+    result = materialize_series(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_variable_records_manifest(manifest_path)
+    manifest = load_series_manifest(manifest_path)
     actual_price = list(
-        open_variable_records(manifest_path.parent / manifest.features[0].path)
+        open_series(manifest_path.parent / manifest.features[0].path)
     )
     actual_volume = list(
-        open_variable_records(manifest_path.parent / manifest.targets[0].path)
+        open_series(manifest_path.parent / manifest.targets[0].path)
     )
 
-    assert [variable_record_to_row(item) for item in actual_price] == [
-        variable_record_to_row(item) for item in expected_price
+    assert [series_record_to_row(item) for item in actual_price] == [
+        series_record_to_row(item) for item in expected_price
     ]
-    assert [variable_record_to_row(item) for item in actual_volume] == [
-        variable_record_to_row(item) for item in expected_volume
+    assert [series_record_to_row(item) for item in actual_volume] == [
+        series_record_to_row(item) for item in expected_volume
     ]
     assert source.opens == 1
     assert source.closes == 1
 
 
-def test_variable_records_store_sequence_values_unscaled(
+def test_series_store_sequence_values_unscaled(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1476,7 +1476,7 @@ def test_variable_records_store_sequence_values_unscaled(
             {"time": _ts(1), "value": 11.0},
         ],
     )
-    config = VariableConfig(
+    config = SeriesConfig(
         stream="stream",
         id="price",
         field="value",
@@ -1487,17 +1487,17 @@ def test_variable_records_store_sequence_values_unscaled(
         sample=SampleConfig(cadence="1h"),
         features=[config],
     )
-    result = materialize_variable_records(runtime, VariableRecordsTask())
+    result = materialize_series(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_variable_records_manifest(manifest_path)
-    [sequence] = open_variable_records(manifest_path.parent / manifest.features[0].path)
+    manifest = load_series_manifest(manifest_path)
+    [sequence] = open_series(manifest_path.parent / manifest.features[0].path)
 
-    assert isinstance(sequence, VariableSequence)
+    assert isinstance(sequence, SeriesSequence)
     assert sequence.time == _ts(1)
     assert sequence.values == [1.0, 11.0]
 
 
-def test_variable_records_writes_empty_shards_from_a_shared_stream(
+def test_series_writes_empty_shards_from_a_shared_stream(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1510,13 +1510,13 @@ def test_variable_records_writes_empty_shards_from_a_shared_stream(
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 stream="stream",
                 id="window",
                 field="value",
                 sequence=SequenceConfig(size=3),
             ),
-            VariableConfig(
+            SeriesConfig(
                 stream="stream",
                 id="value",
                 field="value",
@@ -1524,18 +1524,18 @@ def test_variable_records_writes_empty_shards_from_a_shared_stream(
         ],
     )
 
-    result = materialize_variable_records(runtime, VariableRecordsTask())
+    result = materialize_series(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = load_variable_records_manifest(manifest_path)
+    manifest = load_series_manifest(manifest_path)
 
     assert [shard.rows for shard in manifest.features] == [0, 2]
     assert (
-        list(open_variable_records(manifest_path.parent / manifest.features[0].path))
+        list(open_series(manifest_path.parent / manifest.features[0].path))
         == []
     )
 
 
-def test_variable_record_sort_is_part_of_the_observed_stream_pipeline(
+def test_series_record_sort_is_part_of_the_observed_stream_pipeline(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1544,19 +1544,19 @@ def test_variable_record_sort_is_part_of_the_observed_stream_pipeline(
     )
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(stream="stream", id="value", field="value")],
+        features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
     observer = _PipelineStarts()
     runtime.pipeline_observer = observer
 
-    materialize_variable_records(runtime, VariableRecordsTask())
+    materialize_series(runtime, SeriesTask())
 
-    assert observer.starts == ["variable_records:stream"]
-    assert "project_variable_records" in observer.nodes
-    assert "order_variable_records" in observer.nodes
+    assert observer.starts == ["series:stream"]
+    assert "project_series" in observer.nodes
+    assert "order_series" in observer.nodes
 
 
-def test_variable_records_closes_shared_stream_after_feature_error(
+def test_series_closes_shared_stream_after_feature_error(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1566,24 +1566,24 @@ def test_variable_records_closes_shared_stream_after_feature_error(
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(stream="stream", id="value", field="value"),
-            VariableConfig(stream="stream", id="missing", field="missing"),
+            SeriesConfig(stream="stream", id="value", field="value"),
+            SeriesConfig(stream="stream", id="missing", field="missing"),
         ],
     )
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
 
     with pytest.raises(KeyError, match="Record field 'missing'"):
-        materialize_variable_records(runtime, VariableRecordsTask())
+        materialize_series(runtime, SeriesTask())
 
     assert source.opens == 1
     assert source.closes == 1
     assert not (
-        runtime.artifacts_root / "build/variable_records/manifest.json"
+        runtime.artifacts_root / "build/series/manifest.json"
     ).exists()
 
 
-def test_failed_variable_records_rebuild_preserves_previous_generation(
+def test_failed_series_rebuild_preserves_previous_generation(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1598,12 +1598,12 @@ def test_failed_variable_records_rebuild_preserves_previous_generation(
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(stream="prices", id="value", field="value"),
-            VariableConfig(stream="prices", id="other", field="other"),
+            SeriesConfig(stream="prices", id="value", field="value"),
+            SeriesConfig(stream="prices", id="other", field="other"),
         ],
     )
-    task = VariableRecordsTask()
-    first = materialize_variable_records(runtime, task)
+    task = SeriesTask()
+    first = materialize_series(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
     previous = json.loads(previous_manifest)
@@ -1612,7 +1612,7 @@ def test_failed_variable_records_rebuild_preserves_previous_generation(
     ]
     previous_generation = Path(previous["features"][0]["path"]).parts[1]
 
-    write_rows = variable_records_operation.write_variable_rows
+    write_rows = series_operation.write_series_rows
     writes = 0
 
     def fail_second_shard(path, rows):
@@ -1623,13 +1623,13 @@ def test_failed_variable_records_rebuild_preserves_previous_generation(
         return write_rows(path, rows)
 
     monkeypatch.setattr(
-        variable_records_operation,
-        "write_variable_rows",
+        series_operation,
+        "write_series_rows",
         fail_second_shard,
     )
 
     with pytest.raises(RuntimeError, match="second shard failed"):
-        materialize_variable_records(runtime, task)
+        materialize_series(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     assert all(path.is_file() for path in previous_shards)
@@ -1637,7 +1637,7 @@ def test_failed_variable_records_rebuild_preserves_previous_generation(
     assert [path.name for path in cache_root.iterdir()] == [previous_generation]
 
 
-def test_failed_variable_records_manifest_commit_removes_new_generation(
+def test_failed_series_manifest_commit_removes_new_generation(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1647,33 +1647,33 @@ def test_failed_variable_records_manifest_commit_removes_new_generation(
     )
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(stream="stream", id="value", field="value")],
+        features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
-    task = VariableRecordsTask()
-    first = materialize_variable_records(runtime, task)
+    task = SeriesTask()
+    first = materialize_series(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
-    previous = load_variable_records_manifest(manifest_path)
+    previous = load_series_manifest(manifest_path)
     previous_path = manifest_path.parent / previous.features[0].path
 
     def fail_manifest(*_args, **_kwargs):
         raise OSError("manifest commit failed")
 
     monkeypatch.setattr(
-        variable_records_operation,
+        series_operation,
         "write_json_artifact",
         fail_manifest,
     )
 
     with pytest.raises(OSError, match="manifest commit failed"):
-        materialize_variable_records(runtime, task)
+        materialize_series(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     previous_generation = previous_path.parent.parent
     assert set(previous_generation.parent.iterdir()) == {previous_generation}
 
 
-def test_identical_variable_records_rebuild_publishes_a_new_generation(
+def test_identical_series_rebuild_publishes_a_new_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1682,25 +1682,25 @@ def test_identical_variable_records_rebuild_publishes_a_new_generation(
     )
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(stream="stream", id="value", field="value")],
+        features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
-    task = VariableRecordsTask()
+    task = SeriesTask()
 
-    first = materialize_variable_records(runtime, task)
+    first = materialize_series(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    first_manifest = load_variable_records_manifest(manifest_path)
+    first_manifest = load_series_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
 
-    materialize_variable_records(runtime, task)
-    second_manifest = load_variable_records_manifest(manifest_path)
+    materialize_series(runtime, task)
+    second_manifest = load_series_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
 
     assert second_path != first_path
     assert first_path.is_file()
-    assert len(list(open_variable_records(second_path))) == 1
+    assert len(list(open_series(second_path))) == 1
 
 
-def test_changed_variable_records_rebuild_retains_previous_generation(
+def test_changed_series_rebuild_retains_previous_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1709,29 +1709,29 @@ def test_changed_variable_records_rebuild_retains_previous_generation(
     )
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(stream="stream", id="value", field="value")],
+        features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
-    task = VariableRecordsTask()
+    task = SeriesTask()
 
-    first = materialize_variable_records(runtime, task)
+    first = materialize_series(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    first_manifest = load_variable_records_manifest(manifest_path)
+    first_manifest = load_series_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
-    first_rows = list(open_variable_records(first_path))
+    first_rows = list(open_series(first_path))
 
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
     source._rows.append({"time": _ts(1), "value": 2.0})
-    materialize_variable_records(runtime, task)
+    materialize_series(runtime, task)
 
-    second_manifest = load_variable_records_manifest(manifest_path)
+    second_manifest = load_series_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
     assert second_path != first_path
     assert first_path.is_file()
-    assert list(open_variable_records(first_path)) == first_rows
-    assert len(list(open_variable_records(second_path))) == 2
+    assert list(open_series(first_path)) == first_rows
+    assert len(list(open_series(second_path))) == 2
 
-    assert prune_variable_record_cache(
+    assert prune_series_cache(
         manifest_path,
         runtime.artifacts_root,
     ) == (first_path.parent.parent,)
@@ -1739,7 +1739,7 @@ def test_changed_variable_records_rebuild_retains_previous_generation(
     assert second_path.is_file()
 
 
-def test_variable_records_rebuild_replaces_a_corrupt_generation(
+def test_series_rebuild_replaces_a_corrupt_generation(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1748,27 +1748,27 @@ def test_variable_records_rebuild_replaces_a_corrupt_generation(
     )
     runtime.dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(stream="stream", id="value", field="value")],
+        features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
-    task = VariableRecordsTask()
+    task = SeriesTask()
 
-    first = materialize_variable_records(runtime, task)
+    first = materialize_series(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
-    manifest = load_variable_records_manifest(manifest_path)
+    manifest = load_series_manifest(manifest_path)
     shard_path = manifest_path.parent / manifest.features[0].path
     shard_path.write_bytes(b"corrupt")
 
-    materialize_variable_records(runtime, task)
+    materialize_series(runtime, task)
 
-    rebuilt = load_variable_records_manifest(manifest_path)
+    rebuilt = load_series_manifest(manifest_path)
     rebuilt_path = manifest_path.parent / rebuilt.features[0].path
     assert rebuilt_path != shard_path
-    assert len(list(open_variable_records(rebuilt_path))) == 1
-    removed = prune_variable_record_cache(manifest_path, runtime.artifacts_root)
+    assert len(list(open_series(rebuilt_path))) == 1
+    removed = prune_series_cache(manifest_path, runtime.artifacts_root)
     assert removed == (shard_path.parent.parent,)
 
 
-def test_variable_records_rejects_symlinked_output_before_mutation(
+def test_series_rejects_symlinked_output_before_mutation(
     tmp_path: Path,
 ) -> None:
     artifacts_root = tmp_path / "artifacts"
@@ -1785,16 +1785,16 @@ def test_variable_records_rejects_symlinked_output_before_mutation(
     )
 
     with pytest.raises(ValueError, match="must not resolve through a symlink"):
-        materialize_variable_records(
+        materialize_series(
             runtime,
-            VariableRecordsTask(output="build/manifest.json"),
+            SeriesTask(output="build/manifest.json"),
         )
 
     assert victim.read_text(encoding="utf-8") == "keep"
 
 
 @pytest.mark.parametrize("rectangular", [False, True])
-def test_vector_pipeline_requires_variable_records_artifact(
+def test_vector_pipeline_requires_series_artifact(
     tmp_path: Path,
     rectangular: bool,
 ) -> None:
@@ -1803,9 +1803,9 @@ def test_vector_pipeline_requires_variable_records_artifact(
         rows=[{"time": _ts(0), "value": 1.0}],
     )
     context = PipelineContext(runtime)
-    cfg = VariableConfig(stream="stream", id="price", field="value")
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
 
-    with pytest.raises(RuntimeError, match="Variable records artifact is required"):
+    with pytest.raises(RuntimeError, match="Series artifact is required"):
         list(build_vector_pipeline(context, [cfg], "1h", rectangular=rectangular))
 
 
@@ -1816,9 +1816,9 @@ def test_cached_vector_pipeline_rejects_manifest_cadence_mismatch(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
     )
-    cfg = VariableConfig(stream="stream", id="price", field="value")
-    register_variable_records(runtime, [cfg], "1h")
-    manifest = runtime.artifacts_root / "build/variable_records/manifest.json"
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
+    register_series(runtime, [cfg], "1h")
+    manifest = runtime.artifacts_root / "build/series/manifest.json"
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["cadence"] = "1d"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
@@ -1841,9 +1841,9 @@ def test_cached_vector_pipeline_verifies_manifest_shard_rows(
         tmp_path,
         rows=[{"time": _ts(0), "value": 1.0}],
     )
-    cfg = VariableConfig(stream="stream", id="price", field="value")
-    register_variable_records(runtime, [cfg], "1h")
-    manifest = runtime.artifacts_root / "build/variable_records/manifest.json"
+    cfg = SeriesConfig(stream="stream", id="price", field="value")
+    register_series(runtime, [cfg], "1h")
+    manifest = runtime.artifacts_root / "build/series/manifest.json"
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["features"][0]["rows"] = 2
     manifest.write_text(json.dumps(payload), encoding="utf-8")
@@ -1867,9 +1867,9 @@ def test_cached_vector_pipeline_reads_requested_feature_subset(
         {"time": _ts(1), "value": 2.0, "other": 20.0},
     ]
     runtime = _runtime_with_rows(tmp_path, rows)
-    value_cfg = VariableConfig(stream="stream", id="price", field="value")
-    other_cfg = VariableConfig(stream="stream", id="other", field="other")
-    register_variable_records(runtime, [value_cfg, other_cfg], "1h")
+    value_cfg = SeriesConfig(stream="stream", id="price", field="value")
+    other_cfg = SeriesConfig(stream="stream", id="other", field="other")
+    register_series(runtime, [value_cfg, other_cfg], "1h")
 
     samples = list(
         build_vector_pipeline(
@@ -1891,8 +1891,8 @@ def test_cached_vector_records_close_streams_when_stopped_early(
     monkeypatch,
 ) -> None:
     configs = [
-        VariableConfig(stream="stream", id="a", field="value"),
-        VariableConfig(stream="stream", id="b", field="value"),
+        SeriesConfig(stream="stream", id="a", field="value"),
+        SeriesConfig(stream="stream", id="b", field="value"),
     ]
     closed_streams: list[str] = []
 
@@ -1901,12 +1901,12 @@ def test_cached_vector_records_close_streams_when_stopped_early(
             self.feature_id = feature_id
             self.items = iter(
                 [
-                    VariableRecord(
+                    SeriesRecord(
                         id=feature_id,
                         time=_ts(0),
                         value=1.0,
                     ),
-                    VariableRecord(
+                    SeriesRecord(
                         id=feature_id,
                         time=_ts(1),
                         value=2.0,
@@ -1932,15 +1932,15 @@ def test_cached_vector_records_close_streams_when_stopped_early(
         raise AssertionError(path)
 
     monkeypatch.setattr(
-        "datapipeline.pipelines.vector.pipeline.open_variable_records",
+        "datapipeline.pipelines.vector.pipeline.open_series",
         _open_records,
     )
 
     keyed_records = vector_pipeline._merged_keyed_records(
         manifest_path=tmp_path / "manifest.json",
         shards=(
-            VariableShard(id="a", path="a.jsonl.gz", rows=2),
-            VariableShard(id="b", path="b.jsonl.gz", rows=2),
+            SeriesShard(id="a", path="a.jsonl.gz", rows=2),
+            SeriesShard(id="b", path="b.jsonl.gz", rows=2),
         ),
         configs=configs,
         group_by_cadence=parse_cadence("1h"),

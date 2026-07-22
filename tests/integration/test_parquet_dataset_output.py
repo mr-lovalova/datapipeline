@@ -25,12 +25,12 @@ def _flat_row(
         assert isinstance(vector, dict)
         values = vector["values"]
         assert isinstance(values, dict)
-        for variable_id, value in values.items():
+        for series_id, value in values.items():
             if isinstance(value, list):
                 for index, element in enumerate(value):
-                    row[f"{namespace}.{variable_id}.{index}"] = element
+                    row[f"{namespace}.{series_id}.{index}"] = element
             else:
-                row[f"{namespace}.{variable_id}"] = value
+                row[f"{namespace}.{series_id}"] = value
     return row
 
 

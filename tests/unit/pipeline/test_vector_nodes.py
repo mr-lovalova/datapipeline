@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.domain.vector import Vector
 from datapipeline.pipelines.vector.nodes import (
     sample_assemble_stage,
@@ -16,15 +16,15 @@ def _time(day: int) -> datetime:
 
 
 def _keyed(
-    *features: VariableRecord | VariableSequence,
-) -> Iterator[tuple[tuple, VariableRecord | VariableSequence]]:
+    *features: SeriesRecord | SeriesSequence,
+) -> Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]:
     return iter(((feature.time,), feature) for feature in features)
 
 
-def test_vector_assembly_groups_variable_records() -> None:
+def test_vector_assembly_groups_series() -> None:
     features = _keyed(
-        VariableRecord(id="close", time=_time(1), value=10.0),
-        VariableRecord(id="volume", time=_time(1), value=20.0),
+        SeriesRecord(id="close", time=_time(1), value=10.0),
+        SeriesRecord(id="volume", time=_time(1), value=20.0),
     )
 
     vectors = list(vector_assemble_stage(features))
@@ -34,7 +34,7 @@ def test_vector_assembly_groups_variable_records() -> None:
 
 
 def test_vector_assembly_uses_precomputed_group_key() -> None:
-    feature = VariableRecord(id="close", time=_time(2), value=10.0)
+    feature = SeriesRecord(id="close", time=_time(2), value=10.0)
 
     vectors = list(vector_assemble_stage(iter([(("sample",), feature)])))
 
@@ -43,7 +43,7 @@ def test_vector_assembly_uses_precomputed_group_key() -> None:
 
 def test_vector_assembly_uses_sequence_time() -> None:
     values = [10.0, 20.0]
-    sequence = VariableSequence(
+    sequence = SeriesSequence(
         id="close",
         time=_time(2),
         values=values,
@@ -58,7 +58,7 @@ def test_vector_assembly_uses_sequence_time() -> None:
 
 
 def test_vector_assembly_preserves_single_item_sequence_shape() -> None:
-    sequence = VariableSequence(
+    sequence = SeriesSequence(
         id="close",
         time=_time(1),
         values=[10.0],
@@ -73,8 +73,8 @@ def test_vector_assembly_preserves_single_item_sequence_shape() -> None:
 def test_vector_assembly_rejects_mixed_scalar_and_sequence_values(
     sequence_first: bool,
 ) -> None:
-    record = VariableRecord(id="close", time=_time(1), value=10.0)
-    sequence = VariableSequence(
+    record = SeriesRecord(id="close", time=_time(1), value=10.0)
+    sequence = SeriesSequence(
         id="close",
         time=_time(1),
         values=[10.0],

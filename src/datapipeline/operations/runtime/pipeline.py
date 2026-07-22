@@ -7,9 +7,9 @@ from typing import TypeVar
 
 from datapipeline.artifacts.models import VectorMetadataEntry
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
-from datapipeline.artifacts.specs import VARIABLE_RECORDS, dataset_requires_scaler
-from datapipeline.artifacts.variable_records import load_variable_records_manifest
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.artifacts.specs import SERIES, dataset_requires_scaler
+from datapipeline.artifacts.series import load_series_manifest
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     SplitConfig,
@@ -36,7 +36,7 @@ from datapipeline.pipelines.dataset.pipeline import (
 )
 from datapipeline.pipelines.dataset.nodes import build_postprocess_plan
 from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
-from datapipeline.pipelines.variable.pipeline import run_variable_pipeline
+from datapipeline.pipelines.series.pipeline import run_series_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import (
     AlignedRuntimeStream,
@@ -124,14 +124,14 @@ def _parquet_sample_output(
 
 
 def _preview_plan(
-    preview_cfgs: list[VariableConfig],
+    preview_cfgs: list[SeriesConfig],
     preview: PreviewStage,
-) -> list[tuple[str, VariableConfig]]:
+) -> list[tuple[str, SeriesConfig]]:
     if preview not in _RECORD_PREVIEWS:
         return [(cfg.id, cfg) for cfg in preview_cfgs]
 
     seen: set[str] = set()
-    plan: list[tuple[str, VariableConfig]] = []
+    plan: list[tuple[str, SeriesConfig]] = []
     for cfg in preview_cfgs:
         stream_id = cfg.stream
         if stream_id in seen:
@@ -177,8 +177,8 @@ def _serve_preview(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[VariableConfig],
-    target_cfgs: list[VariableConfig],
+    feature_cfgs: list[SeriesConfig],
+    target_cfgs: list[SeriesConfig],
     cadence: str,
     sample_keys: list[str],
     limit: int | None,
@@ -229,7 +229,7 @@ def _serve_preview(
 
     outputs: list[RuntimeOutput] = []
     preview_plan = _preview_plan(feature_cfgs + target_cfgs, preview)
-    resolved_outputs: list[tuple[str, VariableConfig, OutputTarget]] = []
+    resolved_outputs: list[tuple[str, SeriesConfig, OutputTarget]] = []
     destinations: dict[str, str] = {}
     for output_id, cfg in preview_plan:
         output_target = target.for_output(output_id)
@@ -252,8 +252,8 @@ def _serve_preview(
                 str(output_id),
                 preview,
             )
-        elif preview == "variables":
-            stream = run_variable_pipeline(
+        elif preview == "series":
+            stream = run_series_pipeline(
                 context,
                 cfg,
                 sample_keys=sample_keys,
@@ -269,8 +269,8 @@ def _serve_dataset(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[VariableConfig],
-    target_cfgs: list[VariableConfig],
+    feature_cfgs: list[SeriesConfig],
+    target_cfgs: list[SeriesConfig],
     cadence: str,
     sample_keys: list[str],
     limit: int | None,
@@ -317,8 +317,8 @@ def _serve_fold_outputs(
     *,
     context: PipelineContext,
     runtime: Runtime,
-    feature_cfgs: list[VariableConfig],
-    target_cfgs: list[VariableConfig],
+    feature_cfgs: list[SeriesConfig],
+    target_cfgs: list[SeriesConfig],
     cadence: str,
     sample_keys: list[str],
     output_ids: tuple[str, ...],
@@ -421,8 +421,8 @@ def _postprocessed_dataset_table(
 def _served_dataset_table(
     context: PipelineContext,
     sample_keys: list[str],
-    feature_cfgs: list[VariableConfig],
-    target_cfgs: list[VariableConfig],
+    feature_cfgs: list[SeriesConfig],
+    target_cfgs: list[SeriesConfig],
 ) -> DatasetTable:
     plan = build_postprocess_plan(context)
     return _dataset_table(
@@ -443,12 +443,12 @@ def _dataset_table(
     scaled_feature_ids: tuple[str, ...] = (),
     scaled_target_ids: tuple[str, ...] = (),
 ) -> DatasetTable:
-    manifest = load_variable_records_manifest(
-        context.resolve_artifact_path(VARIABLE_RECORDS)
+    manifest = load_series_manifest(
+        context.resolve_artifact_path(SERIES)
     )
     if manifest.sample_keys != tuple(sample_keys):
         raise RuntimeError(
-            "Variable records sample keys do not match the dataset table contract."
+            "Series sample keys do not match the dataset table contract."
         )
     return DatasetTable(
         sample_keys,

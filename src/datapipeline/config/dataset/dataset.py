@@ -9,7 +9,7 @@ from pydantic import (
     model_validator,
 )
 
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.config.dataset.split import HashSplitConfig, SplitConfig
 from datapipeline.utils.time import CADENCE_PATTERN
@@ -41,24 +41,24 @@ class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     sample: SampleConfig
-    features: list[VariableConfig] = Field(default_factory=list)
-    targets: list[VariableConfig] = Field(default_factory=list)
+    features: list[SeriesConfig] = Field(default_factory=list)
+    targets: list[SeriesConfig] = Field(default_factory=list)
     split: SplitConfig | None = None
     postprocess: PostprocessConfig = Field(default_factory=PostprocessConfig)
 
     @property
-    def variables(self) -> tuple[VariableConfig, ...]:
+    def series(self) -> tuple[SeriesConfig, ...]:
         return (*self.features, *self.targets)
 
     @model_validator(mode="after")
-    def validate_variables(self) -> Self:
+    def validate_series(self) -> Self:
         if self.targets and not self.features:
             raise ValueError("datasets with targets must define at least one feature")
         seen: set[str] = set()
-        for config in self.variables:
+        for config in self.series:
             if config.id in seen:
                 raise ValueError(
-                    f"dataset variable id {config.id!r} must be unique across "
+                    f"dataset series id {config.id!r} must be unique across "
                     "features and targets"
                 )
             seen.add(config.id)
@@ -69,7 +69,7 @@ class DatasetConfig(BaseModel):
         if not isinstance(self.split, HashSplitConfig):
             return self
         sequenced = [
-            config.id for config in self.variables if config.sequence is not None
+            config.id for config in self.series if config.sequence is not None
         ]
         if sequenced:
             raise ValueError(

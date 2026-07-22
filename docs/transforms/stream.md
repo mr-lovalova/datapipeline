@@ -8,7 +8,7 @@ stream declares `partition_by` as the complete identity of an independent
 series, such as `[security_id]` or `[security_id, metric]`. Derived, broadcast,
 and aligned streams inherit that identity. Dataset `sample.keys` select which
 partition fields identify output rows. Remaining partition fields suffix
-variable IDs in their declared order.
+series IDs in their declared order.
 
 ## Field-Writing Transforms
 

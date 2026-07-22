@@ -6,7 +6,7 @@ from .pipeline import PipelineTask
 from .scaler import ScalerTask
 from .stats import StatsTask
 from .ticks import TicksTask
-from .variable_records import VariableRecordsTask
+from .series import SeriesTask
 
 __all__ = [
     "Task",
@@ -21,5 +21,5 @@ __all__ = [
     "MetadataTask",
     "StatsTask",
     "TicksTask",
-    "VariableRecordsTask",
+    "SeriesTask",
 ]

@@ -2,49 +2,49 @@ from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
-from datapipeline.config.dataset.variable import SequenceConfig, VariableConfig
-from datapipeline.domain.variable import VariableRecord, VariableSequence
-from datapipeline.pipelines.variable.projector import VariableProjector
+from datapipeline.config.dataset.series import SequenceConfig, SeriesConfig
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
+from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 
 
-def project_variable_records(
-    projector: VariableProjector,
-    config: VariableConfig,
+def project_series(
+    projector: SeriesProjector,
+    config: SeriesConfig,
     records: Iterable[Any],
-) -> Iterator[VariableRecord]:
+) -> Iterator[SeriesRecord]:
     for record in records:
         yield from projector.project(record, (config,))
 
 
-def sequence_variables(
+def sequence_series(
     sequence: SequenceConfig,
-    variables: Iterator[VariableRecord],
-) -> Iterator[VariableSequence]:
-    sequencer = VariableSequencer(sequence)
-    for variable in variables:
-        result = sequencer.append(variable)
+    records: Iterator[SeriesRecord],
+) -> Iterator[SeriesSequence]:
+    sequencer = SeriesSequencer(sequence)
+    for record in records:
+        result = sequencer.append(record)
         if result is not None:
             yield result
 
 
-class VariableSequencer:
+class SeriesSequencer:
     def __init__(self, config: SequenceConfig) -> None:
         self.config = config
         self._active_key: tuple[str, tuple] | None = None
         self._window: deque[Any] = deque(maxlen=config.size)
         self._position = 0
 
-    def append(self, variable: VariableRecord) -> VariableSequence | None:
-        key = variable.id, variable.entity_key
+    def append(self, record: SeriesRecord) -> SeriesSequence | None:
+        key = record.id, record.entity_key
         if key != self._active_key:
             self._active_key = key
             self._window.clear()
             self._position = 0
 
         position = self._position
-        self._window.append(variable.value)
+        self._window.append(record.value)
         self._position += 1
 
         window_start = position - self.config.size + 1
@@ -52,26 +52,26 @@ class VariableSequencer:
             return None
         if window_start % self.config.stride != 0:
             return None
-        return VariableSequence(
-            time=variable.time,
+        return SeriesSequence(
+            time=record.time,
             values=list(self._window),
-            id=variable.id,
-            entity_key=variable.entity_key,
+            id=record.id,
+            entity_key=record.entity_key,
         )
 
 
-def order_variable_records(
+def order_series(
     buffer_bytes: int,
     group_by_cadence: str | None,
     sample_keys: Sequence[str],
     progress: SortProgress,
-    variables: Iterator[VariableRecord | VariableSequence],
-) -> Iterable[VariableRecord | VariableSequence]:
+    records: Iterator[SeriesRecord | SeriesSequence],
+) -> Iterable[SeriesRecord | SeriesSequence]:
     key = _time_then_id
     if sample_keys and group_by_cadence is not None:
         key = _sample_group_then_time_and_id(group_by_cadence)
     return batch_sort(
-        variables,
+        records,
         buffer_bytes=buffer_bytes,
         key=key,
         progress=progress,
@@ -79,7 +79,7 @@ def order_variable_records(
 
 
 def _time_then_id(
-    item: VariableRecord | VariableSequence,
+    item: SeriesRecord | SeriesSequence,
 ) -> tuple[Any, str]:
     return item.time, item.id
 
@@ -87,7 +87,7 @@ def _time_then_id(
 def _sample_group_then_time_and_id(group_by_cadence: str):
     cadence = parse_cadence(group_by_cadence)
 
-    def key(item: VariableRecord | VariableSequence) -> tuple[Any, ...]:
+    def key(item: SeriesRecord | SeriesSequence) -> tuple[Any, ...]:
         time_value = item.time
         return (
             floor_time_to_cadence(time_value, cadence),

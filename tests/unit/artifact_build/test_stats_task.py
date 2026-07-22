@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import StatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -59,8 +59,8 @@ def _runtime(tmp_path) -> Runtime:
         artifacts_root=tmp_path / "artifacts",
         dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),
-            features=[VariableConfig(id="speed", stream="stream", field="value")],
-            targets=[VariableConfig(id="return", stream="stream", field="value")],
+            features=[SeriesConfig(id="speed", stream="stream", field="value")],
+            targets=[SeriesConfig(id="return", stream="stream", field="value")],
         ),
     )
 

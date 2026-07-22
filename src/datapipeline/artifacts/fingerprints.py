@@ -20,12 +20,12 @@ from datapipeline.config.tasks import (
     ScalerTask,
     StatsTask,
     TicksTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.services.definitions import ArtifactHashes, ProjectManifest
 
 # Increment when Jerry's core artifact semantics change without a config change.
-ARTIFACT_CACHE_VERSION = 6
+ARTIFACT_CACHE_VERSION = 7
 
 
 def _normalized_label(path: Path, base_dir: Path) -> str:
@@ -155,7 +155,7 @@ def _artifact_inputs(
         return {"streams": stream_config}, source_ids
 
     if isinstance(task, ScalerTask):
-        scaled = tuple(config for config in dataset.variables if config.scale)
+        scaled = tuple(config for config in dataset.series if config.scale)
         stream_config, source_ids = _stream_config_closure(
             (config.stream for config in scaled),
             streams,
@@ -179,8 +179,8 @@ def _artifact_inputs(
             source_ids,
         )
 
-    if isinstance(task, VariableRecordsTask):
-        input_configs = dataset.variables
+    if isinstance(task, SeriesTask):
+        input_configs = dataset.series
         stream_config, source_ids = _stream_config_closure(
             (config.stream for config in input_configs),
             streams,

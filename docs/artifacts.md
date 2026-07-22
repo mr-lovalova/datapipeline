@@ -3,12 +3,12 @@
 Core artifact operations are registered by Jerry and use these default outputs.
 Projects declare YAML only for overrides and custom operations:
 
-An artifact's registry key is its operation ID (`scaler`, `variable_records`,
+An artifact's registry key is its operation ID (`scaler`, `series`,
 `metadata`, or `stats`). Custom operation IDs come from their YAML
 filenames, such as `operations/model_grid.yaml`.
 
-- `build/variable_records/manifest.json` plus compressed feature/target shards under
-  `build/variable_records/manifest.shards/`:
+- `build/series/manifest.json` plus compressed feature/target shards under
+  `build/series/manifest.shards/`:
   durable inputs consumed by vector assembly. Values may contain only `None`,
   `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
   sample-key components may use only those scalar types. Other Python objects
@@ -28,8 +28,8 @@ filenames, such as `operations/model_grid.yaml`.
   transforms. Their output paths are operation-defined.
 
 The dependency graph is explicit: tick artifacts referenced by configured
-dataset streams feed scaler/variable records; variable records feed metadata; stats
-depend on metadata. Matrix inspection reads variable records directly and enforces
+dataset streams feed the scaler and series artifacts; series feeds metadata;
+stats depends on metadata. Matrix inspection reads series directly and enforces
 a configured cell bound instead of expanding the stats artifact. Nested tick
 artifacts are rejected because that dependency is not yet representable safely.
 
@@ -52,11 +52,21 @@ orphaned, missing, altered, stale, and incomplete chains are left unavailable.
 Commands targeting the same artifacts root cannot overlap; a second command
 fails before reading or mutating managed artifacts.
 
-Jerry 6 renames the v5 `vector_inputs` artifact to `variable_records`. Rename
-operation overrides, build profiles, and `requires` entries accordingly. The old
-build-state entry and `build/vector_inputs/` directory are ignored; `AUTO`
-builds the new artifact and its dependents. They may be deleted manually after
-the migration.
+Jerry 7 renames the v6 `variable_records` artifact to `series`:
+
+- `operations/variable_records.yaml` becomes `operations/series.yaml`.
+- `profiles/build.variable_records.yaml` becomes `profiles/build.series.yaml`,
+  and its `operation` value becomes `series`.
+- `requires: [variable_records]` becomes `requires: [series]`.
+- `core.artifact.variable_records` becomes `core.artifact.series`.
+- `build/variable_records/manifest.json` becomes
+  `build/series/manifest.json`.
+- `--preview variables` becomes `--preview series`.
+
+The old build-state entry and `build/variable_records/` directory are ignored;
+`AUTO` builds the new artifact and its dependents. They may be deleted manually
+after the migration. Reinstall an editable checkout after upgrading so its
+entry-point metadata exposes `core.artifact.series`.
 
 Jerry 6 also removes the separate `schema` artifact because `metadata` now owns
 the complete typed feature/target contract. Delete build profiles whose
@@ -67,17 +77,13 @@ with `metadata`. Update scaffolded plugin dependencies from
 schema output (by default `build/schema.json`) are ignored and may be deleted
 after the migration.
 
-The shared Python layer now uses
-`datapipeline.config.dataset.variable.VariableConfig` and
-`datapipeline.domain.variable.VariableRecord` / `VariableSequence`;
-`datapipeline.config.dataset.dataset.DatasetConfig` replaces
-`FeatureDatasetConfig`. Domain types use their defining modules rather than
-re-exports from `datapipeline.domain`. Preview stage `features` is now
-`variables` because it emits both feature and target records. Variable ID
-encoding and final sample values are unchanged. Raw variable previews now expose
-`time` directly and no longer retain or serialize the complete source record.
-Python callers likewise construct `VariableRecord` with `time=` instead of
-`record=`.
+The v7 Python layer replaces
+`datapipeline.config.dataset.variable.VariableConfig` with
+`datapipeline.config.dataset.series.SeriesConfig`, and replaces
+`datapipeline.domain.variable.VariableRecord` / `VariableSequence` with
+`datapipeline.domain.series.SeriesRecord` / `SeriesSequence`. Preview stage
+`variables` is now `series`. Series ID encoding, serialized row fields, and
+final sample values are unchanged.
 
 Serve, inspect, and materialize use one command-wide `artifact_mode` for their
 prerequisite phase. Its precedence is CLI `--artifact-mode`, then the matching
@@ -138,7 +144,7 @@ Build profiles remain explicit roots for `jerry build` and retain their own
   windows could share observations across hash partitions. Use a time split for
   sequence datasets.
 
-Canonical variable-record artifacts remain unscaled and independent of fold
+Canonical series artifacts remain unscaled and independent of fold
 selection. The scaler artifact records the fold-specific statistics needed at
 runtime.
 

@@ -3,20 +3,20 @@ import shutil
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
 )
 from datapipeline.config.dataset.postprocess import PostprocessConfig
 from datapipeline.config.tasks import (
     MetadataTask,
     ScalerTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.variable_records import (
-    materialize_variable_records,
+from datapipeline.operations.artifacts.series import (
+    materialize_series,
 )
 from datapipeline.pipelines.dataset.nodes import apply_postprocess
 from datapipeline.pipelines.vector.pipeline import build_vector_pipeline
@@ -45,15 +45,15 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
-    variable_records_rel = materialize_variable_records(
+    series_rel = materialize_series(
         runtime,
-        VariableRecordsTask(
-            id="variable_records", output="variable_records/manifest.json"
+        SeriesTask(
+            id="series", output="series/manifest.json"
         ),
     )
     runtime.artifacts.register(
-        VARIABLE_RECORDS,
-        relative_path=variable_records_rel.relative_path,
+        SERIES,
+        relative_path=series_rel.relative_path,
     )
     meta_rel = materialize_metadata(
         runtime,

@@ -20,12 +20,12 @@ from datapipeline.domain.sample_key import (
     SampleKeyValueType,
     sample_key_value_type,
 )
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.io.sinks.files import GzipBinarySink
 from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.utils.time import CADENCE_PATTERN, parse_datetime
 
-VARIABLE_RECORDS_MANIFEST_VERSION: Final = 6
+SERIES_MANIFEST_VERSION: Final = 7
 _JSON_SCALAR_TYPES = {type(None), bool, int, float, str}
 _NonEmptyString = Annotated[
     str,
@@ -33,7 +33,7 @@ _NonEmptyString = Annotated[
 ]
 
 
-class VariableShard(BaseModel):
+class SeriesShard(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: _NonEmptyString
@@ -49,16 +49,16 @@ class VariableShard(BaseModel):
         return str(path)
 
 
-class VariableRecordsManifest(BaseModel):
+class SeriesManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[6] = VARIABLE_RECORDS_MANIFEST_VERSION
+    version: Literal[7] = SERIES_MANIFEST_VERSION
     format: Literal["jsonl.gz"] = "jsonl.gz"
     cadence: str = Field(pattern=CADENCE_PATTERN)
     sample_keys: tuple[_NonEmptyString, ...] = ()
     sample_key_types: tuple[SampleKeyValueType, ...] = ()
-    features: tuple[VariableShard, ...] = ()
-    targets: tuple[VariableShard, ...] = ()
+    features: tuple[SeriesShard, ...] = ()
+    targets: tuple[SeriesShard, ...] = ()
 
     @field_validator("sample_keys")
     @classmethod
@@ -88,19 +88,19 @@ def _to_iso(value: datetime) -> str:
     return text
 
 
-def variable_record_to_row(
-    item: VariableRecord | VariableSequence,
+def series_record_to_row(
+    item: SeriesRecord | SeriesSequence,
 ) -> dict[str, Any]:
     if type(item.entity_key) is not tuple:
-        raise TypeError(f"Variable '{item.id}' entity key must be a tuple.")
+        raise TypeError(f"Series '{item.id}' entity key must be a tuple.")
     row: dict[str, Any] = {
         "id": item.id,
         "time": _to_iso(item.time),
         "entity_key": list(item.entity_key),
     }
-    if isinstance(item, VariableSequence):
+    if isinstance(item, SeriesSequence):
         if type(item.values) is not list:
-            raise TypeError(f"Variable sequence '{item.id}' values must be a list.")
+            raise TypeError(f"Series sequence '{item.id}' values must be a list.")
         row["kind"] = "sequence"
         row["values"] = item.values
     else:
@@ -121,17 +121,17 @@ def _require_json_value(value: Any) -> None:
         for key, item in value.items():
             if type(key) is not str:
                 raise TypeError(
-                    "Variable record mappings require string keys; "
+                    "Series record mappings require string keys; "
                     f"got {type(key).__name__}."
                 )
             _require_json_value(item)
         return
     raise TypeError(
-        f"Variable records require JSON-native values; got {value_type.__name__}."
+        f"Series records require JSON-native values; got {value_type.__name__}."
     )
 
 
-def write_variable_rows(
+def write_series_rows(
     path: Path,
     rows: Iterable[Mapping[str, Any]],
 ) -> int:
@@ -142,21 +142,21 @@ def write_variable_rows(
             payload = row if type(row) is dict else dict(row)
             entity_key = payload.get("entity_key")
             if type(entity_key) is not list:
-                raise TypeError("Variable record rows require list 'entity_key'.")
+                raise TypeError("Series record rows require list 'entity_key'.")
             for index, component in enumerate(entity_key):
                 sample_key_value_type(f"entity_key[{index}]", component)
             kind = payload.get("kind")
             if kind == "record":
                 if "value" not in payload:
-                    raise TypeError("Scalar variable rows require 'value'.")
+                    raise TypeError("Scalar series rows require 'value'.")
             elif kind == "sequence":
                 values = payload.get("values")
                 if type(values) is not list:
                     raise TypeError(
-                        "Variable record sequence rows require list 'values'."
+                        "Series sequence rows require list 'values'."
                     )
             else:
-                raise TypeError(f"Unsupported variable record row kind {kind!r}.")
+                raise TypeError(f"Unsupported series row kind {kind!r}.")
             _require_json_value(payload)
             line = json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n"
             encoded = line.encode("utf-8")
@@ -169,22 +169,22 @@ def write_variable_rows(
     return count
 
 
-def load_variable_records_manifest(path: Path) -> VariableRecordsManifest:
+def load_series_manifest(path: Path) -> SeriesManifest:
     with path.open("r", encoding="utf-8") as fh:
         payload = json.load(fh)
     if not isinstance(payload, dict):
-        raise ValueError(f"Expected variable records manifest object in '{path}'.")
+        raise ValueError(f"Expected series manifest object in '{path}'.")
     version = payload.get("version")
-    if type(version) is not int or version != VARIABLE_RECORDS_MANIFEST_VERSION:
+    if type(version) is not int or version != SERIES_MANIFEST_VERSION:
         raise ValueError(
-            f"Unsupported variable records manifest version {version!r} in '{path}'. "
-            "Rebuild variable records and dependent artifacts in FORCE mode."
+            f"Unsupported series manifest version {version!r} in '{path}'. "
+            "Rebuild series and dependent artifacts in FORCE mode."
         )
     try:
-        manifest = VariableRecordsManifest.model_validate(payload)
+        manifest = SeriesManifest.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(
-            f"Invalid variable records manifest '{path}'. Rebuild variable records and "
+            f"Invalid series manifest '{path}'. Rebuild series and "
             "dependent artifacts in FORCE mode."
         ) from exc
 
@@ -196,18 +196,18 @@ def load_variable_records_manifest(path: Path) -> VariableRecordsManifest:
             resolved.relative_to(root)
         except ValueError as exc:
             raise ValueError(
-                f"Variable records shard '{shard.path}' escapes manifest directory "
+                f"Series shard '{shard.path}' escapes manifest directory "
                 f"'{root}'."
             ) from exc
         resolved_paths.append(resolved)
     if len(resolved_paths) != len(set(resolved_paths)):
         raise ValueError(
-            f"Variable records manifest '{path}' has duplicate shard paths."
+            f"Series manifest '{path}' has duplicate shard paths."
         )
     return manifest
 
 
-def prune_variable_record_cache(
+def prune_series_cache(
     manifest_path: Path,
     artifacts_root: Path,
 ) -> tuple[Path, ...]:
@@ -216,13 +216,13 @@ def prune_variable_record_cache(
     manifest_path = resolve_artifact_output_path(manifest_path, artifacts_root)
     if not manifest_path.is_file():
         return ()
-    manifest = load_variable_records_manifest(manifest_path)
+    manifest = load_series_manifest(manifest_path)
     cache_root = manifest_path.parent / f"{manifest_path.stem}.shards"
     if not cache_root.exists():
         return ()
     if cache_root.is_symlink() or not cache_root.is_dir():
         raise RuntimeError(
-            f"Variable records shard path is not a directory: {cache_root}"
+            f"Series shard path is not a directory: {cache_root}"
         )
 
     retained: set[str] = set()
@@ -244,10 +244,10 @@ def prune_variable_record_cache(
     return tuple(sorted(removed))
 
 
-def open_variable_records(
+def open_series(
     path: Path,
     expected_rows: int | None = None,
-) -> Iterator[VariableRecord | VariableSequence]:
+) -> Iterator[SeriesRecord | SeriesSequence]:
     rows = 0
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
@@ -255,17 +255,17 @@ def open_variable_records(
                 continue
             row = json.loads(line, parse_constant=_reject_json_constant)
             if not isinstance(row, dict):
-                raise ValueError(f"Expected variable record row object in '{path}'.")
+                raise ValueError(f"Expected series row object in '{path}'.")
             rows += 1
             if expected_rows is not None and rows > expected_rows:
                 raise ValueError(
-                    f"Variable records shard '{path}' contains more than its "
+                    f"Series shard '{path}' contains more than its "
                     f"declared {expected_rows} rows."
                 )
-            yield _row_to_variable(row, path)
+            yield _row_to_series(row, path)
     if expected_rows is not None and rows != expected_rows:
         raise ValueError(
-            f"Variable records shard '{path}' declares {expected_rows} rows but "
+            f"Series shard '{path}' declares {expected_rows} rows but "
             f"contains {rows}."
         )
 
@@ -274,19 +274,19 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Non-standard JSON number {value!r} is not supported.")
 
 
-def _row_to_variable(
+def _row_to_series(
     row: Mapping[str, Any],
     path: Path,
-) -> VariableRecord | VariableSequence:
-    variable_id = _required_string(row, "id", path)
+) -> SeriesRecord | SeriesSequence:
+    series_id = _required_string(row, "id", path)
     time_value = parse_datetime(_required_string(row, "time", path))
     entity_key = _entity_key(row, path)
     kind = _required_string(row, "kind", path)
     if kind == "record":
         if "value" not in row:
-            raise ValueError(f"Scalar variable row in '{path}' must define 'value'.")
-        return VariableRecord(
-            id=variable_id,
+            raise ValueError(f"Scalar series row in '{path}' must define 'value'.")
+        return SeriesRecord(
+            id=series_id,
             time=time_value,
             value=row["value"],
             entity_key=entity_key,
@@ -295,29 +295,29 @@ def _row_to_variable(
         values = row.get("values")
         if not isinstance(values, list):
             raise ValueError(
-                f"Variable record sequence row in '{path}' must define values."
+                f"Series sequence row in '{path}' must define values."
             )
-        return VariableSequence(
+        return SeriesSequence(
             time=time_value,
-            id=variable_id,
+            id=series_id,
             values=values,
             entity_key=entity_key,
         )
-    raise ValueError(f"Unsupported variable record row kind '{kind}' in '{path}'.")
+    raise ValueError(f"Unsupported series row kind '{kind}' in '{path}'.")
 
 
 def _entity_key(row: Mapping[str, Any], path: Path) -> tuple:
     value = row.get("entity_key")
     if not isinstance(value, list):
         raise ValueError(
-            f"Variable record row in '{path}' must define list 'entity_key'."
+            f"Series row in '{path}' must define list 'entity_key'."
         )
     for index, component in enumerate(value):
         try:
             sample_key_value_type(f"entity_key[{index}]", component)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Variable record row in '{path}' has an invalid entity key."
+                f"Series row in '{path}' has an invalid entity key."
             ) from exc
     return tuple(value)
 
@@ -329,5 +329,5 @@ def _required_string(
 ) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"Variable record row in '{path}' must define '{key}'.")
+        raise ValueError(f"Series row in '{path}' must define '{key}'.")
     return value

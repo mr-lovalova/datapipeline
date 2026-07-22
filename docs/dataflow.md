@@ -174,7 +174,7 @@ Expected behavior:
 - Every `sample.keys` field must belong to each referenced stream's resolved
   `partition_by`.
 - Partition fields in `sample.keys` identify rows. Remaining partition fields
-  suffix variable IDs in partition order, producing long, wide, or hybrid output
+  suffix series IDs in partition order, producing long, wide, or hybrid output
   without a separate format setting.
 
 ## 6) Serve writes run-scoped outputs

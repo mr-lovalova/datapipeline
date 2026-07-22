@@ -4,7 +4,7 @@ from typing import Any
 
 
 @dataclass
-class VariableRecord:
+class SeriesRecord:
     id: str
     time: datetime
     value: Any
@@ -12,7 +12,7 @@ class VariableRecord:
 
 
 @dataclass
-class VariableSequence:
+class SeriesSequence:
     id: str
     time: datetime
     values: list[Any]

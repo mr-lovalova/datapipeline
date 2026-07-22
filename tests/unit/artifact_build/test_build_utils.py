@@ -7,7 +7,7 @@ import pytest
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import MetadataTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
@@ -112,7 +112,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
         artifacts_root=artifacts_root,
         dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
     )
-    cfg = VariableConfig(
+    cfg = SeriesConfig(
         id="wind_speed",
         stream="met.obs",
         field="value",
@@ -166,7 +166,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
         artifacts_root=artifacts_root,
         dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
     )
-    cfg = VariableConfig(
+    cfg = SeriesConfig(
         id="price",
         stream="market.prices",
         field="close",
@@ -210,9 +210,9 @@ def test_collect_vector_metadata_uses_config_order_not_observation_order(
     tmp_path,
 ) -> None:
     configs = [
-        VariableConfig(id="history", stream="market.prices", field="value"),
-        VariableConfig(id="price", stream="market.prices", field="value"),
-        VariableConfig(
+        SeriesConfig(id="history", stream="market.prices", field="value"),
+        SeriesConfig(id="price", stream="market.prices", field="value"),
+        SeriesConfig(
             id="fundamental",
             stream="market.prices",
             field="value",
@@ -254,8 +254,8 @@ def test_collect_vector_metadata_rejects_configured_ids_with_no_observations(
     tmp_path,
 ) -> None:
     configs = [
-        VariableConfig(id="missing", stream="market.prices", field="value"),
-        VariableConfig(id="price", stream="market.prices", field="value"),
+        SeriesConfig(id="missing", stream="market.prices", field="value"),
+        SeriesConfig(id="price", stream="market.prices", field="value"),
     ]
     with pytest.raises(RuntimeError, match="missing"):
         _collect_from_pipeline(
@@ -277,7 +277,7 @@ def test_collect_vector_metadata_rejects_when_every_configured_id_is_empty(
     monkeypatch,
     tmp_path,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="price",
         stream="market.prices",
         field="value",
@@ -303,7 +303,7 @@ def test_collect_vector_metadata_rejects_malformed_sample_keys(
     sample_keys,
     key,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="price",
         stream="market.prices",
         field="value",
@@ -322,7 +322,7 @@ def test_collect_vector_metadata_rejects_ids_outside_configured_vectors(
     monkeypatch,
     tmp_path,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="price",
         stream="market.prices",
         field="value",
@@ -348,7 +348,7 @@ def test_collect_vector_metadata_closes_pipeline_when_collection_fails(
     monkeypatch,
     tmp_path,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="history",
         stream="market.prices",
         field="value",
@@ -386,7 +386,7 @@ def test_collect_vector_metadata_skips_sample_domain_without_sample_keys(
     monkeypatch,
     tmp_path,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="price",
         stream="market.prices",
         field="value",
@@ -406,7 +406,7 @@ def test_collect_vector_metadata_tracks_each_keyed_sample_domain(
     monkeypatch,
     tmp_path,
 ) -> None:
-    config = VariableConfig(
+    config = SeriesConfig(
         id="price",
         stream="market.prices",
         field="value",
@@ -452,7 +452,7 @@ def test_collect_vector_metadata_rejects_scalar_list_mixtures(
     values,
 ) -> None:
     runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
-    config = VariableConfig(
+    config = SeriesConfig(
         id="history",
         stream="market.prices",
         field="close",
@@ -477,12 +477,12 @@ def test_collect_vector_metadata_rejects_scalar_list_mixtures(
         )
 
 
-def test_collect_vector_metadata_rejects_variable_list_lengths(
+def test_collect_vector_metadata_rejects_series_list_lengths(
     monkeypatch,
     tmp_path,
 ) -> None:
     runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
-    config = VariableConfig(
+    config = SeriesConfig(
         id="history",
         stream="market.prices",
         field="close",

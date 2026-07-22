@@ -16,14 +16,14 @@ for custom loaders, parsers, mappers, and stream combiners.
 >   `sample.keys` such as `security_id`.
 > - `partition_by` is the complete identity of an independent record series.
 >   Dataset `sample.keys` select which of those fields identify rows; remaining
->   partition fields are appended to variable IDs.
+>   partition fields are appended to series IDs.
 
 ## Why You Might Use It
 
 - Materialize canonical time-series datasets from disparate sources.
 - Preview and debug each stage of the pipeline without writing ad-hoc scripts.
 - Export schema-aware Parquet tables for fast Pandas, Polars, and Arrow research,
-  then reingest derived Parquet variables through Jerry's normal validation.
+  then reingest derived Parquet series through Jerry's normal validation.
 - Enforce coverage/quality gates and publish metadata and scaler statistics for
   downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O,
@@ -74,7 +74,7 @@ manually changing entry points.
 ## Preview a Pipeline
 
 `jerry serve --preview <stage>` stops at one stable boundary: `input`,
-`canonical`, `records`, `variables`, `samples`, or `postprocess`. Preview bypasses
+`canonical`, `records`, `series`, `samples`, or `postprocess`. Preview bypasses
 split output so the selected stage can be inspected directly. Sequence
 construction runs before dataset routing and should remain causal; scaling is
 applied only when a full serve selects a fold output.
@@ -92,8 +92,8 @@ that profile explicitly, including one configured with `enabled: false`.
 - `jerry plugin init <name> --out lib/`: create a plugin workspace.
 - `jerry inflow create`: scaffold one source-backed stream end to end.
 - `jerry serve`: stream enabled serve profiles.
-- `jerry build`: materialize artifacts such as variable records, scaler
-  statistics, and metadata.
+- `jerry build`: materialize the series artifact, scaler statistics, and
+  metadata.
 - `jerry inspect`: run coverage, matrix, or custom inspection profiles.
 - `jerry materialize`: write configured streams to durable `.jsonl` or
   gzip-compressed `.jsonl.gz` files.
@@ -104,8 +104,8 @@ Use `jerry <command> --help` for current flags and the
 
 ## MLOps & Reproducibility
 
-- `jerry build` materializes deterministic artifacts (variable records, scaler
-  statistics, and metadata). Builds are keyed by configuration and local-source
+- `jerry build` materializes deterministic series, scaler, and metadata
+  artifacts. Builds are keyed by configuration and local-source
   snapshots, and skip work when nothing changed unless you pass `--force`.
 - Filesystem serve output is run-scoped under
   `<output-directory>/runs/<run_id>/dataset/`. Normal profiles write
@@ -147,12 +147,12 @@ These live under `lib/<plugin>/src/<package>/`:
 - Custom loaders are for behavior such as pagination, authentication, or
   proprietary protocols. See [Extending the runtime](docs/extending.md).
 
-### Transforms (Preprocess -> Ordered Stream -> Variable -> Vector)
+### Transforms (Preprocess -> Ordered Stream -> Series -> Vector)
 
 - **Preprocess transforms** run on mapped domain records before ordering. Each transform operates on one record at a time. Configure source-backed streams under `preprocess:`.
 - **Ordered transforms** run after ordering (dedupe, cadence enforcement, lag/lead, rolling, derive, fills). These operate across a sequence of records for a partition because they depend on sorted partition/time order and cadence. Configure streams under `transforms:`.
-- **Variable shaping** runs after stream regularization. `sequence` shapes the
-  per-variable payload for vectorization; `scale` marks feature or target
+- **Series shaping** runs after stream regularization. `sequence` shapes the
+  per-series payload for vectorization; `scale` marks feature or target
   vectors that receive the selected dataset fold's scaler during full serving.
 - **Postprocess policies** select assembled vector columns and filter samples by coverage. Configure them under `postprocess:` in `dataset.yaml`.
 - Transform lists contain flat, validated built-in operations. Each item has an
@@ -167,8 +167,8 @@ These live under `lib/<plugin>/src/<package>/`:
 - **Partition**: complete identity of an independent record series, declared by
   stream `partition_by` and used as the state boundary for history-based
   transforms.
-- **Variable ID fields**: partition fields not present in `dataset.sample.keys`;
-  these are appended to variable IDs in partition order.
+- **Series ID fields**: partition fields not present in `dataset.sample.keys`;
+  these are appended to series IDs in partition order.
 - **Group**: sample cadence set by `dataset.sample.cadence`.
 - **Preview stage**: stable semantic boundary selected with
   `jerry serve --preview <stage>`.
@@ -181,11 +181,11 @@ These live under `lib/<plugin>/src/<package>/`:
 - [Configuration](docs/config.md): config layout, precedence, and YAML reference.
 - [Data flow](docs/dataflow.md): the YAML reference chain from workspace to output.
 - [CLI](docs/cli.md): command behavior beyond `--help`.
-- [Transforms](docs/transforms/index.md): preprocess, ordered, variable, and postprocess stages.
+- [Transforms](docs/transforms/index.md): preprocess, ordered, series, and postprocess stages.
 - [Artifacts](docs/artifacts.md): dependencies, freshness, splitting, and serving.
 - [Python integrations](docs/python.md): iterator, Pandas, and Torch APIs.
 - [Research workflow](docs/research.md): export samples to Parquet, derive a
-  variable with Polars, and reingest it into Jerry.
+  series with Polars, and reingest it into Jerry.
 - [Extending](docs/extending.md): plugin entry points and contracts.
 - [Architecture](docs/architecture.md): runtime and pipeline design.
 

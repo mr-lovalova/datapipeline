@@ -37,12 +37,12 @@ Jerry prints the concrete run-scoped output path. The table uses explicit
 namespaces such as `sample.time`, `sample.ticker`, `features.adv_20`, and
 `targets.forward_return`.
 
-`samples` is the useful research boundary: variables have been assembled into
+`samples` is the useful research boundary: series have been assembled into
 rows, but postprocess filtering, split routing, and fold-specific scaling have
 not run. Use `--preview postprocess` when the research input should include the
 configured postprocess policy.
 
-## 2. Derive a variable with Polars
+## 2. Derive a series with Polars
 
 This example ranks `adv_20` across tickers at each timestamp and writes one
 canonical record series:
@@ -128,4 +128,4 @@ Never declare `ordered_by` based only on an assumption.
 
 The research producer remains responsible for feature semantics and leakage.
 Jerry still validates timestamps, stream ordering, sample identity, metadata,
-and downstream dataset contracts when the derived variable is reingested.
+and downstream dataset contracts when the derived series is reingested.

@@ -13,7 +13,7 @@ from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
     VECTOR_STATS,
 )
@@ -24,14 +24,14 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
     StatsTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.execution.settings import (
     LogLevelDecision,
@@ -48,7 +48,7 @@ def _dataset_with_feature(*, scale: bool) -> DatasetConfig:
     return DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="x",
                 stream="stream",
                 field="value",
@@ -242,7 +242,7 @@ def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
     build_exec._report_artifact_plan(
         build_exec.SkippedBuild(
             reason="up_to_date",
-            artifacts=(VARIABLE_RECORDS, VECTOR_METADATA),
+            artifacts=(SERIES, VECTOR_METADATA),
         ),
         mode="AUTO",
         requested_artifacts={VECTOR_METADATA},
@@ -257,9 +257,9 @@ def test_report_artifact_plan_logs_current_roots(monkeypatch) -> None:
         "reason": "up_to_date",
         "mode": "AUTO",
         "requested": [VECTOR_METADATA],
-        "required": [VARIABLE_RECORDS, VECTOR_METADATA],
+        "required": [SERIES, VECTOR_METADATA],
         "jobs": [],
-        "current": [VARIABLE_RECORDS, VECTOR_METADATA],
+        "current": [SERIES, VECTOR_METADATA],
     }
 
 
@@ -308,11 +308,11 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
     build_exec._report_artifact_plan(
         build_exec.BuildPlan(
             reason="force",
-            artifacts=(VARIABLE_RECORDS, VECTOR_METADATA),
+            artifacts=(SERIES, VECTOR_METADATA),
             jobs=(build_exec.ArtifactBuildJob(task, (VECTOR_METADATA,)),),
             artifact_hashes=ArtifactHashes(
                 {
-                    VARIABLE_RECORDS: "artifact-hash-1",
+                    SERIES: "artifact-hash-1",
                     VECTOR_METADATA: "artifact-hash-1",
                 }
             ),
@@ -332,9 +332,9 @@ def test_report_artifact_plan_keeps_run_details_at_debug(monkeypatch) -> None:
         "reason": "force",
         "mode": "FORCE",
         "requested": [VECTOR_METADATA],
-        "required": [VARIABLE_RECORDS, VECTOR_METADATA],
+        "required": [SERIES, VECTOR_METADATA],
         "jobs": [VECTOR_METADATA],
-        "current": [VARIABLE_RECORDS],
+        "current": [SERIES],
     }
 
 
@@ -379,9 +379,9 @@ def test_plan_builds_only_requested_generic_artifact(
 
 def test_plan_expands_metadata_dependencies(tmp_path: Path) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([ScalerTask(id="scaler"), variable_records, metadata])
+    graph = build_artifact_graph([ScalerTask(id="scaler"), series, metadata])
     plan = build_exec._plan_build(
         definition=definition,
         graph=graph,
@@ -390,18 +390,18 @@ def test_plan_expands_metadata_dependencies(tmp_path: Path) -> None:
     )
 
     assert isinstance(plan, build_exec.BuildPlan)
-    assert plan.artifacts == (VARIABLE_RECORDS, VECTOR_METADATA)
+    assert plan.artifacts == (SERIES, VECTOR_METADATA)
     assert tuple(job.task.id for job in plan.jobs) == (
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
     )
 
 
 def test_v5_vector_inputs_state_is_not_reused(tmp_path: Path) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask()
+    series = SeriesTask()
     metadata = MetadataTask()
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
     previous_state = BuildState()
     _register_artifact(
         previous_state,
@@ -425,22 +425,22 @@ def test_v5_vector_inputs_state_is_not_reused(tmp_path: Path) -> None:
     assert isinstance(plan, build_exec.BuildPlan)
     assert plan.reason == "missing"
     assert tuple(job.task.id for job in plan.jobs) == (
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
     )
 
 
 def test_plan_skips_current_dependency(tmp_path: Path) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
     state = BuildState()
     _register_artifact(
         state,
         definition.project.artifacts_root,
-        variable_records,
-        definition.artifact_hashes.for_artifact(variable_records.id),
+        series,
+        definition.artifact_hashes.for_artifact(series.id),
     )
     save_build_state(state, definition.project.artifacts_root)
 
@@ -547,7 +547,7 @@ def test_plan_rejects_missing_dependency_producer(
 
     with pytest.raises(
         ArtifactResolutionError,
-        match="Required artifact operation 'variable_records' is not declared",
+        match="Required artifact operation 'series' is not declared",
     ):
         build_exec._plan_build(
             definition=definition,
@@ -576,14 +576,14 @@ def test_stale_dependency_rebuilds_current_dependent(
     tmp_path: Path,
 ) -> None:
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
     state = BuildState()
     _register_artifact(
         state,
         definition.project.artifacts_root,
-        variable_records,
+        series,
         "stale-artifact-hash",
     )
     _register_artifact(
@@ -603,11 +603,11 @@ def test_stale_dependency_rebuilds_current_dependent(
 
     assert isinstance(plan, build_exec.BuildPlan)
     assert tuple(job.task.id for job in plan.jobs) == (
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
     )
     assert plan.jobs[0].invalidated_artifacts == (
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
         VECTOR_STATS,
     )
@@ -643,9 +643,9 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
 ) -> None:
     definition = _definition(tmp_path)
     _patch_stable_artifact_inputs(monkeypatch)
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
     previous_state = BuildState()
     previous_state.register(
         VECTOR_METADATA,
@@ -676,17 +676,17 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
     )
     plan = build_exec.BuildPlan(
         reason="stale",
-        artifacts=(VARIABLE_RECORDS, VECTOR_METADATA),
+        artifacts=(SERIES, VECTOR_METADATA),
         jobs=(
             build_exec.ArtifactBuildJob(
-                variable_records,
-                (VARIABLE_RECORDS, VECTOR_METADATA),
+                series,
+                (SERIES, VECTOR_METADATA),
             ),
             build_exec.ArtifactBuildJob(metadata, (VECTOR_METADATA,)),
         ),
         artifact_hashes=ArtifactHashes(
             {
-                VARIABLE_RECORDS: "artifact-hash-1",
+                SERIES: "artifact-hash-1",
                 VECTOR_METADATA: "artifact-hash-1",
             }
         ),
@@ -705,11 +705,11 @@ def test_execute_build_jobs_persists_completed_job_before_failure(
 
     state = load_build_state(definition.project.artifacts_root)
     assert state is not None
-    assert list(state.artifacts) == [VARIABLE_RECORDS]
+    assert list(state.artifacts) == [SERIES]
     assert outputs == [
         (
-            "Variable records",
-            (runtime.artifacts_root / variable_records.output).resolve(),
+            "Series",
+            (runtime.artifacts_root / series.output).resolve(),
         )
     ]
 
@@ -720,9 +720,9 @@ def test_execute_build_failure_preserves_previous_persisted_state(
 ) -> None:
     definition = _definition(tmp_path)
     _patch_stable_artifact_inputs(monkeypatch)
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
     previous_state = BuildState()
     previous_state.register(
         VECTOR_METADATA,
@@ -740,21 +740,21 @@ def test_execute_build_failure_preserves_previous_persisted_state(
     save_build_state(previous_state, definition.project.artifacts_root)
 
     def fail_build(runtime, task):
-        raise RuntimeError("variable records failed")
+        raise RuntimeError("series failed")
 
     _patch_artifact_build(monkeypatch, fail_build)
     plan = build_exec.BuildPlan(
         reason="stale",
-        artifacts=(VARIABLE_RECORDS, VECTOR_METADATA),
+        artifacts=(SERIES, VECTOR_METADATA),
         jobs=(
             build_exec.ArtifactBuildJob(
-                variable_records,
-                (VARIABLE_RECORDS, VECTOR_METADATA),
+                series,
+                (SERIES, VECTOR_METADATA),
             ),
         ),
         artifact_hashes=ArtifactHashes(
             {
-                VARIABLE_RECORDS: "artifact-hash-1",
+                SERIES: "artifact-hash-1",
                 VECTOR_METADATA: "artifact-hash-1",
             }
         ),
@@ -762,7 +762,7 @@ def test_execute_build_failure_preserves_previous_persisted_state(
         graph=graph,
     )
 
-    with pytest.raises(RuntimeError, match="variable records failed"):
+    with pytest.raises(RuntimeError, match="series failed"):
         build_exec._execute_build_jobs(
             definition,
             runtime=_runtime(tmp_path / "artifacts"),
@@ -899,11 +899,11 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         entrypoint="plugin.snapshot",
         output="build/custom.json",
     )
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     graph = build_artifact_graph(
         [
             scaler,
-            variable_records,
+            series,
             MetadataTask(id="metadata"),
             StatsTask(id="stats", stage="postprocessed"),
             custom,
@@ -927,12 +927,12 @@ def test_execute_build_job_invalidates_only_graph_descendants(
     _patch_artifact_build(monkeypatch, _build_artifact)
     plan = build_exec.BuildPlan(
         reason="force",
-        artifacts=(VARIABLE_RECORDS,),
+        artifacts=(SERIES,),
         jobs=(
             build_exec.ArtifactBuildJob(
-                variable_records,
+                series,
                 (
-                    VARIABLE_RECORDS,
+                    SERIES,
                     VECTOR_METADATA,
                     VECTOR_STATS,
                 ),
@@ -952,15 +952,15 @@ def test_execute_build_job_invalidates_only_graph_descendants(
         settings=_build_settings("FORCE"),
     )
 
-    assert set(state.artifacts) == {SCALER_STATISTICS, VARIABLE_RECORDS, custom.id}
-    assert runtime.artifacts.has(VARIABLE_RECORDS)
+    assert set(state.artifacts) == {SCALER_STATISTICS, SERIES, custom.id}
+    assert runtime.artifacts.has(SERIES)
     assert not runtime.artifacts.has(VECTOR_METADATA)
     assert len(messages) == 1
     message, level = messages[0]
     assert level == logging.DEBUG
     assert message.startswith("Config:\n")
     config = json.loads(message[8:])
-    assert config["operation"]["entrypoint"] == "core.artifact.variable_records"
+    assert config["operation"]["entrypoint"] == "core.artifact.series"
     assert config["mode"] == "FORCE"
     assert config["execution"] == {"sort_buffer_mb": 128}
     assert config["observability"]["visuals"] == "on"
@@ -995,7 +995,7 @@ def test_build_rejects_source_drift_before_starting_runner(
         build_exec.run_build_if_needed(
             definition,
             graph=graph,
-            required_artifacts={VARIABLE_RECORDS},
+            required_artifacts={SERIES},
             settings=_build_settings("FORCE"),
             runtime=_runtime(definition.project.artifacts_root),
         )
@@ -1014,7 +1014,7 @@ def test_build_rejects_source_drift_before_registering_result(
         definition.dataset,
         definition.streams,
     )
-    task = graph.tasks_by_id[VARIABLE_RECORDS]
+    task = graph.tasks_by_id[SERIES]
     previous_state = BuildState()
     _register_artifact(
         previous_state,
@@ -1037,13 +1037,13 @@ def test_build_rejects_source_drift_before_registering_result(
         build_exec.run_build_if_needed(
             definition,
             graph=graph,
-            required_artifacts={VARIABLE_RECORDS},
+            required_artifacts={SERIES},
             settings=_build_settings("FORCE"),
             runtime=runtime,
         )
 
     assert state_path.read_bytes() == persisted_state
-    assert not runtime.artifacts.has(VARIABLE_RECORDS)
+    assert not runtime.artifacts.has(SERIES)
 
 
 def test_build_accepts_unchanged_local_sources(monkeypatch, tmp_path: Path) -> None:
@@ -1059,17 +1059,17 @@ def test_build_accepts_unchanged_local_sources(monkeypatch, tmp_path: Path) -> N
     assert build_exec.run_build_if_needed(
         definition,
         graph=graph,
-        required_artifacts={VARIABLE_RECORDS},
+        required_artifacts={SERIES},
         settings=_build_settings("FORCE"),
         runtime=runtime,
     )
 
     state = load_build_state(definition.project.artifacts_root)
     assert state is not None
-    assert state.artifacts[VARIABLE_RECORDS].artifact_hash == (
-        definition.artifact_hashes.for_artifact(VARIABLE_RECORDS)
+    assert state.artifacts[SERIES].artifact_hash == (
+        definition.artifact_hashes.for_artifact(SERIES)
     )
-    assert runtime.artifacts.has(VARIABLE_RECORDS)
+    assert runtime.artifacts.has(SERIES)
 
 
 def test_run_build_hydrates_current_dependencies_before_job(
@@ -1078,12 +1078,12 @@ def test_run_build_hydrates_current_dependencies_before_job(
 ) -> None:
     _patch_stable_artifact_inputs(monkeypatch)
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
     stats = StatsTask(id="stats", stage="assembled")
-    graph = build_artifact_graph([variable_records, metadata, stats])
+    graph = build_artifact_graph([series, metadata, stats])
     state = BuildState()
-    for task in (variable_records, metadata):
+    for task in (series, metadata):
         _register_artifact(
             state,
             definition.project.artifacts_root,
@@ -1118,12 +1118,12 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
 ) -> None:
     _patch_stable_artifact_inputs(monkeypatch)
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
     stats = StatsTask(id="stats", stage="postprocessed")
-    graph = build_artifact_graph([variable_records, metadata, stats])
+    graph = build_artifact_graph([series, metadata, stats])
     state = BuildState()
-    for task in (variable_records, metadata):
+    for task in (series, metadata):
         _register_artifact(
             state,
             definition.project.artifacts_root,
@@ -1159,7 +1159,7 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
     )
 
     assert built == [VECTOR_STATS]
-    assert resolved == {VARIABLE_RECORDS, VECTOR_METADATA, VECTOR_STATS}
+    assert resolved == {SERIES, VECTOR_METADATA, VECTOR_STATS}
 
 
 def test_run_build_keeps_loaded_definition_when_config_changes(

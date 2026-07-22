@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from itertools import groupby
 from typing import Any
 
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 
@@ -14,33 +14,33 @@ def _close_iterator(iterator) -> None:
 
 
 def vector_assemble_stage(
-    merged: Iterator[tuple[tuple, VariableRecord | VariableSequence]],
+    merged: Iterator[tuple[tuple, SeriesRecord | SeriesSequence]],
 ) -> Iterator[tuple[tuple, Vector]]:
     try:
         for group_key, group in groupby(merged, key=lambda item: item[0]):
-            variable_map: dict[str, list[Any]] = {}
+            values_by_series_id: dict[str, list[Any]] = {}
             sequence_ids: set[str] = set()
-            for _, variable in group:
-                is_sequence = isinstance(variable, VariableSequence)
-                if variable.id in variable_map and is_sequence != (
-                    variable.id in sequence_ids
+            for _, record in group:
+                is_sequence = isinstance(record, SeriesSequence)
+                if record.id in values_by_series_id and is_sequence != (
+                    record.id in sequence_ids
                 ):
                     raise ValueError(
-                        f"Vector {variable.id!r} contains both scalar and sequence values."
+                        f"Vector {record.id!r} contains both scalar and sequence values."
                     )
-                items = variable_map.setdefault(variable.id, [])
-                if isinstance(variable, VariableSequence):
-                    sequence_ids.add(variable.id)
-                    items.extend(variable.values)
+                items = values_by_series_id.setdefault(record.id, [])
+                if isinstance(record, SeriesSequence):
+                    sequence_ids.add(record.id)
+                    items.extend(record.values)
                 else:
-                    items.append(variable.value)
+                    items.append(record.value)
             values = {
-                variable_id: (
+                series_id: (
                     items
-                    if variable_id in sequence_ids or len(items) != 1
+                    if series_id in sequence_ids or len(items) != 1
                     else items[0]
                 )
-                for variable_id, items in variable_map.items()
+                for series_id, items in values_by_series_id.items()
             }
             yield group_key, Vector(values=values)
     finally:

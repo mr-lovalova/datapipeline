@@ -9,7 +9,7 @@ from datapipeline.artifacts.scaler import (
     load_scaler_artifact,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
+from datapipeline.config.dataset.series import SeriesConfig, SequenceConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     HashSplitConfig,
@@ -90,7 +90,7 @@ def _dataset(
     return DatasetConfig(
         sample=SampleConfig(cadence=cadence),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="x",
                 stream="stream",
                 field="value",
@@ -123,7 +123,7 @@ def test_materialize_standard_scaler_uses_all_scalar_observations(
     assert artifact.observations == 2
     assert artifact.statistics["x"].mean == 2.0
     assert result.meta == {
-        "variables": 1,
+        "series": 1,
         "observations": 2,
     }
 
@@ -299,13 +299,13 @@ def test_scaler_opens_a_shared_stream_once_for_all_scaled_fields(tmp_path) -> No
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="value",
                 stream="stream",
                 field="value",
                 scale=True,
             ),
-            VariableConfig(
+            SeriesConfig(
                 id="other",
                 stream="stream",
                 field="other",
@@ -340,7 +340,7 @@ def test_grouped_scaler_preserves_global_scalar_statistics_across_sample_keys(
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h", keys=["security_id"]),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="value",
                 stream="stream",
                 field="value",
@@ -380,7 +380,7 @@ def test_scaler_validates_excluded_split_records_before_filtering(tmp_path) -> N
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="other",
                 stream="stream",
                 field="other",

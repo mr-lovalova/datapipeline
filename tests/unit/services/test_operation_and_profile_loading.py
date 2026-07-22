@@ -120,7 +120,7 @@ def test_artifact_tasks_load_configs(tmp_path):
 
     assert {task.id for task in tasks} == {
         "scaler",
-        "variable_records",
+        "series",
         "metadata",
         "stats",
         "schema",
@@ -142,7 +142,7 @@ def test_core_operations_load_without_configuration(tmp_path):
 
     assert [task.id for task in artifact_tasks] == [
         "scaler",
-        "variable_records",
+        "series",
         "metadata",
         "stats",
     ]
@@ -151,23 +151,27 @@ def test_core_operations_load_without_configuration(tmp_path):
         "coverage",
         "matrix",
     ]
-    task = next(task for task in artifact_tasks if task.id == "variable_records")
-    assert task.id == "variable_records"
-    assert task.entrypoint == "core.artifact.variable_records"
-    assert task.output == "build/variable_records/manifest.json"
+    task = next(task for task in artifact_tasks if task.id == "series")
+    assert task.id == "series"
+    assert task.entrypoint == "core.artifact.series"
+    assert task.output == "build/series/manifest.json"
 
 
-def test_v5_vector_inputs_override_is_not_a_core_operation(tmp_path):
+@pytest.mark.parametrize("operation_id", ["vector_inputs", "variable_records"])
+def test_legacy_series_override_is_not_a_core_operation(
+    tmp_path,
+    operation_id: str,
+) -> None:
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "vector_inputs.yaml").write_text(
-        "output: build/vector_inputs/manifest.json\n",
+    (config_dir / f"{operation_id}.yaml").write_text(
+        f"output: build/{operation_id}/manifest.json\n",
         encoding="utf-8",
     )
 
     with pytest.raises(
         ValueError,
-        match="Custom operation 'vector_inputs' must set kind to artifact or runtime",
+        match=rf"Custom operation '{operation_id}' must set kind to artifact or runtime",
     ):
         _tasks(project_yaml)
 
@@ -1093,7 +1097,7 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
     "entrypoint",
     [
         "core.artifact.scaler",
-        "core.artifact.variable_records",
+        "core.artifact.series",
         "core.artifact.metadata",
         "core.artifact.stats",
     ],

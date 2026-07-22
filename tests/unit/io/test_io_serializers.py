@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from datapipeline.domain.sample import Sample
-from datapipeline.domain.variable import VariableRecord
+from datapipeline.domain.series import SeriesRecord
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.vector import Vector
 from datapipeline.io.serializers import (
@@ -33,12 +33,12 @@ def test_record_json_serializer_emits_plain_payload() -> None:
     }
 
 
-def test_variable_csv_serializer_flattens_payload() -> None:
+def test_series_csv_serializer_flattens_payload() -> None:
     time = datetime(2024, 7, 4, tzinfo=timezone.utc)
-    variable = VariableRecord("feature_a", time, 7.0)
+    record = SeriesRecord("feature_a", time, 7.0)
     serializer = csv_row_serializer()
 
-    row = serializer(variable)
+    row = serializer(record)
 
     assert row["id"] == "feature_a"
     assert row["time"] == time
@@ -46,11 +46,11 @@ def test_variable_csv_serializer_flattens_payload() -> None:
     assert "kind" not in row
 
 
-def test_variable_json_serializer_emits_only_projected_fields() -> None:
+def test_series_json_serializer_emits_only_projected_fields() -> None:
     time = datetime(2024, 7, 4, tzinfo=timezone.utc)
-    variable = VariableRecord("feature_a", time, 7.0, ("AAPL",))
+    record = SeriesRecord("feature_a", time, 7.0, ("AAPL",))
 
-    payload = json.loads(json_line_serializer()(variable))
+    payload = json.loads(json_line_serializer()(record))
 
     assert payload == {
         "id": "feature_a",

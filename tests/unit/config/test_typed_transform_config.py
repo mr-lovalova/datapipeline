@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
+from datapipeline.config.dataset.series import SeriesConfig, SequenceConfig
 from datapipeline.config.streams import DerivedStreamConfig, SourceStreamConfig
 from datapipeline.config.transforms import (
     CollapseConfig,
@@ -260,7 +260,7 @@ def test_ensure_cadence_requires_a_positive_duration(cadence: object) -> None:
 )
 def test_sequence_config_is_strict(sequence: object) -> None:
     with pytest.raises(ValidationError):
-        VariableConfig.model_validate(
+        SeriesConfig.model_validate(
             {
                 "id": "close",
                 "stream": "prices.daily",
@@ -271,7 +271,7 @@ def test_sequence_config_is_strict(sequence: object) -> None:
 
 
 def test_feature_config_uses_explicit_scale_and_sequence_models() -> None:
-    config = VariableConfig.model_validate(
+    config = SeriesConfig.model_validate(
         {
             "id": "close",
             "stream": "prices.daily",

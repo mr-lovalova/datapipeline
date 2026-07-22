@@ -9,7 +9,7 @@ import datapipeline.integrations.ml.rows as rows_module
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.split import (
     DatasetFold,
     TimeInterval,
@@ -339,7 +339,7 @@ def _dataset(
     return DatasetConfig(
         sample=SampleConfig(cadence="1d"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="value",
                 stream="records",
                 field="value",

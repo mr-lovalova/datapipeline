@@ -10,7 +10,7 @@ from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.registry import ArtifactRegistry
 from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.artifacts.specs import (
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
     VECTOR_STATS,
 )
@@ -20,7 +20,7 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.execution import ExecutionConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.streams import StreamsConfig
@@ -33,7 +33,7 @@ from datapipeline.config.tasks import (
     PipelineTask,
     StatsTask,
     TicksTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.execution.settings import (
     LogLevelDecision,
@@ -101,7 +101,7 @@ def _dataset(*, scale: bool = False) -> DatasetConfig:
     return DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="feature",
                 stream="stream",
                 field="value",
@@ -319,7 +319,7 @@ def test_run_profiles_reports_failure_after_cleanup_error(
         lambda: next(times),
     )
     monkeypatch.setattr(
-        "datapipeline.profiles.orchestration._prune_variable_record_caches",
+        "datapipeline.profiles.orchestration._prune_series_caches",
         fail_prune,
     )
     monkeypatch.setattr(
@@ -367,14 +367,14 @@ def test_run_profiles_preserves_process_control_exceptions(
 
 
 def test_build_order_accepts_configured_dependency_order() -> None:
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
     stats = StatsTask(id="stats", stage="postprocessed")
-    graph = build_artifact_graph([variable_records, metadata, stats])
+    graph = build_artifact_graph([series, metadata, stats])
 
     _validate_build_order(
         [
-            BuildJob(variable_records, _artifact_settings()),
+            BuildJob(series, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
             BuildJob(stats, _artifact_settings()),
         ],
@@ -383,15 +383,15 @@ def test_build_order_accepts_configured_dependency_order() -> None:
 
 
 def test_build_order_rejects_dependency_after_dependent() -> None:
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    graph = build_artifact_graph([variable_records, metadata])
+    graph = build_artifact_graph([series, metadata])
 
-    with pytest.raises(ValueError, match="variable_records.*before.*metadata"):
+    with pytest.raises(ValueError, match="series.*before.*metadata"):
         _validate_build_order(
             [
                 BuildJob(metadata, _artifact_settings()),
-                BuildJob(variable_records, _artifact_settings()),
+                BuildJob(series, _artifact_settings()),
             ],
             graph,
         )
@@ -414,7 +414,7 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
     stats = StatsTask(id="stats", stage="postprocessed")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
@@ -423,9 +423,9 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
-        [variable_records, metadata, stats],
+        [series, metadata, stats],
         [
-            BuildJob(variable_records, _artifact_settings()),
+            BuildJob(series, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
             BuildJob(stats, _artifact_settings("FORCE")),
         ],
@@ -459,7 +459,7 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     run_profiles(request)
 
     assert [call["required_artifacts"] for call in calls] == [
-        {VARIABLE_RECORDS},
+        {SERIES},
         {VECTOR_METADATA},
         {VECTOR_STATS},
     ]
@@ -471,7 +471,7 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     assert [call["settings"].mode for call in calls] == ["AUTO", "AUTO", "FORCE"]
     assert calls[0]["resolved_artifacts"] is calls[2]["resolved_artifacts"]
     assert calls[2]["resolved_artifacts"] == {
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
         VECTOR_STATS,
     }
@@ -489,7 +489,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
     pipeline = PipelineTask(id="dataset")
     first_runtime = _runtime(tmp_path, "first-job")
@@ -500,7 +500,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     request = _runtime_request(
         tmp_path,
         command="serve",
-        artifact_tasks=[variable_records, metadata],
+        artifact_tasks=[series, metadata],
         jobs=[
             _runtime_job(
                 "records-preview",
@@ -572,7 +572,7 @@ def test_runtime_artifact_union_is_prepared_once_before_jobs(
     ]
     assert len(build_calls) == 1
     assert build_calls[0]["required_artifacts"] == {
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
     }
     assert build_calls[0]["settings"] is artifact_settings
@@ -707,7 +707,7 @@ def test_runtime_jobs_keep_order_and_apply_execution_settings(
         tmp_path,
         command="serve",
         artifact_tasks=[
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
             MetadataTask(id="metadata"),
         ],
         jobs=jobs,

@@ -6,7 +6,7 @@ from datapipeline.config.dataset.dataset import DatasetConfig
 SCALER_STATISTICS = "scaler"
 VECTOR_METADATA = "metadata"
 VECTOR_STATS = "stats"
-VARIABLE_RECORDS = "variable_records"
+SERIES = "series"
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ class ArtifactDefinition:
 
 
 def dataset_requires_scaler(dataset: DatasetConfig) -> bool:
-    return any(config.scale for config in dataset.variables)
+    return any(config.scale for config in dataset.series)
 
 
 ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
@@ -34,11 +34,11 @@ ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
         required_if=dataset_requires_scaler,
     ),
     ArtifactDefinition(
-        key=VARIABLE_RECORDS,
+        key=SERIES,
     ),
     ArtifactDefinition(
         key=VECTOR_METADATA,
-        dependencies=(VARIABLE_RECORDS,),
+        dependencies=(SERIES,),
     ),
     ArtifactDefinition(
         key=VECTOR_STATS,

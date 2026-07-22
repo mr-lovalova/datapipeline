@@ -27,10 +27,10 @@ def validate_dataset_streams(
     dataset: DatasetConfig,
     streams: StreamsConfig,
 ) -> None:
-    for config in dataset.variables:
+    for config in dataset.series:
         if config.stream not in streams.streams:
             raise ValueError(
-                f"Dataset variable '{config.id}' references unknown stream "
+                f"Dataset series '{config.id}' references unknown stream "
                 f"'{config.stream}'."
             )
         partition_by = stream_partition_by(streams.streams, config.stream)
@@ -39,7 +39,7 @@ def validate_dataset_streams(
         ]
         if missing_sample_keys:
             raise ValueError(
-                f"Dataset variable '{config.id}' uses sample.keys "
+                f"Dataset series '{config.id}' uses sample.keys "
                 f"{missing_sample_keys!r} that are not part of stream "
                 f"'{config.stream}' partition_by {list(partition_by)!r}."
             )

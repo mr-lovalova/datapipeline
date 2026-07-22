@@ -74,7 +74,7 @@ globals:
 - New scaffolded dataset projects include a `.env.example` next to `project.yaml`.
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
-  Core artifact operations are `scaler`, `variable_records`, `metadata`, and
+  Core artifact operations are `scaler`, `series`, `metadata`, and
   `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
@@ -512,7 +512,7 @@ transforms:
   `[*partition_by, time]` order. When present, it must equal that canonical
   order and is validated while streaming. When absent, mapped records are
   externally sorted. Derived streams reuse upstream canonical order.
-- Variable identity is derived at the dataset boundary. Every `sample.keys`
+- Series identity is derived at the dataset boundary. Every `sample.keys`
   field must occur in the resolved `partition_by` of every referenced stream.
   Partition fields absent from `sample.keys` suffix the configured feature or
   target ID in partition order (for example, `temp__@station_id:XYZ`). Putting
@@ -520,7 +520,7 @@ transforms:
   putting none there produces wide output; using a subset produces a hybrid.
   Dataset feature and target IDs cannot contain the reserved `__` separator.
   Generated suffixes escape strings and tag non-string scalar values so
-  different component tuples cannot produce the same variable ID.
+  different component tuples cannot produce the same series ID.
 
 ### Broadcast Streams
 
@@ -680,10 +680,10 @@ postprocess:
   must stay per security; downstream streams inherit it.
 - `partition_by` is the complete series identity. `sample.keys` select which
   partition fields identify output rows; remaining partition fields suffix
-  variable IDs such as `close__@security_id:AAPL`. This supports long, wide, and
-  hybrid layouts without a separate format or variable-identity setting.
+  series IDs such as `close__@security_id:AAPL`. This supports long, wide, and
+  hybrid layouts without a separate format or series-identity setting.
 - `field` selects the record attribute used as the feature/target value.
-- `None` is the canonical missing variable value. A floating `NaN` produced by
+- `None` is the canonical missing series value. A floating `NaN` produced by
   a parser, mapper, or transform is converted to `None` when the field is
   projected; positive and negative infinity are rejected. Identity fields
   reject every non-finite float rather than treating it as missing.
@@ -695,12 +695,12 @@ postprocess:
   options belong to the scaler operation and cannot be overridden per vector.
   `None` and transient `NaN` remain missing; other nonnumeric values and
   infinity fail.
-- `sequence` emits `VariableSequence` windows and accepts `size` plus
+- `sequence` emits `SeriesSequence` windows and accepts `size` plus
   optional `stride` (default `1`). Regularize cadence with ordered transforms
-  before variable projection when contiguous ticks are required. The resolved
+  before series projection when contiguous ticks are required. The resolved
   stream partition keeps every independent series in one contiguous ordered
   group.
-- Variable configuration exposes only `scale` and `sequence`; it does not accept
+- Series configuration exposes only `scale` and `sequence`; it does not accept
   arbitrary transform entry-point clauses.
 - `split` first assigns each sample one primitive label. Hash splits assign from
   the complete sample key and require `ratios`. Time splits require ordered

@@ -10,23 +10,23 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from datapipeline.artifacts.variable_records import (
-    VARIABLE_RECORDS_MANIFEST_VERSION,
-    VariableShard,
-    VariableRecordsManifest,
-    variable_record_to_row,
-    write_variable_rows,
+from datapipeline.artifacts.series import (
+    SERIES_MANIFEST_VERSION,
+    SeriesManifest,
+    SeriesShard,
+    series_record_to_row,
+    write_series_rows,
 )
-from datapipeline.config.dataset.variable import VariableConfig
-from datapipeline.config.tasks import VariableRecordsTask
+from datapipeline.config.dataset.series import SeriesConfig
+from datapipeline.config.tasks import SeriesTask
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.variable.nodes import VariableSequencer
-from datapipeline.pipelines.variable.projector import VariableProjector
+from datapipeline.pipelines.series.nodes import SeriesSequencer
+from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
@@ -40,20 +40,20 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class _ShardPlan:
     ordinal: int
-    config: VariableConfig
+    config: SeriesConfig
     path: Path
 
 
 @dataclass(frozen=True)
-class _VariableRow:
+class _SeriesRow:
     ordinal: int
     order: tuple[Any, ...]
     payload: dict[str, Any]
 
 
-def materialize_variable_records(
+def materialize_series(
     runtime: Runtime,
-    task_cfg: VariableRecordsTask,
+    task_cfg: SeriesTask,
 ) -> ArtifactOutput:
     dataset = runtime.dataset
 
@@ -61,7 +61,7 @@ def materialize_variable_records(
     destination = resolve_artifact_output_path(relative_path, runtime.artifacts_root)
     cache_root = destination.parent / f"{destination.stem}.shards"
     if cache_root.is_symlink():
-        raise ValueError("Variable records shard directory must not be a symlink.")
+        raise ValueError("Series shard directory must not be a symlink.")
     generation = uuid4().hex
     staging_root = cache_root / f".staging-{generation}"
     generation_root = cache_root / generation
@@ -101,7 +101,7 @@ def materialize_variable_records(
         relative_generation_root = Path(cache_root.name) / generation
 
         feature_shards = tuple(
-            VariableShard(
+            SeriesShard(
                 id=plan.config.id,
                 path=str(
                     relative_generation_root / plan.path.relative_to(staging_root)
@@ -111,7 +111,7 @@ def materialize_variable_records(
             for plan in feature_plans
         )
         target_shards = tuple(
-            VariableShard(
+            SeriesShard(
                 id=plan.config.id,
                 path=str(
                     relative_generation_root / plan.path.relative_to(staging_root)
@@ -121,8 +121,8 @@ def materialize_variable_records(
             for plan in target_plans
         )
 
-        manifest = VariableRecordsManifest(
-            version=VARIABLE_RECORDS_MANIFEST_VERSION,
+        manifest = SeriesManifest(
+            version=SERIES_MANIFEST_VERSION,
             cadence=dataset.sample.cadence,
             sample_keys=tuple(dataset.sample.keys),
             sample_key_types=sample_key_contract.types,
@@ -165,7 +165,7 @@ def _remove_failed_generation(generation_root: Path) -> None:
         pass
     except OSError:
         logger.warning(
-            "Failed to remove incomplete variable-record generation %s",
+            "Failed to remove incomplete series generation %s",
             generation_root,
             exc_info=True,
         )
@@ -204,16 +204,16 @@ def _materialize_stream_group(
     stream_id = plans[0].config.stream
     stream = require_runtime_stream(context.runtime, stream_id)
     configs = tuple(plan.config for plan in plans)
-    projector = VariableProjector(stream.partition_by, sample_key_contract)
+    projector = SeriesProjector(stream.partition_by, sample_key_contract)
     sequencers = {
-        plan.ordinal: VariableSequencer(plan.config.sequence)
+        plan.ordinal: SeriesSequencer(plan.config.sequence)
         for plan in plans
         if plan.config.sequence is not None
     }
 
-    def project_variable_records(
+    def project_series(
         records: Iterator[Any],
-    ) -> Iterator[_VariableRow]:
+    ) -> Iterator[_SeriesRow]:
         for record in records:
             for plan, projected in zip(
                 plans,
@@ -233,24 +233,24 @@ def _materialize_stream_group(
                         )
                     else:
                         order = plan.ordinal, result.time, result.id
-                    yield _VariableRow(
+                    yield _SeriesRow(
                         ordinal=plan.ordinal,
                         order=order,
-                        payload=variable_record_to_row(result),
+                        payload=series_record_to_row(result),
                     )
 
     record_pipeline = build_stream_pipeline(context, stream_id)
     sort_progress = SortProgress()
     pipeline = Pipeline(
-        name=f"variable_records:{stream_id}",
+        name=f"series:{stream_id}",
         nodes=(
             *record_pipeline.nodes,
             PipelineNode(
-                name="project_variable_records",
-                apply=project_variable_records,
+                name="project_series",
+                apply=project_series,
             ),
             PipelineNode(
-                name="order_variable_records",
+                name="order_series",
                 apply=partial(
                     batch_sort,
                     buffer_bytes=context.runtime.execution.sort_buffer_bytes,
@@ -268,7 +268,7 @@ def _materialize_stream_group(
     try:
         for ordinal, rows in groupby(ordered, key=lambda row: row.ordinal):
             plan = plans_by_ordinal[ordinal]
-            row_counts[ordinal] = write_variable_rows(
+            row_counts[ordinal] = write_series_rows(
                 plan.path,
                 (row.payload for row in rows),
             )
@@ -277,7 +277,7 @@ def _materialize_stream_group(
 
     for plan in plans:
         if plan.ordinal not in row_counts:
-            row_counts[plan.ordinal] = write_variable_rows(plan.path, ())
+            row_counts[plan.ordinal] = write_series_rows(plan.path, ())
     return row_counts
 
 

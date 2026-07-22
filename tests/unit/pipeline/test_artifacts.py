@@ -11,7 +11,7 @@ from datapipeline.artifacts.planning import (
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
     VECTOR_STATS,
     ArtifactDefinition,
@@ -24,7 +24,7 @@ from datapipeline.artifacts.validation import (
 )
 from datapipeline.build.state import ArtifactFileFingerprint, BuildState
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.preview import PreviewStage
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
@@ -37,7 +37,7 @@ from datapipeline.config.tasks import (
     ScalerTask,
     StatsTask,
     TicksTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.services.definitions import ArtifactHashes
@@ -82,7 +82,7 @@ def test_artifact_keys_match_task_ids():
             MetadataTask(id="metadata"),
             ScalerTask(id="scaler"),
             StatsTask(id="stats", stage="assembled"),
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
         ]
     )
 
@@ -90,7 +90,7 @@ def test_artifact_keys_match_task_ids():
         VECTOR_METADATA,
         SCALER_STATISTICS,
         VECTOR_STATS,
-        VARIABLE_RECORDS,
+        SERIES,
     }
 
 
@@ -100,7 +100,7 @@ def test_stats_build_selects_metadata_dependency_chain(stage):
         [
             StatsTask(id="stats", stage=stage),
             MetadataTask(id="metadata"),
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
             ScalerTask(id="scaler"),
         ]
     )
@@ -110,7 +110,7 @@ def test_stats_build_selects_metadata_dependency_chain(stage):
     assert keys == {
         VECTOR_STATS,
         VECTOR_METADATA,
-        VARIABLE_RECORDS,
+        SERIES,
     }
 
 
@@ -129,7 +129,7 @@ def test_ticks_task_uses_task_id_as_artifact_key():
     assert graph.declared_artifact_keys() == {"dataset_ticks"}
 
 
-def test_tick_artifacts_feed_scaler_and_variable_records() -> None:
+def test_tick_artifacts_feed_scaler_and_series() -> None:
     tick_task = TicksTask(
         id="dataset_ticks",
         stream="reference.stream",
@@ -138,7 +138,7 @@ def test_tick_artifacts_feed_scaler_and_variable_records() -> None:
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="price",
                 stream="feature.stream",
                 field="close",
@@ -164,17 +164,17 @@ def test_tick_artifacts_feed_scaler_and_variable_records() -> None:
         [
             tick_task,
             ScalerTask(id="scaler"),
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
         ],
         dataset,
         streams,
     )
 
     assert graph.definition(SCALER_STATISTICS).dependencies == ("dataset_ticks",)
-    assert graph.definition(VARIABLE_RECORDS).dependencies == ("dataset_ticks",)
+    assert graph.definition(SERIES).dependencies == ("dataset_ticks",)
     assert graph.dependents_of({"dataset_ticks"}) == {
         SCALER_STATISTICS,
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
         VECTOR_STATS,
     }
@@ -597,7 +597,7 @@ def test_same_size_artifact_replacement_with_preserved_mtime_is_stale(tmp_path):
         ("input", set()),
         ("canonical", set()),
         ("records", set()),
-        ("variables", set()),
+        ("series", set()),
         ("samples", {VECTOR_METADATA}),
         ("postprocess", {VECTOR_METADATA}),
     ],
@@ -631,8 +631,8 @@ def test_plugin_task_cannot_claim_core_requirements_by_entrypoint(
     assert graph.runtime_requirements(task, preview=None) == {"declared"}
 
 
-@pytest.mark.parametrize("preview", ["input", "canonical", "records", "variables"])
-def test_record_and_variable_previews_require_declared_ticks(
+@pytest.mark.parametrize("preview", ["input", "canonical", "records", "series"])
+def test_record_and_series_previews_require_declared_ticks(
     preview: PreviewStage,
 ) -> None:
     tick_task = TicksTask(
@@ -647,7 +647,7 @@ def test_record_and_variable_previews_require_declared_ticks(
     )
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(id="price", stream="feature.stream", field="close")],
+        features=[SeriesConfig(id="price", stream="feature.stream", field="close")],
     )
     streams = StreamsConfig.model_validate(
         {
@@ -689,7 +689,7 @@ def test_invalid_pipeline_preview_is_rejected_for_empty_dataset() -> None:
 def test_runtime_dependency_closure_uses_stats_task_stage():
     graph = build_artifact_graph(
         [
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
             MetadataTask(id="metadata"),
             StatsTask(id="stats", stage="assembled"),
         ]
@@ -701,20 +701,20 @@ def test_runtime_dependency_closure_uses_stats_task_stage():
         task,
         preview=None,
         dataset=dataset,
-    ) == (VARIABLE_RECORDS, VECTOR_METADATA, VECTOR_STATS)
+    ) == (SERIES, VECTOR_METADATA, VECTOR_STATS)
 
 
 @pytest.mark.parametrize(
     ("stage", "expected"),
     [
-        ("assembled", (VARIABLE_RECORDS, VECTOR_METADATA)),
-        ("postprocessed", (VARIABLE_RECORDS, VECTOR_METADATA)),
+        ("assembled", (SERIES, VECTOR_METADATA)),
+        ("postprocessed", (SERIES, VECTOR_METADATA)),
     ],
 )
 def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
     graph = build_artifact_graph(
         [
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
             MetadataTask(id="metadata"),
         ]
     )
@@ -741,7 +741,7 @@ def test_dataset_scaler_requirement_matches_feature_config(scale, expected):
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -757,14 +757,14 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
     graph = build_artifact_graph(
         [
             ScalerTask(),
-            VariableRecordsTask(),
+            SeriesTask(),
             MetadataTask(),
         ]
     )
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -779,7 +779,7 @@ def test_scaled_dataset_runtime_requires_scaler_beside_vector_artifacts() -> Non
         dataset=dataset,
     ) == (
         SCALER_STATISTICS,
-        VARIABLE_RECORDS,
+        SERIES,
         VECTOR_METADATA,
     )
 
@@ -800,7 +800,7 @@ def test_empty_pipeline_dataset_has_no_runtime_artifact_requirements():
     assert (
         graph.runtime_dependency_closure(
             task,
-            preview="variables",
+            preview="series",
             dataset=dataset,
         )
         == ()
@@ -888,7 +888,7 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
         "stats": StatsTask(id="stats", stage="postprocessed"),
-        "variable_records": VariableRecordsTask(id="variable_records"),
+        "series": SeriesTask(id="series"),
     }
     for definition in ARTIFACT_DEFINITIONS:
         task = task_by_id[definition.key]

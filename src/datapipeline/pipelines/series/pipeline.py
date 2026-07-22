@@ -2,33 +2,33 @@ from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from functools import partial
 
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.domain.sample_key import SampleKeyContract
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.node import PipelineNode
 from datapipeline.execution.pipeline import Pipeline
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.pipelines.variable.nodes import (
-    order_variable_records,
-    project_variable_records,
-    sequence_variables,
+from datapipeline.pipelines.series.nodes import (
+    order_series,
+    project_series,
+    sequence_series,
 )
-from datapipeline.pipelines.variable.projector import VariableProjector
+from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.pipelines.sort import SortProgress
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import require_runtime_stream
 
 
-def run_variable_pipeline(
+def run_series_pipeline(
     context: PipelineContext,
-    cfg: VariableConfig,
+    cfg: SeriesConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
-) -> Iterator[VariableRecord | VariableSequence]:
+) -> Iterator[SeriesRecord | SeriesSequence]:
     return run_pipeline(
         context,
-        build_variable_pipeline(
+        build_series_pipeline(
             context,
             cfg,
             sample_keys=sample_keys,
@@ -37,9 +37,9 @@ def run_variable_pipeline(
     )
 
 
-def build_variable_pipeline(
+def build_series_pipeline(
     context: PipelineContext,
-    cfg: VariableConfig,
+    cfg: SeriesConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> Pipeline:
@@ -49,10 +49,10 @@ def build_variable_pipeline(
         for node in record_pipeline.nodes
     )
     return Pipeline(
-        name=f"variable:{cfg.id}",
+        name=f"series:{cfg.id}",
         nodes=(
             *record_nodes,
-            *build_variable_nodes(
+            *build_series_nodes(
                 context,
                 cfg,
                 sample_keys=sample_keys,
@@ -63,22 +63,22 @@ def build_variable_pipeline(
     )
 
 
-def build_variable_nodes(
+def build_series_nodes(
     context: PipelineContext,
-    config: VariableConfig,
+    config: SeriesConfig,
     sample_keys: Sequence[str] = (),
     group_by_cadence: str | None = None,
 ) -> tuple[PipelineNode, ...]:
     stream = require_runtime_stream(context.runtime, config.stream)
-    projector = VariableProjector(
+    projector = SeriesProjector(
         stream.partition_by,
         SampleKeyContract(sample_keys),
     )
     nodes = [
         PipelineNode(
-            name="project_variable_records",
+            name="project_series",
             apply=partial(
-                project_variable_records,
+                project_series,
                 projector,
                 config,
             ),
@@ -87,17 +87,17 @@ def build_variable_nodes(
     if config.sequence is not None:
         nodes.append(
             PipelineNode(
-                name="sequence_variables",
-                apply=partial(sequence_variables, config.sequence),
+                name="sequence_series",
+                apply=partial(sequence_series, config.sequence),
             )
         )
     if stream.partition_by or sample_keys:
         sort_progress = SortProgress()
         nodes.append(
             PipelineNode(
-                name="order_variable_records",
+                name="order_series",
                 apply=partial(
-                    order_variable_records,
+                    order_series,
                     context.runtime.execution.sort_buffer_bytes,
                     group_by_cadence,
                     sample_keys,

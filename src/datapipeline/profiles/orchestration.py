@@ -8,9 +8,9 @@ from datapipeline.artifacts.planning import (
     build_artifact_graph,
     required_tick_artifacts,
 )
-from datapipeline.artifacts.variable_records import prune_variable_record_cache
+from datapipeline.artifacts.series import prune_series_cache
 from datapipeline.cli.visuals.execution import route_execution_event
-from datapipeline.config.tasks import VariableRecordsTask
+from datapipeline.config.tasks import SeriesTask
 from datapipeline.execution.events import RunStatus
 from datapipeline.execution.observability import CommandFinished
 from datapipeline.io.runs import (
@@ -63,7 +63,7 @@ def run_profiles(request: ProfileRunRequest) -> None:
                 raise TypeError(
                     f"Unsupported profile request: {type(request).__name__}"
                 )
-            _prune_variable_record_caches(request)
+            _prune_series_caches(request)
     except (ArtifactResolutionError, ProjectExecutionBusyError) as exc:
         logger.error("%s", exc)
         raise SystemExit(2) from exc
@@ -80,11 +80,11 @@ def run_profiles(request: ProfileRunRequest) -> None:
         )
 
 
-def _prune_variable_record_caches(request: ProfileRunRequest) -> None:
+def _prune_series_caches(request: ProfileRunRequest) -> None:
     root = request.definition.project.artifacts_root
     for task in request.definition.artifact_operations:
-        if isinstance(task, VariableRecordsTask):
-            prune_variable_record_cache(root / task.output, root)
+        if isinstance(task, SeriesTask):
+            prune_series_cache(root / task.output, root)
 
 
 def _run_build_profiles(request: BuildRunRequest) -> None:

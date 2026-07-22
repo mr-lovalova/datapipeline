@@ -6,7 +6,7 @@ from datapipeline.artifacts.hydration import (
 )
 from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import (
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
 )
 from datapipeline.artifacts.validation import NestedTickDependency
@@ -16,13 +16,13 @@ from datapipeline.build.state import (
     save_build_state,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     TicksTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.runtime import Runtime
 from datapipeline.services.definitions import ArtifactHashes
@@ -44,7 +44,7 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     )
     graph = build_artifact_graph(
         [
-            VariableRecordsTask(id="variable_records"),
+            SeriesTask(id="series"),
             MetadataTask(id="metadata"),
             custom,
         ]
@@ -56,19 +56,19 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
     )
     state = BuildState()
     paths = {
-        VARIABLE_RECORDS: "build/variable-records.json",
+        SERIES: "build/series.json",
         VECTOR_METADATA: "build/missing-metadata.json",
         "custom_snapshot": "build/custom.json",
     }
     for relative_path in (
-        paths[VARIABLE_RECORDS],
+        paths[SERIES],
         paths["custom_snapshot"],
     ):
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("{}", encoding="utf-8")
 
-    for key in (VARIABLE_RECORDS, "custom_snapshot"):
+    for key in (SERIES, "custom_snapshot"):
         relative_path = paths[key]
         state.register(
             key,
@@ -94,7 +94,7 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
             ),
         ),
     )
-    state.artifacts[VARIABLE_RECORDS].artifact_hash = "old"
+    state.artifacts[SERIES].artifact_hash = "old"
 
     for key, relative_path in paths.items():
         runtime.artifacts.register(key, relative_path)
@@ -110,7 +110,7 @@ def test_hydration_replaces_registry_with_dependency_current_artifacts(
 
     assert hydrated == ("custom_snapshot",)
     assert runtime.artifacts.has("custom_snapshot")
-    assert not runtime.artifacts.has(VARIABLE_RECORDS)
+    assert not runtime.artifacts.has(SERIES)
     assert not runtime.artifacts.has(VECTOR_METADATA)
     assert not runtime.artifacts.has("orphan")
 
@@ -131,7 +131,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
     state = BuildState()
     paths = {
         "custom_snapshot": "build/custom.json",
-        VARIABLE_RECORDS: "build/variable-records.json",
+        SERIES: "build/series.json",
         VECTOR_METADATA: "build/metadata.json",
     }
     for key, relative_path in paths.items():
@@ -155,7 +155,7 @@ def test_hydration_skips_incomplete_unrelated_artifact_chain(tmp_path) -> None:
 
     assert hydrated == ("custom_snapshot",)
     assert runtime.artifacts.has("custom_snapshot")
-    assert not runtime.artifacts.has(VARIABLE_RECORDS)
+    assert not runtime.artifacts.has(SERIES)
     assert not runtime.artifacts.has(VECTOR_METADATA)
 
 
@@ -168,10 +168,10 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
         stream="derived",
         output="build/derived-ticks.jsonl",
     )
-    variable_records = VariableRecordsTask(id="variable_records")
+    series = SeriesTask(id="series")
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(id="price", stream="feature", field="close")],
+        features=[SeriesConfig(id="price", stream="feature", field="close")],
     )
     streams = StreamsConfig.model_validate(
         {
@@ -187,7 +187,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
             }
         }
     )
-    graph = build_artifact_graph([tick, variable_records], dataset, streams)
+    graph = build_artifact_graph([tick, series], dataset, streams)
     runtime = Runtime(
         project_yaml=tmp_path / "project.yaml",
         artifacts_root=tmp_path / "artifacts",
@@ -196,7 +196,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
     state = BuildState()
     for key, relative_path in (
         ("derived_ticks", tick.output),
-        (VARIABLE_RECORDS, variable_records.output),
+        (SERIES, series.output),
     ):
         destination = runtime.artifacts_root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -208,7 +208,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
             files=(ArtifactFileFingerprint.from_path(relative_path, destination),),
         )
     runtime.artifacts.register("derived_ticks", tick.output)
-    runtime.artifacts.register(VARIABLE_RECORDS, variable_records.output)
+    runtime.artifacts.register(SERIES, series.output)
     monkeypatch.setattr(
         "datapipeline.artifacts.hydration.load_build_state",
         lambda _state_path: state,
@@ -226,7 +226,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
     definition = SimpleNamespace(
         project=SimpleNamespace(artifacts_root=runtime.artifacts_root),
         artifact_operations=(),
-        artifact_hashes=_current_hashes("derived_ticks", VARIABLE_RECORDS),
+        artifact_hashes=_current_hashes("derived_ticks", SERIES),
         dataset=runtime.dataset,
         streams=streams,
     )
@@ -238,7 +238,7 @@ def test_project_hydration_excludes_nested_tick_and_dependents(
 
     assert hydrated == ()
     assert not runtime.artifacts.has("derived_ticks")
-    assert not runtime.artifacts.has(VARIABLE_RECORDS)
+    assert not runtime.artifacts.has(SERIES)
 
 
 def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:

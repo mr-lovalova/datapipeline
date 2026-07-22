@@ -7,9 +7,9 @@ from datapipeline.artifacts.registry import (
     SCALER_SPEC,
     VECTOR_METADATA_SPEC,
 )
-from datapipeline.artifacts.specs import VARIABLE_RECORDS
+from datapipeline.artifacts.specs import SERIES
 from datapipeline.services.runtime_compiler import compile_runtime
-from datapipeline.artifacts.variable_records import load_variable_records_manifest
+from datapipeline.artifacts.series import load_series_manifest
 from tests.helpers.regression import read_jsonl, serve_dataset
 
 
@@ -19,10 +19,10 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
 
     runtime = compile_runtime(request.definition)
     hydrated = hydrate_runtime_artifacts_for_pipeline(runtime, request.definition)
-    assert set(hydrated) >= {"variable_records", "scaler", "metadata"}
+    assert set(hydrated) >= {"series", "scaler", "metadata"}
 
-    manifest = load_variable_records_manifest(
-        runtime.artifacts.resolve_path(VARIABLE_RECORDS)
+    manifest = load_series_manifest(
+        runtime.artifacts.resolve_path(SERIES)
     )
     assert manifest.sample_keys == ("ticker",)
     assert manifest.sample_key_types == ("string",)

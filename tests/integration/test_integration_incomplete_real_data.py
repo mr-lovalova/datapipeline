@@ -3,19 +3,19 @@ import pytest
 from datapipeline.artifacts.hydration import hydrate_runtime_artifacts_for_pipeline
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
 )
 from datapipeline.config.tasks import (
     MetadataTask,
     ScalerTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.variable_records import (
-    materialize_variable_records,
+from datapipeline.operations.artifacts.series import (
+    materialize_series,
 )
 from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
 from datapipeline.services.pipeline import load_pipeline
@@ -38,15 +38,15 @@ def _vector_samples(project_yaml):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
-    variable_records_rel = materialize_variable_records(
+    series_rel = materialize_series(
         runtime,
-        VariableRecordsTask(
-            id="variable_records", output="variable_records/manifest.json"
+        SeriesTask(
+            id="series", output="series/manifest.json"
         ),
     )
     runtime.artifacts.register(
-        VARIABLE_RECORDS,
-        relative_path=variable_records_rel.relative_path,
+        SERIES,
+        relative_path=series_rel.relative_path,
     )
     metadata_rel = materialize_metadata(
         runtime,

@@ -235,7 +235,7 @@ def test_dataset_table_rejects_infinity(value: float) -> None:
         )
 
 
-def test_dataset_table_uses_float_columns_for_scaled_variables() -> None:
+def test_dataset_table_uses_float_columns_for_scaled_series() -> None:
     table = DatasetTable(
         (),
         (),

@@ -74,7 +74,7 @@ def test_dataset_rejects_zero_cadence() -> None:
 
 
 @pytest.mark.parametrize("field", ["features", "targets"])
-def test_dataset_rejects_null_variable_lists(field: str) -> None:
+def test_dataset_rejects_null_series_lists(field: str) -> None:
     with pytest.raises(ValidationError, match=field):
         DatasetConfig.model_validate({"sample": {"cadence": "1d"}, field: None})
 
@@ -86,35 +86,35 @@ def test_dataset_rejects_invalid_sample_keys(keys: list[str]) -> None:
 
 
 @pytest.mark.parametrize("duplicate_section", ["features", "targets"])
-def test_dataset_rejects_duplicate_variable_ids(
+def test_dataset_rejects_duplicate_series_ids(
     duplicate_section: str,
 ) -> None:
-    variable = {"id": "price", "stream": "prices", "field": "close"}
+    series = {"id": "price", "stream": "prices", "field": "close"}
     payload = {
         "sample": {"cadence": "1d"},
-        "features": [variable],
+        "features": [series],
         "targets": [],
     }
-    payload[duplicate_section] = [variable, variable]
+    payload[duplicate_section] = [series, series]
 
     with pytest.raises(ValidationError, match="must be unique"):
         DatasetConfig.model_validate(payload)
 
 
-def test_dataset_rejects_variable_id_shared_by_feature_and_target() -> None:
-    variable = {"id": "price", "stream": "prices", "field": "close"}
+def test_dataset_rejects_series_id_shared_by_feature_and_target() -> None:
+    series = {"id": "price", "stream": "prices", "field": "close"}
 
     with pytest.raises(ValidationError, match="must be unique"):
         DatasetConfig.model_validate(
             {
                 "sample": {"cadence": "1d"},
-                "features": [variable],
-                "targets": [variable],
+                "features": [series],
+                "targets": [series],
             }
         )
 
 
-def test_dataset_variables_preserve_feature_then_target_order() -> None:
+def test_dataset_series_preserves_feature_then_target_order() -> None:
     dataset = DatasetConfig.model_validate(
         {
             "sample": {"cadence": "1d"},
@@ -123,5 +123,5 @@ def test_dataset_variables_preserve_feature_then_target_order() -> None:
         }
     )
 
-    assert [variable.id for variable in dataset.variables] == ["price", "return"]
-    assert "variables" not in dataset.model_dump()
+    assert [series.id for series in dataset.series] == ["price", "return"]
+    assert "series" not in dataset.model_dump()

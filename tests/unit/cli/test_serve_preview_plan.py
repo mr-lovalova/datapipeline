@@ -25,7 +25,7 @@ def test_record_preview_plan_dedupes_shared_streams() -> None:
     ]
 
 
-def test_variable_preview_plan_keeps_each_variable() -> None:
+def test_series_preview_plan_keeps_each_series() -> None:
     preview_cfgs = [
         _cfg("closing_price", "equity.ohlcv"),
         _cfg("opening_price", "equity.ohlcv"),
@@ -33,7 +33,7 @@ def test_variable_preview_plan_keeps_each_variable() -> None:
 
     plan = _preview_plan(
         preview_cfgs,
-        "variables",
+        "series",
     )
 
     assert plan == [

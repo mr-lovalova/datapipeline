@@ -90,7 +90,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
-"core.artifact.variable_records" = "datapipeline.operations.artifacts.variable_records:materialize_variable_records"
+"core.artifact.series" = "datapipeline.operations.artifacts.series:materialize_series"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
@@ -108,7 +108,7 @@ only_mutate = [
   "src/datapipeline/domain/value.py",
   "src/datapipeline/operations/artifacts/utils.py",
   "src/datapipeline/pipelines/dataset/split.py",
-  "src/datapipeline/pipelines/variable/projector.py",
+  "src/datapipeline/pipelines/series/projector.py",
   "src/datapipeline/pipelines/sort.py",
   "src/datapipeline/pipelines/vector/keygen.py",
   "src/datapipeline/transforms/rolling_slope.py",

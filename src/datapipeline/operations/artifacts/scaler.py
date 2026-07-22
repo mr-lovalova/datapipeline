@@ -9,15 +9,15 @@ from datapipeline.artifacts.scaler import (
     save_scaler_artifact,
 )
 from datapipeline.artifacts.specs import dataset_requires_scaler
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.split import DatasetFold
 from datapipeline.config.tasks import ScalerTask
-from datapipeline.domain.variable import VariableRecord
+from datapipeline.domain.series import SeriesRecord
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.dataset.split import build_labeler
-from datapipeline.pipelines.variable.projector import VariableProjector
+from datapipeline.pipelines.series.projector import SeriesProjector
 from datapipeline.pipelines.stream.pipeline import run_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
 from datapipeline.transforms.vector.scaler import ScalerAccumulator
@@ -27,7 +27,7 @@ from datapipeline.utils.time import floor_time_to_cadence, parse_cadence
 @dataclass(frozen=True)
 class _ScalerInput:
     group_key: tuple
-    variables: tuple[VariableRecord, ...]
+    records: tuple[SeriesRecord, ...]
 
 
 def materialize_scaler_statistics(
@@ -38,12 +38,12 @@ def materialize_scaler_statistics(
     if not dataset_requires_scaler(dataset):
         return None
 
-    configs = tuple(config for config in dataset.variables if config.scale)
+    configs = tuple(config for config in dataset.series if config.scale)
     if dataset.split is None:
         standard = _fit_standard_scaler(runtime, configs, task_cfg)
         artifact: StandardScalerArtifact | FoldedScalerArtifact = standard
         meta = {
-            "variables": len(standard.statistics),
+            "series": len(standard.statistics),
             "observations": standard.observations,
         }
     else:
@@ -68,7 +68,7 @@ def materialize_scaler_statistics(
 
 def _fit_standard_scaler(
     runtime: Runtime,
-    configs: Sequence[VariableConfig],
+    configs: Sequence[SeriesConfig],
     task: ScalerTask,
 ) -> StandardScalerArtifact:
     accumulator = _new_accumulator(task)
@@ -76,9 +76,9 @@ def _fit_standard_scaler(
     inputs = _iter_scaler_inputs(runtime, configs)
     try:
         for item in inputs:
-            for variable in item.variables:
-                expected_ids.add(variable.id)
-                accumulator.observe(variable.id, variable.value)
+            for record in item.records:
+                expected_ids.add(record.id)
+                accumulator.observe(record.id, record.value)
     finally:
         _close_iterator(inputs)
     return _finish_scaler(accumulator, expected_ids, "dataset")
@@ -86,7 +86,7 @@ def _fit_standard_scaler(
 
 def _fit_folded_scaler(
     runtime: Runtime,
-    configs: Sequence[VariableConfig],
+    configs: Sequence[SeriesConfig],
     folds: Sequence[DatasetFold],
     task: ScalerTask,
 ) -> FoldedScalerArtifact:
@@ -109,11 +109,11 @@ def _fit_folded_scaler(
         for item in inputs:
             label = labeler.label(item.group_key)
             for fold_id in output_folds_by_label.get(label, ()):
-                expected_ids[fold_id].update(variable.id for variable in item.variables)
+                expected_ids[fold_id].update(record.id for record in item.records)
             for fold_id in train_folds_by_label.get(label, ()):
                 accumulator = accumulators[fold_id]
-                for variable in item.variables:
-                    accumulator.observe(variable.id, variable.value)
+                for record in item.records:
+                    accumulator.observe(record.id, record.value)
     finally:
         _close_iterator(inputs)
 
@@ -152,31 +152,31 @@ def _new_accumulator(task: ScalerTask) -> ScalerAccumulator:
 
 def _iter_scaler_inputs(
     runtime: Runtime,
-    configs: Sequence[VariableConfig],
+    configs: Sequence[SeriesConfig],
 ) -> Iterator[_ScalerInput]:
     context = PipelineContext(runtime)
     cadence_step = parse_cadence(runtime.dataset.sample.cadence)
     sample_key_contract = SampleKeyContract(runtime.dataset.sample.keys)
-    configs_by_stream: dict[str, list[VariableConfig]] = defaultdict(list)
+    configs_by_stream: dict[str, list[SeriesConfig]] = defaultdict(list)
     for config in configs:
         configs_by_stream[config.stream].append(config)
 
     for stream_id, stream_configs in configs_by_stream.items():
         runtime_stream = require_runtime_stream(runtime, stream_id)
-        projector = VariableProjector(
+        projector = SeriesProjector(
             runtime_stream.partition_by,
             sample_key_contract,
         )
         records = run_stream_pipeline(context, stream_id)
         try:
             for record in records:
-                variables = tuple(projector.project(record, stream_configs))
+                series_records = tuple(projector.project(record, stream_configs))
                 yield _ScalerInput(
                     group_key=(
                         floor_time_to_cadence(record.time, cadence_step),
-                        *variables[0].entity_key,
+                        *series_records[0].entity_key,
                     ),
-                    variables=variables,
+                    records=series_records,
                 )
         finally:
             _close_iterator(records)

@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datapipeline.config.dataset.variable import VariableConfig
-from datapipeline.domain.variable_id import base_id, variable_id_components
+from datapipeline.config.dataset.series import SeriesConfig
+from datapipeline.domain.series_id import base_id, series_id_components
 from datapipeline.domain.sample_key import SampleKeyContract
-from datapipeline.pipelines.variable import projector as projector_module
-from datapipeline.pipelines.variable.projector import VariableProjector
+from datapipeline.pipelines.series import projector as projector_module
+from datapipeline.pipelines.series.projector import SeriesProjector
 
 
 @dataclass
@@ -23,57 +23,57 @@ def _projected_id(
     partition_by: tuple[str, ...],
     sample_keys: tuple[str, ...] = (),
 ) -> str:
-    projector = VariableProjector(partition_by, SampleKeyContract(sample_keys))
-    config = VariableConfig(stream="stream", id="temp", field="sensor")
+    projector = SeriesProjector(partition_by, SampleKeyContract(sample_keys))
+    config = SeriesConfig(stream="stream", id="temp", field="sensor")
     return next(projector.project(record, (config,))).id
 
 
-def test_variable_projector_without_id_components() -> None:
+def test_series_projector_without_id_components() -> None:
     assert _projected_id(_Record(), ()) == "temp"
 
 
-def test_variable_projector_projects_long_identity_as_entity_key() -> None:
-    projector = VariableProjector(
+def test_series_projector_projects_long_identity_as_entity_key() -> None:
+    projector = SeriesProjector(
         ("station_id",),
         SampleKeyContract(("station_id",)),
     )
     configs = (
-        VariableConfig(stream="stream", id="station", field="station_id"),
-        VariableConfig(stream="stream", id="sensor", field="sensor"),
+        SeriesConfig(stream="stream", id="station", field="station_id"),
+        SeriesConfig(stream="stream", id="sensor", field="sensor"),
     )
 
-    variables = tuple(projector.project(_Record("north", 7), configs))
+    records = tuple(projector.project(_Record("north", 7), configs))
 
-    assert [(variable.id, variable.value) for variable in variables] == [
+    assert [(record.id, record.value) for record in records] == [
         ("station", "north"),
         ("sensor", 7),
     ]
-    assert [variable.entity_key for variable in variables] == [("north",), ("north",)]
+    assert [record.entity_key for record in records] == [("north",), ("north",)]
 
 
-def test_variable_projector_normalizes_nested_nan_without_mutating_record() -> None:
-    record = _Record(sensor={"values": [1.0, float("nan")]})
-    projector = VariableProjector((), SampleKeyContract(()))
-    config = VariableConfig(stream="stream", id="sensor", field="sensor")
+def test_series_projector_normalizes_nested_nan_without_mutating_record() -> None:
+    source_record = _Record(sensor={"values": [1.0, float("nan")]})
+    projector = SeriesProjector((), SampleKeyContract(()))
+    config = SeriesConfig(stream="stream", id="sensor", field="sensor")
 
-    [variable] = projector.project(record, (config,))
+    [projected] = projector.project(source_record, (config,))
 
-    assert variable.value == {"values": [1.0, None]}
-    assert isinstance(record.sensor, dict)
-    assert math.isnan(record.sensor["values"][1])
+    assert projected.value == {"values": [1.0, None]}
+    assert isinstance(source_record.sensor, dict)
+    assert math.isnan(source_record.sensor["values"][1])
 
 
 @pytest.mark.parametrize("value", [float("inf"), float("-inf")])
-def test_variable_projector_rejects_nested_infinity(value: float) -> None:
+def test_series_projector_rejects_nested_infinity(value: float) -> None:
     record = _Record(sensor={"values": [1.0, value]})
-    projector = VariableProjector((), SampleKeyContract(()))
-    config = VariableConfig(stream="stream", id="sensor", field="sensor")
+    projector = SeriesProjector((), SampleKeyContract(()))
+    config = SeriesConfig(stream="stream", id="sensor", field="sensor")
 
     with pytest.raises(ValueError, match="must not contain infinity"):
         next(projector.project(record, (config,)))
 
 
-def test_variable_projector_derives_wide_variable_identity() -> None:
+def test_series_projector_derives_wide_series_identity() -> None:
     identifier = _projected_id(
         _Record(station_id="north"),
         ("station_id",),
@@ -82,7 +82,7 @@ def test_variable_projector_derives_wide_variable_identity() -> None:
     assert identifier == "temp__@station_id:north"
 
 
-def test_variable_projector_derives_hybrid_variable_identity() -> None:
+def test_series_projector_derives_hybrid_series_identity() -> None:
     identifier = _projected_id(
         _Record(station_id="north", sensor="temperature"),
         ("station_id", "sensor"),
@@ -92,31 +92,31 @@ def test_variable_projector_derives_hybrid_variable_identity() -> None:
     assert identifier == "temp__@sensor:temperature"
 
 
-def test_variable_projector_encodes_id_components_once_per_record(monkeypatch) -> None:
+def test_series_projector_encodes_id_components_once_per_record(monkeypatch) -> None:
     encoded_fields: list[str] = []
-    encode = projector_module.encode_variable_id_component
+    encode = projector_module.encode_series_id_component
 
     def count_encode(field: str, value: object) -> str:
         encoded_fields.append(field)
         return encode(field, value)
 
-    monkeypatch.setattr(projector_module, "encode_variable_id_component", count_encode)
-    projector = VariableProjector(
+    monkeypatch.setattr(projector_module, "encode_series_id_component", count_encode)
+    projector = SeriesProjector(
         ("station_id", "sensor"),
         SampleKeyContract(()),
     )
     configs = (
-        VariableConfig(stream="stream", id="temperature", field="sensor"),
-        VariableConfig(stream="stream", id="humidity", field="sensor"),
+        SeriesConfig(stream="stream", id="temperature", field="sensor"),
+        SeriesConfig(stream="stream", id="humidity", field="sensor"),
     )
 
-    variables = tuple(projector.project(_Record("north", 7), configs))
+    records = tuple(projector.project(_Record("north", 7), configs))
 
-    assert len(variables) == 2
+    assert len(records) == 2
     assert encoded_fields == ["station_id", "sensor"]
 
 
-def test_variable_projector_tags_non_string_scalar_types() -> None:
+def test_series_projector_tags_non_string_scalar_types() -> None:
     assert _projected_id(_Record(station_id=123), ("station_id",)) == (
         "temp__@station_id:!i:123"
     )
@@ -128,7 +128,7 @@ def test_variable_projector_tags_non_string_scalar_types() -> None:
     )
 
 
-def test_variable_projector_distinguishes_null_empty_and_scalar_types() -> None:
+def test_series_projector_distinguishes_null_empty_and_scalar_types() -> None:
     identifiers = {
         _projected_id(_Record(station_id=None), ("station_id",)),
         _projected_id(_Record(station_id=""), ("station_id",)),
@@ -141,7 +141,7 @@ def test_variable_projector_distinguishes_null_empty_and_scalar_types() -> None:
     assert len(identifiers) == 6
 
 
-def test_variable_projector_escapes_component_delimiters() -> None:
+def test_series_projector_escapes_component_delimiters() -> None:
     identifier = _projected_id(
         _Record(station_id="north__west|@sensor:x", sensor="A:B/100%"),
         ("station_id", "sensor"),
@@ -151,7 +151,7 @@ def test_variable_projector_escapes_component_delimiters() -> None:
         "temp__@station_id:north__west%7C%40sensor%3Ax|@sensor:A%3AB%2F100%25"
     )
     assert base_id(identifier) == "temp"
-    assert variable_id_components(identifier) == (
+    assert series_id_components(identifier) == (
         ("station_id", "north__west|@sensor:x"),
         ("sensor", "A:B/100%"),
     )
@@ -170,11 +170,11 @@ def test_distinct_component_tuples_cannot_generate_the_same_id() -> None:
     assert first != second
 
 
-def test_variable_projector_rejects_unsupported_component_types() -> None:
+def test_series_projector_rejects_unsupported_component_types() -> None:
     with pytest.raises(TypeError, match="string, integer, float, boolean, or null"):
         _projected_id(_Record(station_id=object()), ("station_id",))
 
 
-def test_variable_projector_rejects_non_finite_components() -> None:
+def test_series_projector_rejects_non_finite_components() -> None:
     with pytest.raises(ValueError, match="finite float"):
         _projected_id(_Record(station_id=float("nan")), ("station_id",))

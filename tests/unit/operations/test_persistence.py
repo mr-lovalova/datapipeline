@@ -204,7 +204,7 @@ def test_persist_artifact_output_validates_companion_files(tmp_path) -> None:
             relative_path="manifest.json",
             companion_paths=("manifest.shards/000000.jsonl.gz",),
         ),
-        artifact_key="variable_records",
+        artifact_key="series",
         expected_relative_path="manifest.json",
         runtime=runtime,
     )
@@ -229,7 +229,7 @@ def test_persist_artifact_output_rejects_escaping_companion(tmp_path) -> None:
                 relative_path="manifest.json",
                 companion_paths=("../outside.jsonl.gz",),
             ),
-            artifact_key="variable_records",
+            artifact_key="series",
             expected_relative_path="manifest.json",
             runtime=runtime,
         )
@@ -245,7 +245,7 @@ def test_persist_artifact_output_rejects_case_colliding_companion(tmp_path) -> N
                 relative_path="manifest.json",
                 companion_paths=("MANIFEST.json",),
             ),
-            artifact_key="variable_records",
+            artifact_key="series",
             expected_relative_path="manifest.json",
             runtime=runtime,
         )

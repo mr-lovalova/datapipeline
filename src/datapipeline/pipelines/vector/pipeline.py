@@ -6,20 +6,20 @@ from functools import partial
 from itertools import tee
 from pathlib import Path
 
-from datapipeline.artifacts.variable_records import (
-    VariableShard,
-    VariableRecordsManifest,
-    load_variable_records_manifest,
-    open_variable_records,
+from datapipeline.artifacts.series import (
+    SeriesShard,
+    SeriesManifest,
+    load_series_manifest,
+    open_series,
 )
 from datapipeline.artifacts.models import SampleDomainEntry
 from datapipeline.artifacts.registry import (
     VECTOR_METADATA_SPEC,
     ArtifactNotRegisteredError,
 )
-from datapipeline.artifacts.specs import VARIABLE_RECORDS
-from datapipeline.config.dataset.variable import VariableConfig
-from datapipeline.domain.variable import VariableRecord, VariableSequence
+from datapipeline.artifacts.specs import SERIES
+from datapipeline.config.dataset.series import SeriesConfig
+from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.execution.context import PipelineContext
@@ -41,9 +41,9 @@ from datapipeline.utils.time import parse_cadence
 
 def build_vector_pipeline(
     context: PipelineContext,
-    feature_configs: Sequence[VariableConfig],
+    feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
-    target_configs: Sequence[VariableConfig] | None = None,
+    target_configs: Sequence[SeriesConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Iterator[Sample]:
@@ -53,7 +53,7 @@ def build_vector_pipeline(
     if not feature_cfgs and not target_cfgs:
         return iter(())
 
-    manifest_path, manifest, sample_key_contract = _require_variable_records(
+    manifest_path, manifest, sample_key_contract = _require_series(
         context, group_by_cadence, sample_key_fields
     )
     cadence = parse_cadence(group_by_cadence)
@@ -75,9 +75,9 @@ def build_vector_pipeline(
 
 def build_vector_source_node(
     context: PipelineContext,
-    feature_configs: Sequence[VariableConfig],
+    feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
-    target_configs: Sequence[VariableConfig] | None = None,
+    target_configs: Sequence[SeriesConfig] | None = None,
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> SourceNode:
@@ -114,16 +114,16 @@ def build_vector_source_node(
 
 def _open_vector_samples(
     context: PipelineContext,
-    feature_configs: Sequence[VariableConfig],
+    feature_configs: Sequence[SeriesConfig],
     group_by_cadence: str,
-    target_configs: Sequence[VariableConfig],
+    target_configs: Sequence[SeriesConfig],
     sample_keys: Sequence[str],
     key_plan: RectangularKeyPlan | None,
 ) -> Iterator[Sample]:
     if not feature_configs and not target_configs:
         return iter(())
 
-    manifest_path, manifest, sample_key_contract = _require_variable_records(
+    manifest_path, manifest, sample_key_contract = _require_series(
         context, group_by_cadence, sample_keys
     )
     return _assemble_vector_samples(
@@ -137,29 +137,29 @@ def _open_vector_samples(
     )
 
 
-def _require_variable_records(
+def _require_series(
     context: PipelineContext,
     group_by_cadence: str,
     sample_keys: Sequence[str],
-) -> tuple[Path, VariableRecordsManifest, SampleKeyContract]:
-    artifact = context.runtime.artifacts.optional(VARIABLE_RECORDS)
+) -> tuple[Path, SeriesManifest, SampleKeyContract]:
+    artifact = context.runtime.artifacts.optional(SERIES)
     if artifact is None:
         raise RuntimeError(
-            "Variable records artifact is required before vector assembly. "
-            "Run `jerry build --profile variable_records` or use "
+            "Series artifact is required before vector assembly. "
+            "Run `jerry build --profile series` or use "
             "`--artifact-mode AUTO|FORCE`."
         )
 
     manifest_path = artifact.resolve(context.runtime.artifacts.root)
-    manifest = load_variable_records_manifest(manifest_path)
+    manifest = load_series_manifest(manifest_path)
     if manifest.cadence != group_by_cadence:
         raise RuntimeError(
-            "Variable records artifact cadence does not match requested pipeline cadence: "
+            "Series artifact cadence does not match requested pipeline cadence: "
             f"{manifest.cadence!r} != {group_by_cadence!r}."
         )
     if manifest.sample_keys != tuple(sample_keys):
         raise RuntimeError(
-            "Variable records artifact sample keys do not match requested pipeline sample keys."
+            "Series artifact sample keys do not match requested pipeline sample keys."
         )
     sample_key_contract = SampleKeyContract(
         sample_keys,
@@ -170,9 +170,9 @@ def _require_variable_records(
 
 def _assemble_vector_samples(
     manifest_path: Path,
-    manifest: VariableRecordsManifest,
-    feature_configs: Sequence[VariableConfig],
-    target_configs: Sequence[VariableConfig],
+    manifest: SeriesManifest,
+    feature_configs: Sequence[SeriesConfig],
+    target_configs: Sequence[SeriesConfig],
     cadence: timedelta,
     sample_key_contract: SampleKeyContract,
     key_plan: RectangularKeyPlan | None,
@@ -213,10 +213,10 @@ def _assemble_vector_samples(
 
 
 def _shards_for_configs(
-    feature_shards: Sequence[VariableShard],
-    target_shards: Sequence[VariableShard],
-    configs: Sequence[VariableConfig],
-) -> Sequence[VariableShard]:
+    feature_shards: Sequence[SeriesShard],
+    target_shards: Sequence[SeriesShard],
+    configs: Sequence[SeriesConfig],
+) -> Sequence[SeriesShard]:
     requested = {cfg.id for cfg in configs}
     feature_ids = {shard.id for shard in feature_shards}
     if requested <= feature_ids:
@@ -226,7 +226,7 @@ def _shards_for_configs(
         return target_shards
     missing = sorted(requested - feature_ids - target_ids)
     raise RuntimeError(
-        "Variable records artifact does not contain configured variable ids: "
+        "Series artifact does not contain configured series ids: "
         + ", ".join(missing)
     )
 
@@ -234,32 +234,32 @@ def _shards_for_configs(
 def _merged_keyed_records(
     *,
     manifest_path: Path,
-    shards: Sequence[VariableShard],
-    configs: Sequence[VariableConfig],
+    shards: Sequence[SeriesShard],
+    configs: Sequence[SeriesConfig],
     group_by_cadence: timedelta,
     sample_key_contract: SampleKeyContract,
-) -> Iterator[tuple[tuple, VariableRecord | VariableSequence]]:
+) -> Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]:
     root = manifest_path.parent
     shards_by_id = {shard.id: shard for shard in shards}
 
     def keyed_stream(
-        stream: Iterator[VariableRecord | VariableSequence],
-    ) -> Iterator[tuple[tuple, VariableRecord | VariableSequence]]:
+        stream: Iterator[SeriesRecord | SeriesSequence],
+    ) -> Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]:
         for record in stream:
             sample_key_contract.validate(record.entity_key)
             yield group_key_for(record, group_by_cadence), record
 
     with ExitStack() as opened:
         opened_streams: list[
-            Iterator[tuple[tuple, VariableRecord | VariableSequence]]
+            Iterator[tuple[tuple, SeriesRecord | SeriesSequence]]
         ] = []
         for cfg in configs:
             shard = shards_by_id.get(cfg.id)
             if shard is None:
                 raise RuntimeError(
-                    f"Variable records artifact does not contain variable '{cfg.id}'."
+                    f"Series artifact does not contain series '{cfg.id}'."
                 )
-            opened_stream = open_variable_records(
+            opened_stream = open_series(
                 root / shard.path,
                 expected_rows=shard.rows,
             )

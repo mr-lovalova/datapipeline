@@ -269,7 +269,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
         },
     }
 
-    manifest = _read_json(build_root / "variable_records" / "manifest.json")
+    manifest = _read_json(build_root / "series" / "manifest.json")
     assert isinstance(manifest, dict)
     assert {
         "cadence": manifest["cadence"],
@@ -286,7 +286,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
         "cadence": "1h",
         "format": "jsonl.gz",
         "sample_keys": [],
-        "version": 6,
+        "version": 7,
         "features": [
             {"id": "linear_scaled", "rows": 6},
             {"id": "sine_window", "rows": 5},

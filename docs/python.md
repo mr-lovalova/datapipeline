@@ -11,7 +11,7 @@ application code:
   feature_vector)` pairs from already-current artifacts. Unlike `jerry serve`,
   it does not prepare stale artifacts or persist output. Split outputs use
   their fold's fitted scaler; unsplit datasets use the standard scaler when
-  scaling is configured. The stored variable-record artifacts remain unscaled.
+  scaling is configured. The stored series artifacts remain unscaled.
 - `iter_vector_rows` / `collect_vector_rows` – handy for Pandas or custom sinks.
 - `dataframe_from_vectors` – eager helper that returns a Pandas DataFrame
   (requires `pandas`).

@@ -7,7 +7,7 @@ from types import MappingProxyType
 from datapipeline.artifacts.specs import (
     ARTIFACT_DEFINITIONS,
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
     VECTOR_STATS,
     ArtifactDefinition,
@@ -116,9 +116,9 @@ class ArtifactGraph:
         built_in_keys = {definition.key for definition in definitions}
         if dataset is not None and streams is not None:
             scaler_streams = {
-                config.stream for config in dataset.variables if config.scale
+                config.stream for config in dataset.series if config.scale
             }
-            input_streams = {config.stream for config in dataset.variables}
+            input_streams = {config.stream for config in dataset.series}
             scaler_ticks = required_tick_artifacts(
                 scaler_streams,
                 streams,
@@ -135,10 +135,10 @@ class ArtifactGraph:
                     dependencies=(
                         *definition.dependencies,
                         *(scaler_ticks if definition.key == SCALER_STATISTICS else ()),
-                        *(input_ticks if definition.key == VARIABLE_RECORDS else ()),
+                        *(input_ticks if definition.key == SERIES else ()),
                     ),
                 )
-                if definition.key in {SCALER_STATISTICS, VARIABLE_RECORDS}
+                if definition.key in {SCALER_STATISTICS, SERIES}
                 else definition
                 for definition in definitions
             ]
@@ -188,7 +188,7 @@ class ArtifactGraph:
         declared = set(task.requires)
         dataset_tick_artifacts = {
             dependency
-            for dependency in self.definition(VARIABLE_RECORDS).dependencies
+            for dependency in self.definition(SERIES).dependencies
             if isinstance(self.tasks_by_id.get(dependency), TicksTask)
         }
         if isinstance(task, PipelineTask):
@@ -197,7 +197,7 @@ class ArtifactGraph:
             if preview not in PREVIEW_STAGES:
                 expected = ", ".join(PREVIEW_STAGES)
                 raise ValueError(f"preview must be one of: {expected}")
-            if preview in {"input", "canonical", "records", "variables"}:
+            if preview in {"input", "canonical", "records", "series"}:
                 return declared | dataset_tick_artifacts
             return declared | {VECTOR_METADATA}
         if isinstance(task, CoverageTask):

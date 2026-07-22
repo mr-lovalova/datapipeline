@@ -1,7 +1,7 @@
 import pytest
 
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig, SequenceConfig
+from datapipeline.config.dataset.series import SeriesConfig, SequenceConfig
 from datapipeline.config.dataset.split import DatasetFold, HashSplitConfig
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
 from datapipeline.services.dataset import validate_dataset_streams
@@ -24,7 +24,7 @@ def _dataset(
     stream: str = "prices",
     sequence: SequenceConfig | None = None,
 ) -> DatasetConfig:
-    feature = VariableConfig(
+    feature = SeriesConfig(
         stream=stream,
         id="close",
         field="close",
@@ -87,7 +87,7 @@ def test_dataset_accepts_hybrid_sequence_identity() -> None:
 
 
 def test_dataset_rejects_sequences_with_hash_split() -> None:
-    feature = VariableConfig(
+    feature = SeriesConfig(
         stream="prices",
         id="close",
         field="close",

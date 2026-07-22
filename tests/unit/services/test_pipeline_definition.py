@@ -7,18 +7,18 @@ from datapipeline.artifacts import fingerprints
 from datapipeline.artifacts.fingerprints import calculate_artifact_hashes
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
-    VARIABLE_RECORDS,
+    SERIES,
     VECTOR_METADATA,
 )
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
-from datapipeline.config.dataset.variable import VariableConfig
+from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.dataset.split import DatasetFold, TimeInterval, TimeSplitConfig
 from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.services import config_inventory
 from datapipeline.services.pipeline import load_pipeline
@@ -89,7 +89,7 @@ def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
         datetime(2021, 1, 1, tzinfo=timezone.utc),
     )
     first.dataset.features.append(
-        VariableConfig(id="local", stream="local", field="value")
+        SeriesConfig(id="local", stream="local", field="value")
     )
 
     assert first is not second
@@ -418,7 +418,7 @@ def test_custom_artifact_change_does_not_change_core_artifact_hashes(
     )
 
     assert first.for_artifact("snapshot") != second.for_artifact("snapshot")
-    for key in (VARIABLE_RECORDS, VECTOR_METADATA):
+    for key in (SERIES, VECTOR_METADATA):
         assert first.for_artifact(key) == second.for_artifact(key)
 
 
@@ -427,7 +427,7 @@ def test_artifact_hashing_rejects_missing_metadata_dependencies(tmp_path: Path) 
 
     with pytest.raises(
         ValueError,
-        match="Required artifact operation 'variable_records' is not declared",
+        match="Required artifact operation 'series' is not declared",
     ):
         calculate_artifact_hashes(
             definition.project,
@@ -453,7 +453,7 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
-            VariableConfig(
+            SeriesConfig(
                 id="price",
                 stream="prices",
                 field="close",
@@ -470,19 +470,19 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
             definition.project,
             dataset,
             definition.streams,
-            (VariableRecordsTask(),),
+            (SeriesTask(),),
         )
 
 
-def test_scaling_policy_does_not_invalidate_unscaled_variable_records(
+def test_scaling_policy_does_not_invalidate_unscaled_series(
     tmp_path: Path,
 ) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     streams = _single_stream_catalog()
-    operations = (ScalerTask(), VariableRecordsTask())
+    operations = (ScalerTask(), SeriesTask())
     unscaled = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(id="price", stream="prices", field="close")],
+        features=[SeriesConfig(id="price", stream="prices", field="close")],
     )
     scaled = unscaled.model_copy(
         update={"features": [unscaled.features[0].model_copy(update={"scale": True})]}
@@ -501,8 +501,8 @@ def test_scaling_policy_does_not_invalidate_unscaled_variable_records(
         operations,
     )
 
-    assert scaled_hashes.for_artifact(VARIABLE_RECORDS) == (
-        unscaled_hashes.for_artifact(VARIABLE_RECORDS)
+    assert scaled_hashes.for_artifact(SERIES) == (
+        unscaled_hashes.for_artifact(SERIES)
     )
     assert scaled_hashes.for_artifact(SCALER_STATISTICS) != (
         unscaled_hashes.for_artifact(SCALER_STATISTICS)
@@ -512,7 +512,7 @@ def test_scaling_policy_does_not_invalidate_unscaled_variable_records(
 def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
     streams = _single_stream_catalog()
-    feature = VariableConfig(
+    feature = SeriesConfig(
         id="price",
         stream="prices",
         field="close",
@@ -634,7 +634,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
     unused.write_text("{}\n", encoding="utf-8")
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
-        features=[VariableConfig(id="price", stream="used", field="close")],
+        features=[SeriesConfig(id="price", stream="used", field="close")],
     )
     streams = StreamsConfig.model_validate(
         {
@@ -674,8 +674,8 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    assert after_unused_change.for_artifact(VARIABLE_RECORDS) == baseline.for_artifact(
-        VARIABLE_RECORDS
+    assert after_unused_change.for_artifact(SERIES) == baseline.for_artifact(
+        SERIES
     )
 
     used.write_text("used changed\n", encoding="utf-8")
@@ -685,7 +685,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    for key in (VARIABLE_RECORDS, VECTOR_METADATA):
+    for key in (SERIES, VECTOR_METADATA):
         assert after_used_change.for_artifact(key) != baseline.for_artifact(key)
 
 
@@ -788,7 +788,7 @@ def test_metadata_format_version_invalidates_only_metadata_and_dependents(
     monkeypatch,
 ) -> None:
     definition = load_pipeline(_write_pipeline(tmp_path))
-    tasks = (VariableRecordsTask(), MetadataTask())
+    tasks = (SeriesTask(), MetadataTask())
     current = calculate_artifact_hashes(
         definition.project,
         definition.dataset,
@@ -808,8 +808,8 @@ def test_metadata_format_version_invalidates_only_metadata_and_dependents(
         tasks,
     )
 
-    assert changed.for_artifact(VARIABLE_RECORDS) == current.for_artifact(
-        VARIABLE_RECORDS
+    assert changed.for_artifact(SERIES) == current.for_artifact(
+        SERIES
     )
     assert changed.for_artifact(VECTOR_METADATA) != current.for_artifact(
         VECTOR_METADATA

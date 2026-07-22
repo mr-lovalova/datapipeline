@@ -11,7 +11,7 @@ from datapipeline.config.tasks import (
     StatsTask,
     Task,
     TicksTask,
-    VariableRecordsTask,
+    SeriesTask,
 )
 from datapipeline.services.config_inventory import pipeline_yaml_files
 from datapipeline.services.config_refs import (
@@ -23,7 +23,7 @@ from datapipeline.utils.load import YamlDocument, read_yaml_document
 
 CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "scaler": ScalerTask,
-    "variable_records": VariableRecordsTask,
+    "series": SeriesTask,
     "metadata": MetadataTask,
     "stats": StatsTask,
     "dataset": PipelineTask,
@@ -37,7 +37,7 @@ CORE_RUNTIME_MODELS: dict[str, type[OperationTask[Any]]] = {
 }
 CORE_ARTIFACT_IDS_BY_ENTRYPOINT = {
     "core.artifact.scaler": "scaler",
-    "core.artifact.variable_records": "variable_records",
+    "core.artifact.series": "series",
     "core.artifact.metadata": "metadata",
     "core.artifact.stats": "stats",
 }

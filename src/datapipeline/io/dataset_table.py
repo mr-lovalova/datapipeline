@@ -9,7 +9,7 @@ from datapipeline.artifacts.models import (
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.sample_key import SampleKeyValueType
 from datapipeline.domain.value import normalize_data_value
-from datapipeline.domain.variable_id import base_id
+from datapipeline.domain.series_id import base_id
 
 
 TableValueType = Literal[
