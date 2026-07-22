@@ -19,7 +19,7 @@ def add_source_command(sub, common: argparse.ArgumentParser) -> None:
             "  jerry source create <provider>.<dataset> -t fs -f csv\n"
             "  jerry source create <provider>.<dataset> -t http -f json\n"
             "  jerry source create <provider>.<dataset> -t synthetic\n\n"
-            "  jerry source create <provider> <dataset> --loader mypkg.loaders.demo:Loader\n"
+            "  jerry source create <provider> <dataset> --loader mypkg.weather\n"
             "  jerry source create <provider> <dataset> --parser myparser\n\n"
             "Examples:\n"
             "  fs CSV:        -t fs  -f csv\n"

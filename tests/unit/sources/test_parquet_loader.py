@@ -5,7 +5,8 @@ import pyarrow as arrow
 import pyarrow.parquet as parquet
 import pytest
 
-from datapipeline.sources.factory import build_loader
+from datapipeline.config.sources import FsLoaderConfig, ParquetReaderConfig
+from datapipeline.sources.factory import build_builtin_loader
 from datapipeline.sources.parquet_loader import ParquetLoader
 
 
@@ -24,7 +25,13 @@ def test_parquet_loader_preserves_native_values(tmp_path) -> None:
         ],
     )
 
-    loader = build_loader("fs", "parquet", path=str(path))
+    loader = build_builtin_loader(
+        FsLoaderConfig(
+            transport="fs",
+            path=str(path),
+            reader=ParquetReaderConfig(format="parquet"),
+        )
+    )
 
     assert isinstance(loader, ParquetLoader)
     assert list(loader.load()) == [
@@ -107,29 +114,6 @@ def test_parquet_loader_rejects_duplicate_columns(tmp_path) -> None:
 def test_parquet_loader_requires_a_glob_match(tmp_path) -> None:
     with pytest.raises(FileNotFoundError, match="Source glob matched no files"):
         ParquetLoader(str(tmp_path / "*.parquet"))
-
-
-def test_parquet_factory_rejects_non_filesystem_and_text_options(tmp_path) -> None:
-    with pytest.raises(ValueError, match="supports only fs transport"):
-        build_loader(
-            "http",
-            "parquet",
-            url="https://example.test/rows.parquet",
-        )
-    with pytest.raises(ValueError, match="does not support text decoding options"):
-        build_loader(
-            "fs",
-            "parquet",
-            path=str(tmp_path / "rows.parquet"),
-            encoding="utf-8",
-        )
-    with pytest.raises(ValueError, match="does not support external compression"):
-        build_loader(
-            "fs",
-            "parquet",
-            path=str(tmp_path / "rows.parquet"),
-            compression="gzip",
-        )
 
 
 def test_parquet_loader_reports_missing_dependency(monkeypatch) -> None:

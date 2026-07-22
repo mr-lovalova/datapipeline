@@ -22,8 +22,7 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
 
     def fake_create_source_yaml(
         source_id,
-        loader_ep,
-        loader_args,
+        loader,
         parser_ep,
         parser_args=None,
         root=None,
@@ -32,8 +31,7 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
         captured.update(
             {
                 "source_id": source_id,
-                "loader_ep": loader_ep,
-                "loader_args": loader_args,
+                "loader": loader,
                 "parser_ep": parser_ep,
                 "root": root,
             }
@@ -61,9 +59,8 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
     app.main()
 
     assert captured["source_id"] == "stooq.ohlcv_daily"
-    assert captured["loader_ep"] == "core.io"
-    assert captured["loader_args"]["transport"] == "http"
-    assert captured["loader_args"]["format"] == "json"
+    assert captured["loader"]["transport"] == "http"
+    assert captured["loader"]["reader"]["format"] == "json"
     assert captured["root"] is None
     assert captured["parser_ep"] == "identity"
 
@@ -75,7 +72,7 @@ def test_dataset_path_resolves_relative_to_workspace_root(monkeypatch, tmp_path)
     project_file = workspace_root / "projects" / "weather" / "project.yaml"
     project_file.parent.mkdir(parents=True)
     project_file.write_text(
-        "schema_version: 2\nartifact_revision: 1\nname: weather\npaths: {}\n",
+        "schema_version: 3\nartifact_revision: 1\nname: weather\npaths: {}\n",
         encoding="utf-8",
     )
 
@@ -104,7 +101,7 @@ def test_resolve_project_from_args_uses_workspace_default_dataset(tmp_path):
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
     project_file.write_text(
-        "schema_version: 2\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        "schema_version: 3\nartifact_revision: 1\nname: demo\npaths: {}\n",
         encoding="utf-8",
     )
 
@@ -222,7 +219,7 @@ def test_main_resolves_project_for_serve_with_workspace_default(monkeypatch, tmp
     project_file = tmp_path / "datasets" / "demo" / "project.yaml"
     project_file.parent.mkdir(parents=True)
     project_file.write_text(
-        "schema_version: 2\nartifact_revision: 1\nname: demo\npaths: {}\n",
+        "schema_version: 3\nartifact_revision: 1\nname: demo\npaths: {}\n",
         encoding="utf-8",
     )
     workspace = WorkspaceContext(

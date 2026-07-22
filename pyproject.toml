@@ -82,7 +82,6 @@ encode_time = "datapipeline.mappers.synthetic.time:encode"
 identity = "datapipeline.mappers.noop:identity"
 
 [project.entry-points."datapipeline.loaders"]
-"core.io" = "datapipeline.sources.factory:build_loader"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.loader:make_time_loader"
 
 [project.entry-points."datapipeline.parsers"]

@@ -44,7 +44,7 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
     project_yaml.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "artifact_revision: 1",
                 "paths:",
                 "  streams: streams",
@@ -105,7 +105,7 @@ def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+        "schema_version: 3\nartifact_revision: 1\n", encoding="utf-8"
     )
     runtime = Runtime(
         project_yaml=project_yaml,
@@ -159,7 +159,7 @@ def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+        "schema_version: 3\nartifact_revision: 1\n", encoding="utf-8"
     )
     runtime = Runtime(
         project_yaml=project_yaml,

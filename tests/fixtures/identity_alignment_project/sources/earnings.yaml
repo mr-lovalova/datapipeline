@@ -2,8 +2,7 @@ id: fixture.earnings
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/earnings.jsonl
+  reader:
     format: jsonl
-    path: data/earnings.jsonl

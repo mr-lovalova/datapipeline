@@ -6,12 +6,10 @@ parser:
   entrypoint: "sandbox_ohlcv_dto_parser"
   args: {}
 
-# loader.entrypoint: registered loader name (not a file path)
 loader:
-  entrypoint: "core.io"
-  args:
-    transport: fs
+  transport: fs
+  # compression: gzip # only when the matched files are gzip-compressed
+  path: data/*.jsonl
+  reader:
     format: jsonl
-    # compression: gzip # only when the matched files are gzip-compressed
-    path: data/*.jsonl
     encoding: utf-8

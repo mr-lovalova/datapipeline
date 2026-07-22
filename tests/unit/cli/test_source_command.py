@@ -27,11 +27,12 @@ def test_source_create_resolves_alias_and_builtin_loader(monkeypatch) -> None:
     )
 
     assert captured["source_id"] == "demo.weather"
-    assert captured["loader_ep"] == "core.io"
-    loader_args = captured["loader_args"]
-    assert isinstance(loader_args, dict)
-    assert loader_args["transport"] == "fs"
-    assert loader_args["format"] == "csv"
+    loader = captured["loader"]
+    assert isinstance(loader, dict)
+    assert loader["transport"] == "fs"
+    reader = loader["reader"]
+    assert isinstance(reader, dict)
+    assert reader["format"] == "csv"
     assert captured["parser_ep"] == "identity"
 
 
@@ -54,8 +55,10 @@ def test_source_create_explicit_loader_overrides_transport(monkeypatch) -> None:
     )
 
     assert captured["source_id"] == "demo.weather"
-    assert captured["loader_ep"] == "demo.loaders.weather"
-    assert captured["loader_args"] == {}
+    assert captured["loader"] == {
+        "entrypoint": "demo.loaders.weather",
+        "args": {},
+    }
     assert captured["parser_ep"] == "demo.parsers.weather"
 
 

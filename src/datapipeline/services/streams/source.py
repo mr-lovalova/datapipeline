@@ -3,14 +3,14 @@ from pathlib import Path
 from typing import Any
 
 from datapipeline.config.sources import (
-    CoreIoLoaderConfig,
     EntryPointConfig,
-    FsParquetSourceArgs,
-    FsSourceArgs,
+    FsLoaderConfig,
+    HttpLoaderConfig,
     SourceConfig,
 )
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
+from datapipeline.sources.factory import build_builtin_loader
 from datapipeline.sources.models.source import Source
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
@@ -18,22 +18,25 @@ from datapipeline.utils.placeholders import normalize_args
 
 def build_source(config: SourceConfig, project_yaml: Path) -> Source:
     parser_factory = load_ep(PARSERS_EP, config.parser.entrypoint)
-    loader_factory = load_ep(LOADERS_EP, config.loader.entrypoint)
-    if isinstance(config.loader, CoreIoLoaderConfig):
-        loader_args = normalize_args(config.loader.args.model_dump(exclude_unset=True))
-        if (
-            isinstance(config.loader.args, (FsSourceArgs, FsParquetSourceArgs))
-            and not Path(config.loader.args.path).is_absolute()
-        ):
-            loader_args["path"] = resolve_relative_fs_loader_path(
-                config.loader.args.path,
-                project_yaml.parent.resolve(),
+    if isinstance(config.loader, (FsLoaderConfig, HttpLoaderConfig)):
+        loader_config = config.loader
+        if isinstance(loader_config, FsLoaderConfig):
+            loader_config = loader_config.model_copy(
+                update={
+                    "path": resolve_relative_fs_loader_path(
+                        loader_config.path,
+                        project_yaml.parent.resolve(),
+                    )
+                }
             )
+        loader = build_builtin_loader(loader_config)
     else:
+        loader_factory = load_ep(LOADERS_EP, config.loader.entrypoint)
         loader_args = normalize_args(config.loader.args)
+        loader = loader_factory(**loader_args)
     parser_args = normalize_args(config.parser.args)
     return Source(
-        loader=loader_factory(**loader_args),
+        loader=loader,
         parser=parser_factory(**parser_args),
     )
 

@@ -60,7 +60,7 @@ def _runtime(
     artifacts_root.mkdir()
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        "schema_version: 2\nartifact_revision: 1\n", encoding="utf-8"
+        "schema_version: 3\nartifact_revision: 1\n", encoding="utf-8"
     )
     if dataset is None:
         dataset = DatasetConfig(sample=SampleConfig(cadence="1h"))

@@ -80,9 +80,9 @@ def _resolve_loader_config(
     source_format: str | None,
     loader: str | None,
     plugin_root: Path | None,
-) -> tuple[str, dict]:
+) -> dict[str, object]:
     if loader:
-        return loader, {}
+        return {"entrypoint": loader, "args": {}}
 
     loader_ep = None
     selected_transport = transport
@@ -92,7 +92,7 @@ def _resolve_loader_config(
         )
 
     if loader_ep:
-        return loader_ep, {}
+        return {"entrypoint": loader_ep, "args": {}}
 
     if selected_transport in {"fs", "http"} and not source_format:
         source_format = pick_from_menu(
@@ -178,7 +178,7 @@ def handle(
     source_id = f"{provider}.{dataset}"
     try:
         validate_source_id(source_id)
-        loader_ep, loader_args = _resolve_loader_config(
+        loader_config = _resolve_loader_config(
             transport,
             format,
             loader,
@@ -193,8 +193,7 @@ def handle(
     try:
         path = create_source_yaml(
             source_id=source_id,
-            loader_ep=loader_ep,
-            loader_args=loader_args,
+            loader=loader_config,
             parser_ep=parser_ep,
             root=plugin_root,
             project_yaml=project_yaml,

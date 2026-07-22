@@ -88,7 +88,7 @@ def _mapper_menu_options(mappers: dict[str, str]) -> list[tuple[str, str]]:
     return base
 
 
-def _select_new_source_loader() -> tuple[str, dict[str, object]]:
+def _select_new_source_loader() -> dict[str, object]:
     choice = pick_from_menu(
         "Loader:",
         [
@@ -109,7 +109,7 @@ def _select_new_source_loader() -> tuple[str, dict[str, object]]:
         else:
             source_format = None
         return default_loader_config(choice, source_format)
-    return prompt_required("Loader entrypoint"), {}
+    return {"entrypoint": prompt_required("Loader entrypoint"), "args": {}}
 
 
 def _select_parser_plan(
@@ -261,7 +261,7 @@ def _collect_stream_plan(
             validate_source_id(source_id)
         except ValueError as exc:
             raise SystemExit(str(exc)) from None
-        loader_entrypoint, loader_args = _select_new_source_loader()
+        loader = _select_new_source_loader()
         parser_selection = _select_parser_plan(
             plugin_root,
             package_name,
@@ -270,8 +270,7 @@ def _collect_stream_plan(
         )
         source = SourceCreation(
             source_id=source_id,
-            loader_entrypoint=loader_entrypoint,
-            loader_args=loader_args,
+            loader=loader,
             parser=parser_selection.plan,
         )
         dto_to_create = parser_selection.dto_to_create

@@ -1,5 +1,4 @@
 import codecs
-from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Self, TypeAlias
 
 from pydantic import (
@@ -28,7 +27,7 @@ _SourceId = Annotated[
     ),
 ]
 
-_SourceInputPath = Annotated[
+_NonEmptyString = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
 ]
@@ -51,14 +50,10 @@ class EntryPointConfig(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
-class _DecodedSourceArgs(BaseModel):
+class _TextReaderBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    format: Literal["csv", "json", "jsonl"]
-    encoding: _SourceInputPath = "utf-8"
-    delimiter: _CsvDelimiter = ";"
-    error_prefixes: tuple[_CsvErrorPrefix, ...] = ()
-    array_field: _SourceInputPath | None = None
+    encoding: _NonEmptyString = "utf-8"
 
     @field_validator("encoding")
     @classmethod
@@ -71,42 +66,69 @@ class _DecodedSourceArgs(BaseModel):
             raise ValueError(f"unsupported text encoding {encoding!r}")
         return encoding
 
-    @model_validator(mode="after")
-    def validate_format_options(self) -> Self:
-        if self.format != "csv" and "delimiter" in self.model_fields_set:
-            raise ValueError("delimiter is only valid for the csv format")
-        if self.format != "csv" and "error_prefixes" in self.model_fields_set:
-            raise ValueError("error_prefixes is only valid for the csv format")
-        if self.format != "json" and "array_field" in self.model_fields_set:
-            raise ValueError("array_field is only valid for the json format")
-        return self
+
+class CsvReaderConfig(_TextReaderBase):
+    format: Literal["csv"]
+    delimiter: _CsvDelimiter = ";"
+    error_prefixes: tuple[_CsvErrorPrefix, ...] = ()
 
 
-class FsSourceArgs(_DecodedSourceArgs):
+class JsonReaderConfig(_TextReaderBase):
+    format: Literal["json"]
+    array_field: _NonEmptyString | None = None
+
+
+class JsonLinesReaderConfig(_TextReaderBase):
+    format: Literal["jsonl"]
+
+
+class ParquetReaderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["parquet"]
+
+
+TextReaderConfig: TypeAlias = Annotated[
+    CsvReaderConfig | JsonReaderConfig | JsonLinesReaderConfig,
+    Field(discriminator="format"),
+]
+
+SourceReaderConfig: TypeAlias = Annotated[
+    CsvReaderConfig | JsonReaderConfig | JsonLinesReaderConfig | ParquetReaderConfig,
+    Field(discriminator="format"),
+]
+
+
+class FsLoaderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     transport: Literal["fs"]
-    path: _SourceInputPath
+    path: _NonEmptyString
+    reader: SourceReaderConfig
     compression: Compression | None = None
 
     @model_validator(mode="after")
     def validate_compression(self) -> Self:
-        if self.compression == "gzip" and self.format not in {"csv", "jsonl"}:
+        if isinstance(self.reader, ParquetReaderConfig):
+            if self.compression is not None:
+                raise ValueError("parquet input does not support external compression")
+            return self
+        if self.compression == "gzip" and self.reader.format not in {
+            "csv",
+            "jsonl",
+        }:
             raise ValueError(
                 "gzip compression is supported only for csv and jsonl formats"
             )
         return self
 
 
-class FsParquetSourceArgs(BaseModel):
+class HttpLoaderConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    transport: Literal["fs"]
-    format: Literal["parquet"]
-    path: _SourceInputPath
-
-
-class HttpSourceArgs(_DecodedSourceArgs):
     transport: Literal["http"]
-    url: _SourceInputPath
+    url: _NonEmptyString
+    reader: TextReaderConfig
     headers: dict[str, str] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: (
@@ -118,28 +140,16 @@ class HttpSourceArgs(_DecodedSourceArgs):
     ) = None
 
 
-_FsSourceArgs: TypeAlias = Annotated[
-    FsSourceArgs | FsParquetSourceArgs,
-    Field(discriminator="format"),
-]
-
-_CoreIoSourceArgs: TypeAlias = Annotated[
-    _FsSourceArgs | HttpSourceArgs,
+BuiltInLoaderConfig: TypeAlias = Annotated[
+    FsLoaderConfig | HttpLoaderConfig,
     Field(discriminator="transport"),
 ]
-
-
-class CoreIoLoaderConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    entrypoint: Literal["core.io"]
-    args: _CoreIoSourceArgs
 
 
 class SourceInputsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    files: tuple[_SourceInputPath, ...] = Field(min_length=1)
+    files: tuple[_NonEmptyString, ...] = Field(min_length=1)
 
     @field_validator("files")
     @classmethod
@@ -154,22 +164,5 @@ class SourceConfig(BaseModel):
 
     id: _SourceId
     parser: EntryPointConfig
-    loader: CoreIoLoaderConfig | EntryPointConfig
+    loader: BuiltInLoaderConfig | EntryPointConfig
     inputs: SourceInputsConfig | None = None
-
-    @field_validator("loader", mode="before")
-    @classmethod
-    def validate_core_io_loader(cls, loader: Any) -> Any:
-        if isinstance(loader, CoreIoLoaderConfig):
-            return loader
-        if isinstance(loader, EntryPointConfig):
-            if loader.entrypoint == "core.io":
-                return CoreIoLoaderConfig.model_validate(loader.model_dump())
-            return loader
-        if isinstance(loader, Mapping):
-            entrypoint = loader.get("entrypoint")
-            if isinstance(entrypoint, str) and entrypoint.strip() == "core.io":
-                data = dict(loader)
-                data["entrypoint"] = "core.io"
-                return CoreIoLoaderConfig.model_validate(data)
-        return loader

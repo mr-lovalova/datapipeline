@@ -37,7 +37,7 @@ Expected behavior:
 `project.yaml` is the root map for all dataset config.
 
 ```yaml
-schema_version: 2
+schema_version: 3
 artifact_revision: 1
 paths:
   sources: ./sources
@@ -62,22 +62,22 @@ id: "sandbox.ohlcv"
 parser:
   entrypoint: "sandbox_ohlcv_dto_parser"
 loader:
-  entrypoint: "core.io"
-  args:
-    transport: fs
+  transport: fs
+  path: data/*.jsonl
+  reader:
     format: jsonl
-    path: data/*.jsonl
 ```
 
 Expected behavior:
 - Stream `from.source: sandbox.ohlcv` resolves to this source spec.
-- For fs loaders, relative `args.path` is normalized via runtime path policy.
-- Standard glob characters in an fs `args.path` select matching files.
-- Gzip CSV/JSONL inputs set `args.compression: gzip` explicitly; a `.gz` suffix
+- For fs loaders, relative `path` is normalized via runtime path policy.
+- Standard glob characters in an fs `path` select matching files.
+- Gzip CSV/JSONL inputs set `compression: gzip` explicitly; a `.gz` suffix
   alone does not enable decompression.
-- Local Parquet inputs set `format: parquet`. Jerry reads files and sorted globs
-  in bounded row batches; the configured parser still owns domain conversion.
-  Parquet sources do not use text encoding or external compression options.
+- Local Parquet inputs set `reader.format: parquet`. Jerry reads files and
+  sorted globs in bounded row batches; the configured parser still owns domain
+  conversion. Parquet sources do not use text encoding or external compression
+  options.
 
 ## 4) Stream id links canonical records to dataset
 

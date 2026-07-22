@@ -47,8 +47,7 @@ def test_custom_source_id_is_used_for_source_and_stream(monkeypatch, tmp_path) -
         root=tmp_path,
         source=SourceCreation(
             source_id="nasa.weather.hourly",
-            loader_entrypoint="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser=ParserReference("identity"),
         ),
         mapper=MapperReference("identity"),
@@ -76,8 +75,7 @@ def test_invalid_source_id_fails_before_project_mutation(monkeypatch, tmp_path) 
         root=tmp_path,
         source=SourceCreation(
             source_id="weather",
-            loader_entrypoint="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser=ParserReference("identity"),
         ),
         mapper=MapperReference("identity"),
@@ -96,7 +94,7 @@ def test_existing_project_with_missing_config_dirs_can_be_scaffolded(
     _patch_project(monkeypatch, tmp_path)
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        "schema_version: 2\n"
+        "schema_version: 3\n"
         "artifact_revision: 1\n"
         "name: default\n"
         "paths:\n"
@@ -114,8 +112,7 @@ def test_existing_project_with_missing_config_dirs_can_be_scaffolded(
         root=tmp_path,
         source=SourceCreation(
             source_id="demo.weather",
-            loader_entrypoint="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser=ParserReference("identity"),
         ),
         mapper=MapperReference("identity"),
@@ -160,8 +157,11 @@ def test_existing_source_fails_before_creating_planned_components(
         root=tmp_path,
         source=SourceCreation(
             source_id="nasa.weather",
-            loader_entrypoint="core.io",
-            loader_args={"transport": "http"},
+            loader={
+                "transport": "http",
+                "url": "https://example.test/data.jsonl",
+                "reader": {"format": "jsonl"},
+            },
             parser=ParserCreation("WeatherParser", dto),
         ),
         mapper=MapperCreation("map_weather", dto),
@@ -209,8 +209,11 @@ def test_existing_stream_fails_before_creating_planned_components(
         root=tmp_path,
         source=SourceCreation(
             source_id="nasa.weather",
-            loader_entrypoint="core.io",
-            loader_args={"transport": "http"},
+            loader={
+                "transport": "http",
+                "url": "https://example.test/data.jsonl",
+                "reader": {"format": "jsonl"},
+            },
             parser=ParserCreation("WeatherParser", dto),
         ),
         mapper=MapperCreation("map_weather", dto),
@@ -247,8 +250,11 @@ def test_existing_parser_entrypoint_fails_before_stream_plan_mutation(
         root=tmp_path,
         source=SourceCreation(
             source_id="nasa.weather",
-            loader_entrypoint="core.io",
-            loader_args={"transport": "http"},
+            loader={
+                "transport": "http",
+                "url": "https://example.test/data.jsonl",
+                "reader": {"format": "jsonl"},
+            },
             parser=ParserCreation("WeatherParser", dto),
         ),
         mapper=MapperCreation("map_weather", dto),
@@ -330,8 +336,11 @@ def test_creation_plan_executes_exact_declared_components(
         root=tmp_path,
         source=SourceCreation(
             source_id="nasa.weather",
-            loader_entrypoint="core.io",
-            loader_args={"transport": "http"},
+            loader={
+                "transport": "http",
+                "url": "https://example.test/data.jsonl",
+                "reader": {"format": "jsonl"},
+            },
             parser=ParserCreation("WeatherParser", dto),
         ),
         mapper=MapperCreation(
@@ -448,8 +457,7 @@ def test_stream_plan_rolls_back_after_late_failure(
         root=plugin,
         source=SourceCreation(
             source_id="nasa.weather",
-            loader_entrypoint="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser=ParserCreation("WeatherParser", dto),
         ),
         mapper=MapperCreation("map_weather", dto),

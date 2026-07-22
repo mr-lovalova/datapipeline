@@ -77,7 +77,7 @@ def resolve_relative_fs_loader_path(
     raw_path: str,
     project_root: Path,
 ) -> str:
-    """Resolve a source `loader.args.path` using the shared fs path policy."""
+    """Resolve a built-in filesystem source path."""
     raw = Path(raw_path)
     if raw.is_absolute():
         return str(raw)

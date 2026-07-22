@@ -36,7 +36,7 @@ def _write_project_yaml(
 ) -> Path:
     project_yaml = project_root / "project.yaml"
     lines = [
-        "schema_version: 2",
+        "schema_version: 3",
         "artifact_revision: 1",
         "name: sample",
     ]
@@ -91,12 +91,12 @@ def test_project_requires_schema_version(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="Project config requires schema_version: 2",
+        match="Project config requires schema_version: 3",
     ):
         load_project(project_yaml)
 
 
-@pytest.mark.parametrize("value", ["1", "3"])
+@pytest.mark.parametrize("value", ["1", "2", "4"])
 def test_project_rejects_unsupported_schema_version(
     tmp_path: Path,
     value: str,
@@ -106,12 +106,12 @@ def test_project_rejects_unsupported_schema_version(
 
     with pytest.raises(
         ValueError,
-        match=rf"Unsupported project schema version {value}; expected 2",
+        match=rf"Unsupported project schema version {value}; expected 3",
     ):
         load_project(project_yaml)
 
 
-@pytest.mark.parametrize("value", ["'2'", "2.0", "true", "null"])
+@pytest.mark.parametrize("value", ["'3'", "3.0", "true", "null"])
 def test_project_schema_version_must_be_integer(
     tmp_path: Path,
     value: str,
@@ -119,7 +119,7 @@ def test_project_schema_version_must_be_integer(
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(f"schema_version: {value}\n", encoding="utf-8")
 
-    with pytest.raises(TypeError, match="schema_version must be the integer 2"):
+    with pytest.raises(TypeError, match="schema_version must be the integer 3"):
         load_project(project_yaml)
 
 
@@ -248,11 +248,10 @@ def test_load_sources_resolve_nested_globals_before_fs_path_normalization(
                 "  entrypoint: identity",
                 "  args: {}",
                 "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
+                "  transport: fs",
+                "  path: ${canonical_equity_interim_dir}/prices.jsonl",
+                "  reader:",
                 "    format: jsonl",
-                "    path: ${canonical_equity_interim_dir}/prices.jsonl",
             ]
         )
         + "\n",
@@ -306,7 +305,7 @@ def test_project_paths_validate_interpolation_without_declared_variables(
     _write_project_files(tmp_path)
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
-        """schema_version: 2
+        """schema_version: 3
 artifact_revision: 1
 paths:
   streams: streams
@@ -457,11 +456,10 @@ def test_load_sources_resolve_env_backed_globals_before_fs_path_normalization(
                 "  entrypoint: identity",
                 "  args: {}",
                 "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
+                "  transport: fs",
+                "  path: ${raw_glob}",
+                "  reader:",
                 "    format: jsonl",
-                "    path: ${raw_glob}",
             ]
         )
         + "\n",
@@ -535,11 +533,10 @@ def test_artifact_hash_changes_when_env_value_changes(
                 "  entrypoint: identity",
                 "  args: {}",
                 "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
+                "  transport: fs",
+                "  path: ${raw_root}/rows.jsonl",
+                "  reader:",
                 "    format: jsonl",
-                "    path: ${raw_root}/rows.jsonl",
             ]
         )
         + "\n",
@@ -572,11 +569,10 @@ def test_artifact_hash_includes_multiple_source_roots(tmp_path: Path) -> None:
                 "parser:",
                 "  entrypoint: identity",
                 "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
+                "  transport: fs",
+                "  path: rows.jsonl",
+                "  reader:",
                 "    format: jsonl",
-                "    path: rows.jsonl",
             ]
         )
         + "\n",
@@ -601,11 +597,10 @@ def test_artifact_hash_includes_multiple_source_roots(tmp_path: Path) -> None:
                 "parser:",
                 "  entrypoint: identity",
                 "loader:",
-                "  entrypoint: core.io",
-                "  args:",
-                "    transport: fs",
+                "  transport: fs",
+                "  path: changed.jsonl",
+                "  reader:",
                 "    format: jsonl",
-                "    path: changed.jsonl",
             ]
         )
         + "\n",
@@ -661,27 +656,24 @@ def test_artifact_hash_ignores_source_document_order(tmp_path: Path) -> None:
 id: sample.fs
 parser: {entrypoint: identity, args: {}}
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/*.jsonl
+  reader:
     format: jsonl
-    path: data/*.jsonl
 """,
             "sample.fs",
             True,
-            id="core-io",
+            id="built-in-glob",
         ),
         pytest.param(
             """\
 id: sample.file
 parser: {entrypoint: identity, args: {}}
-loader:
-  entrypoint: core.io
-  args: {transport: fs, format: jsonl, path: data/a.jsonl}
+loader: {transport: fs, path: data/a.jsonl, reader: {format: jsonl}}
 """,
             "sample.file",
             False,
-            id="core-io-file",
+            id="built-in-file",
         ),
         pytest.param(
             """\
@@ -773,7 +765,7 @@ loader: {entrypoint: custom.loader, args: {}}
         (
             """\
 id: sample.fs
-loader: {entrypoint: core.io, args: {}}
+loader: {transport: fs, path: data/a.jsonl, reader: {format: jsonl}}
 """,
             "parser",
         ),
@@ -788,7 +780,7 @@ parser: {entrypoint: identity, args: {}}
             """\
 id: sample.fs
 parser: identity
-loader: {entrypoint: core.io, args: {}}
+loader: {transport: fs, path: data/a.jsonl, reader: {format: jsonl}}
 """,
             "parser",
         ),

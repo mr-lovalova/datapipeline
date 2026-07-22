@@ -132,14 +132,15 @@ These live under `lib/<plugin>/src/<package>/`:
 - `domains/<domain>/model.py`: domain record models.
 - `mappers/*.py`: iterator mappings from parsed values to domain records.
 - `combiners/*.py`: functions combining broadcast or aligned domain records.
-- `loaders/*.py`: optional custom loaders (fs/http usually use the built-in core loader).
+- `loaders/*.py`: optional custom loaders for inputs beyond built-in filesystem
+  and HTTP transports.
 - `pyproject.toml`: entry points for loaders, parsers, mappers, and combiners
   (rerun `pip install -e lib/<plugin>` after changes).
 
 ### Source to Domain Record
 
-- A loader reads raw rows; `core.io` handles ordinary filesystem and HTTP
-  sources.
+- Built-in filesystem and HTTP transports read input through the configured
+  `reader`. Custom loaders handle other protocols.
 - A parser converts each row into a source-shaped DTO and may drop invalid rows.
 - A mapper converts DTOs into canonical domain records shared by downstream
   streams. Every record has a timezone-aware `time` field.

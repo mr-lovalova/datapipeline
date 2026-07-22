@@ -9,9 +9,8 @@ parser:
     attributes:
       municipality: MunicipalityNo
 loader:
-  entrypoint: "core.io"
-  args:
-    transport: fs
+  transport: fs
+  path: data/incomplete/ProductionMunicipalityHour.csv
+  reader:
     format: csv
-    path: data/incomplete/ProductionMunicipalityHour.csv
     delimiter: ";"

@@ -5,10 +5,9 @@ parser:
     time_field: time
     value_field: value
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/outcome.csv
+  reader:
     format: csv
-    path: data/outcome.csv
     encoding: utf-8
     delimiter: ","

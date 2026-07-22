@@ -9,9 +9,8 @@ parser:
     attributes:
       area: PriceArea
 loader:
-  entrypoint: "core.io"
-  args:
-    transport: fs
+  transport: fs
+  path: data/incomplete/Elspotprices.csv
+  reader:
     format: csv
-    path: data/incomplete/Elspotprices.csv
     delimiter: ";"

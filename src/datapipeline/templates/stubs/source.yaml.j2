@@ -7,8 +7,7 @@ parser:
   args:
 {{ parser_args | to_yaml(4) }}
 
-# loader.entrypoint: registered loader name (not a file path)
+# Built-in loaders declare transport and reader directly.
+# Custom loaders use entrypoint and args.
 loader:
-  entrypoint: {{ loader_ep | tojson }}
-  args:
-{{ loader_args | to_yaml(4) }}
+{{ loader | to_yaml(2) }}

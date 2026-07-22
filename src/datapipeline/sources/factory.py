@@ -1,108 +1,64 @@
 import glob
-from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import assert_never
 
-from datapipeline.io.compression import Compression
+from datapipeline.config.sources import (
+    CsvReaderConfig,
+    FsLoaderConfig,
+    HttpLoaderConfig,
+    JsonLinesReaderConfig,
+    JsonReaderConfig,
+    ParquetReaderConfig,
+    TextReaderConfig,
+)
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
+from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import (
     CsvDecoder,
     Decoder,
     JsonDecoder,
     JsonLinesDecoder,
 )
-from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.models.loader import BaseDataLoader
 from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.sources.ports import SourceTransport
 
 
-DEFAULT_ENCODING = "utf-8"
-DEFAULT_CSV_DELIMITER = ";"
-TRANSPORT_FS = "fs"
-TRANSPORT_HTTP = "http"
-FORMAT_CSV = "csv"
-FORMAT_JSON = "json"
-FORMAT_JSONL = "jsonl"
-FORMAT_PARQUET = "parquet"
-
-
-def build_loader(
-    transport: str,
-    format: str,
-    *,
-    path: str | None = None,
-    url: str | None = None,
-    headers: Mapping[str, str] | None = None,
-    params: Mapping[str, Any] | None = None,
-    encoding: str | None = None,
-    delimiter: str | None = None,
-    error_prefixes: Sequence[str] | None = None,
-    array_field: str | None = None,
-    timeout_seconds: float | None = None,
-    compression: Compression | None = None,
-) -> BaseDataLoader:
-    transport = transport.lower()
-    format = format.lower()
-
-    if format == FORMAT_PARQUET:
-        if transport != TRANSPORT_FS:
-            raise ValueError("parquet input supports only fs transport")
-        if not path:
-            raise ValueError("fs transport requires 'path'")
-        if any(
-            option is not None
-            for option in (encoding, delimiter, error_prefixes, array_field)
-        ):
-            raise ValueError("parquet input does not support text decoding options")
-        if compression is not None:
-            raise ValueError("parquet input does not support external compression")
-        return ParquetLoader(path)
-
-    if compression not in {None, "gzip"}:
-        raise ValueError(f"unsupported compression: {compression}")
-    if compression is not None and transport != TRANSPORT_FS:
-        raise ValueError("compression is supported only for fs transport")
-    if compression == "gzip" and format not in {FORMAT_CSV, FORMAT_JSONL}:
-        raise ValueError("gzip compression is supported only for csv and jsonl formats")
-
-    source: SourceTransport
-    if transport == TRANSPORT_FS:
-        if not path:
-            raise ValueError("fs transport requires 'path'")
-        source = (
-            FsGlobTransport(path, compression=compression)
-            if glob.has_magic(path)
-            else FsFileTransport(path, compression=compression)
+def build_builtin_loader(config: FsLoaderConfig | HttpLoaderConfig) -> BaseDataLoader:
+    transport: SourceTransport
+    if isinstance(config, FsLoaderConfig):
+        if isinstance(config.reader, ParquetReaderConfig):
+            return ParquetLoader(config.path)
+        transport = (
+            FsGlobTransport(config.path, compression=config.compression)
+            if glob.has_magic(config.path)
+            else FsFileTransport(config.path, compression=config.compression)
         )
-    elif transport == TRANSPORT_HTTP:
-        if not url:
-            raise ValueError("http transport requires 'url'")
-        source = HttpTransport(
-            url,
-            headers=headers,
-            params=params,
-            timeout_seconds=timeout_seconds,
-        )
+        reader = config.reader
     else:
-        raise ValueError(f"unsupported transport: {transport}")
-
-    text_encoding = DEFAULT_ENCODING if encoding is None else encoding
-    decoder: Decoder
-    if format == FORMAT_CSV:
-        decoder = CsvDecoder(
-            delimiter=delimiter or DEFAULT_CSV_DELIMITER,
-            encoding=text_encoding,
-            error_prefixes=error_prefixes,
+        transport = HttpTransport(
+            config.url,
+            headers=config.headers,
+            params=config.params,
+            timeout_seconds=config.timeout_seconds,
         )
-    elif format == FORMAT_JSON:
-        decoder = JsonDecoder(
-            encoding=text_encoding,
-            array_field=array_field,
-        )
-    elif format == FORMAT_JSONL:
-        decoder = JsonLinesDecoder(encoding=text_encoding)
-    else:
-        raise ValueError(f"unsupported format for IO loader: {format}")
+        reader = config.reader
 
-    return DataLoader(source, decoder)
+    return DataLoader(transport, _build_text_decoder(reader))
+
+
+def _build_text_decoder(config: TextReaderConfig) -> Decoder:
+    if isinstance(config, CsvReaderConfig):
+        return CsvDecoder(
+            delimiter=config.delimiter,
+            encoding=config.encoding,
+            error_prefixes=config.error_prefixes,
+        )
+    if isinstance(config, JsonReaderConfig):
+        return JsonDecoder(
+            encoding=config.encoding,
+            array_field=config.array_field,
+        )
+    if isinstance(config, JsonLinesReaderConfig):
+        return JsonLinesDecoder(encoding=config.encoding)
+    assert_never(config)

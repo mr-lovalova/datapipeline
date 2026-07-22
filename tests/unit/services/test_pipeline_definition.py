@@ -31,7 +31,7 @@ def _write_pipeline(root: Path) -> Path:
         (root / name).mkdir(parents=True)
     project_yaml = root / "project.yaml"
     project_yaml.write_text(
-        """schema_version: 2
+        """schema_version: 3
 artifact_revision: 1
 name: snapshot
 paths:
@@ -148,11 +148,10 @@ def test_pipeline_definition_keeps_resolved_environment_snapshot(
         """id: prices
 parser: {entrypoint: identity}
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: ${env:SOURCE_PATH}
+  reader:
     format: jsonl
-    path: ${env:SOURCE_PATH}
 """,
         encoding="utf-8",
     )
@@ -164,13 +163,13 @@ loader:
     first = load_pipeline(project_yaml)
 
     source = first.streams.sources["prices"]
-    assert source.loader.args.path == "data/first.jsonl"
+    assert source.loader.path == "data/first.jsonl"
 
     current_environment["SOURCE_PATH"] = "data/second.jsonl"
     second = load_pipeline(project_yaml)
 
-    assert first.streams.sources["prices"].loader.args.path == "data/first.jsonl"
-    assert second.streams.sources["prices"].loader.args.path == "data/second.jsonl"
+    assert first.streams.sources["prices"].loader.path == "data/first.jsonl"
+    assert second.streams.sources["prices"].loader.path == "data/second.jsonl"
 
 
 def test_load_pipeline_canonicalizes_symlinked_dataset_path(tmp_path: Path) -> None:
@@ -287,11 +286,10 @@ def test_next_pipeline_definition_reloads_project_dotenv(
         """id: prices
 parser: {entrypoint: identity}
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: ${env:SOURCE_PATH}
+  reader:
     format: jsonl
-    path: ${env:SOURCE_PATH}
 """,
         encoding="utf-8",
     )
@@ -302,8 +300,8 @@ loader:
     dotenv.write_text("SOURCE_PATH=data/second.jsonl\n", encoding="utf-8")
 
     second = load_pipeline(project_yaml)
-    assert first.streams.sources["prices"].loader.args.path == "data/first.jsonl"
-    assert second.streams.sources["prices"].loader.args.path == "data/second.jsonl"
+    assert first.streams.sources["prices"].loader.path == "data/first.jsonl"
+    assert second.streams.sources["prices"].loader.path == "data/second.jsonl"
 
 
 def test_project_without_name_still_validates_dataset_interpolation(
@@ -645,12 +643,9 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
                     "id": source_id,
                     "parser": {"entrypoint": "parse"},
                     "loader": {
-                        "entrypoint": "core.io",
-                        "args": {
-                            "transport": "fs",
-                            "format": source_format,
-                            "path": f"data/{source_id}{suffix}",
-                        },
+                        "transport": "fs",
+                        "path": f"data/{source_id}{suffix}",
+                        "reader": {"format": source_format},
                     },
                 }
                 for source_id in ("used", "unused")

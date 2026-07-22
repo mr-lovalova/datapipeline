@@ -88,11 +88,10 @@ id: research.price-mean-signal
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: research/price_mean_signal.parquet
+  reader:
     format: parquet
-    path: research/price_mean_signal.parquet
 """,
         encoding="utf-8",
     )

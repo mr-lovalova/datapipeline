@@ -80,7 +80,7 @@ def _write_project(tmp_path: Path) -> Path:
     project_path.write_text(
         "\n".join(
             [
-                "schema_version: 2",
+                "schema_version: 3",
                 "artifact_revision: 1",
                 "paths:",
                 "  streams: ./streams",
@@ -117,9 +117,7 @@ def _definition_with_local_source(
     (tmp_path / "sources" / "prices.yaml").write_text(
         "id: prices\n"
         "parser: {entrypoint: identity}\n"
-        "loader:\n"
-        "  entrypoint: core.io\n"
-        "  args: {transport: fs, format: jsonl, path: 'data/*.jsonl'}\n",
+        "loader: {transport: fs, path: 'data/*.jsonl', reader: {format: jsonl}}\n",
         encoding="utf-8",
     )
     (tmp_path / "streams" / "prices.yaml").write_text(

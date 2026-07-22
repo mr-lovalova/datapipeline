@@ -93,11 +93,10 @@ id: research.adv-rank
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: research/adv_rank.parquet
+  reader:
     format: parquet
-    path: research/adv_rank.parquet
 ```
 
 Expose its canonical records as a stream:

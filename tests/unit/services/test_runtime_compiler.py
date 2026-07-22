@@ -38,7 +38,7 @@ def _write_test_project(tmp_path):
     project_yaml = tmp_path / "project.yaml"
     project_yaml.write_text(
         """\
-schema_version: 2
+schema_version: 3
 artifact_revision: 1
 name: runtime-compiler-test
 paths:
@@ -64,11 +64,10 @@ id: shared
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data.jsonl
+  reader:
     format: jsonl
-    path: data.jsonl
 """,
         encoding="utf-8",
     )
@@ -115,11 +114,10 @@ id: prices.source
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/prices.jsonl
+  reader:
     format: jsonl
-    path: data/prices.jsonl
 """,
         encoding="utf-8",
     )
@@ -184,11 +182,10 @@ id: {input_name}.source
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/{input_name}.jsonl
+  reader:
     format: jsonl
-    path: data/{input_name}.jsonl
 """,
             encoding="utf-8",
         )
@@ -298,11 +295,10 @@ id: {input_name}.source
 parser:
   entrypoint: core.temporal_record
 loader:
-  entrypoint: core.io
-  args:
-    transport: fs
+  transport: fs
+  path: data/{input_name}.jsonl
+  reader:
     format: jsonl
-    path: data/{input_name}.jsonl
 """,
             encoding="utf-8",
         )

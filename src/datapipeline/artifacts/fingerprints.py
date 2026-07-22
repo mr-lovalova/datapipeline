@@ -10,9 +10,7 @@ from datapipeline.artifacts.planning import build_artifact_graph
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.sources import (
-    CoreIoLoaderConfig,
-    FsParquetSourceArgs,
-    FsSourceArgs,
+    FsLoaderConfig,
     SourceConfig,
 )
 from datapipeline.config.streams import SourceStreamConfig, StreamsConfig
@@ -90,13 +88,10 @@ def _source_input_patterns(
     project: ProjectManifest,
 ) -> Iterable[tuple[Path, bool]]:
     loader = source.loader
-    if isinstance(loader, CoreIoLoaderConfig) and isinstance(
-        loader.args,
-        (FsSourceArgs, FsParquetSourceArgs),
-    ):
+    if isinstance(loader, FsLoaderConfig):
         yield (
-            _project_source_path(project, loader.args.path),
-            glob.has_magic(loader.args.path),
+            _project_source_path(project, loader.path),
+            glob.has_magic(loader.path),
         )
     if source.inputs is not None:
         for raw_path in source.inputs.files:

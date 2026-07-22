@@ -35,7 +35,7 @@ All dataset configuration is rooted at a single `project.yaml` file. Other YAML 
 ### `project.yaml`
 
 ```yaml
-schema_version: 2
+schema_version: 3
 artifact_revision: 1
 name: default
 paths:
@@ -93,6 +93,34 @@ globals:
   `dataset.yaml:split.intervals` (time).
 - Dataset output IDs are `<fold-id>.<role>`, where role is `train`,
   `validation`, or `test`.
+
+#### Migrating project schema 2 to 3
+
+Schema 3 makes built-in filesystem and HTTP loaders structural and separates
+their transport settings from reader settings:
+
+```yaml
+# schema 2
+loader:
+  entrypoint: core.io
+  args:
+    transport: fs
+    format: csv
+    path: prices.csv
+    delimiter: ","
+
+# schema 3
+loader:
+  transport: fs
+  path: prices.csv
+  reader:
+    format: csv
+    delimiter: ","
+```
+
+The same move applies to `encoding`, `error_prefixes`, and JSON `array_field`.
+Existing source-dependent artifacts become stale and rebuild when next selected;
+do not change `artifact_revision` solely for this migration.
 
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
@@ -356,24 +384,26 @@ parser:
   # Parser entry point name (registered in your plugin’s pyproject.toml).
   entrypoint: stooq.ohlcv
 loader:
-  # Most common loader: core.io (supports fs/http via args.transport + args.format).
-  entrypoint: core.io
-  args:
-    transport: http
+  transport: http
+  url: "https://stooq.com/q/d/l/?s=aapl.us&i=d"
+  headers:
+    Authorization: "Bearer ${env:STOOQ_API_KEY}"
+  reader:
     format: csv
-    url: "https://stooq.com/q/d/l/?s=aapl.us&i=d"
-    headers:
-      Authorization: "Bearer ${env:STOOQ_API_KEY}"
 ```
 
 - `id`: the source alias; referenced by source-backed streams under `from.source`.
 - `parser.entrypoint`: which parser to use; `parser.args` are optional.
-- `loader.entrypoint`: which loader to use; `core.io` is the default for fs/http,
-  accepts CSV, JSON, JSONL, and local filesystem Parquet, and is configured via
-  `loader.args`.
+- `loader.transport` says where built-in input comes from (`fs` or `http`).
+  Custom loaders instead declare `loader.entrypoint` and optional `loader.args`.
+- `loader.reader.format` says how that input becomes raw rows: `csv`, `json`,
+  `jsonl`, or local `parquet`. The parser then converts each raw row to the
+  source value consumed by streams. Text readers accept `encoding`;
+  CSV also accepts `delimiter` and `error_prefixes`, while JSON accepts
+  `array_field`.
 - `inputs.files`: optional project-relative regular files or glob patterns used
-  to track custom-loader inputs for artifact freshness. Local `core.io`
-  filesystem paths are tracked automatically. The list is order-insensitive;
+  to track custom-loader inputs for artifact freshness. Built-in filesystem
+  paths are tracked automatically. The list is order-insensitive;
   duplicate entries are rejected.
 - A filesystem `path` containing standard glob characters (`*`, `?`, `[`) loads
   every matching file in sorted order; a path without them loads one file.

@@ -27,7 +27,7 @@ def pipeline_definition(
         path=project_path,
         config=ProjectConfig.model_validate(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "artifact_revision": 1,
                 "paths": {
                     "streams": "streams",

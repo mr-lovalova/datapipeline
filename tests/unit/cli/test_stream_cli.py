@@ -69,11 +69,12 @@ def test_select_new_source_loader_uses_builtin_transport(monkeypatch) -> None:
         lambda *args, **kwargs: next(choices),
     )
 
-    loader_entrypoint, loader_args = _select_new_source_loader()
+    loader = _select_new_source_loader()
 
-    assert loader_entrypoint == "core.io"
-    assert loader_args["transport"] == "http"
-    assert loader_args["format"] == "json"
+    assert loader["transport"] == "http"
+    reader = loader["reader"]
+    assert isinstance(reader, dict)
+    assert reader["format"] == "json"
 
 
 def test_select_new_source_loader_accepts_custom_entrypoint(monkeypatch) -> None:
@@ -86,10 +87,9 @@ def test_select_new_source_loader_accepts_custom_entrypoint(monkeypatch) -> None
         lambda prompt: "custom.loader",
     )
 
-    loader_entrypoint, loader_args = _select_new_source_loader()
+    loader = _select_new_source_loader()
 
-    assert loader_entrypoint == "custom.loader"
-    assert loader_args == {}
+    assert loader == {"entrypoint": "custom.loader", "args": {}}
 
 
 def test_select_parser_plan_identity(monkeypatch) -> None:
@@ -277,8 +277,7 @@ def test_mapper_reuses_new_parser_dto_without_second_creation(monkeypatch) -> No
     parser_dto = PythonType("WeatherDTO", "example_pkg.dtos.weather_dto")
     source = SourceCreation(
         source_id="nasa.weather",
-        loader_entrypoint="core.io",
-        loader_args={},
+        loader={"entrypoint": "custom.loader", "args": {}},
         parser=ParserCreation("WeatherParser", parser_dto),
     )
 

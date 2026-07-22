@@ -84,8 +84,7 @@ class SourceReference:
 @dataclass(frozen=True)
 class SourceCreation:
     source_id: str
-    loader_entrypoint: str
-    loader_args: dict[str, object]
+    loader: dict[str, object]
     parser: ParserPlan
 
 
@@ -294,8 +293,7 @@ def execute_stream_plan(plan: StreamPlan) -> StreamPlanResult:
                     if isinstance(plan.source, SourceCreation):
                         create_source_yaml(
                             source_id=plan.source.source_id,
-                            loader_ep=plan.source.loader_entrypoint,
-                            loader_args=plan.source.loader_args,
+                            loader=plan.source.loader,
                             parser_ep=parser_entrypoint,
                             root=plan.root,
                             project_yaml=plan.project_yaml,

@@ -26,18 +26,20 @@ def _create_plugin(tmp_path: Path) -> Path:
 def test_create_source_scaffolds_into_default_dataset(tmp_path: Path) -> None:
     plugin_root = _create_plugin(tmp_path)
 
-    loader_ep, loader_args = default_loader_config("fs", "csv")
-    assert "glob" not in loader_args
+    loader = default_loader_config("fs", "csv")
+    assert "glob" not in loader
     create_source_yaml(
         source_id="demo.weather",
-        loader_ep=loader_ep,
-        loader_args=loader_args,
+        loader=loader,
         parser_ep="identity",
         root=plugin_root,
     )
 
     expected = plugin_root / "your-dataset" / "sources" / "demo.weather.yaml"
     assert expected.exists(), f"expected scaffolded source at {expected}"
+    document = yaml.safe_load(expected.read_text(encoding="utf-8"))
+    SourceConfig.model_validate(document)
+    assert document["loader"] == loader
 
 
 def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
@@ -45,8 +47,7 @@ def test_create_source_preserves_custom_source_id(tmp_path: Path) -> None:
 
     create_source_yaml(
         source_id="demo.weather.hourly",
-        loader_ep="custom.loader",
-        loader_args={},
+        loader={"entrypoint": "custom.loader", "args": {}},
         parser_ep="identity",
         root=plugin_root,
     )
@@ -61,8 +62,7 @@ def test_create_source_quotes_yaml_sensitive_entrypoints(tmp_path: Path) -> None
     plugin_root = _create_plugin(tmp_path)
     path = create_source_yaml(
         source_id="demo.weather",
-        loader_ep='custom"loader\\name',
-        loader_args={},
+        loader={"entrypoint": 'custom"loader\\name', "args": {}},
         parser_ep='custom"parser\\name',
         root=plugin_root,
     )
@@ -80,14 +80,61 @@ def test_default_loader_config_rejects_pickle_format() -> None:
         default_loader_config("fs", "pickle")
 
 
-def test_default_loader_config_builds_valid_parquet_source() -> None:
-    loader_ep, loader_args = default_loader_config("fs", "parquet")
+@pytest.mark.parametrize(
+    ("transport", "fmt", "reader"),
+    [
+        (
+            "fs",
+            "csv",
+            {
+                "format": "csv",
+                "encoding": "utf-8",
+                "delimiter": ",",
+            },
+        ),
+        ("fs", "json", {"format": "json", "encoding": "utf-8"}),
+        ("fs", "jsonl", {"format": "jsonl", "encoding": "utf-8"}),
+        ("fs", "parquet", {"format": "parquet"}),
+        (
+            "http",
+            "csv",
+            {
+                "format": "csv",
+                "encoding": "utf-8",
+                "delimiter": ",",
+            },
+        ),
+        ("http", "json", {"format": "json", "encoding": "utf-8"}),
+        ("http", "jsonl", {"format": "jsonl", "encoding": "utf-8"}),
+    ],
+)
+def test_default_loader_config_builds_builtin_source(
+    transport: str,
+    fmt: str,
+    reader: dict[str, object],
+) -> None:
+    loader = default_loader_config(transport, fmt)
 
-    assert loader_ep == "core.io"
-    assert loader_args == {
-        "transport": "fs",
-        "format": "parquet",
-        "path": "<PATH OR GLOB>",
+    if transport == "fs":
+        assert loader == {
+            "transport": "fs",
+            "path": "<PATH OR GLOB>",
+            "reader": reader,
+        }
+    else:
+        assert loader == {
+            "transport": "http",
+            "url": "<https://api.example.com/data.json>",
+            "headers": {},
+            "params": {},
+            "reader": reader,
+        }
+
+
+def test_default_loader_config_preserves_synthetic_loader() -> None:
+    assert default_loader_config("synthetic", None) == {
+        "entrypoint": "core.synthetic.ticks",
+        "args": {"start": "<ISO8601>", "end": "<ISO8601>", "frequency": "1h"},
     }
 
 
@@ -105,8 +152,7 @@ def test_create_source_refuses_to_replace_existing_config(tmp_path: Path) -> Non
     plugin_root = _create_plugin(tmp_path)
     path = create_source_yaml(
         source_id="demo.weather",
-        loader_ep="custom.loader",
-        loader_args={},
+        loader={"entrypoint": "custom.loader", "args": {}},
         parser_ep="identity",
         root=plugin_root,
     )
@@ -115,8 +161,7 @@ def test_create_source_refuses_to_replace_existing_config(tmp_path: Path) -> Non
     with pytest.raises(FileExistsError, match="demo.weather.yaml"):
         create_source_yaml(
             source_id="demo.weather",
-            loader_ep="different.loader",
-            loader_args={"changed": True},
+            loader={"entrypoint": "different.loader", "args": {"changed": True}},
             parser_ep="custom.parser",
             root=plugin_root,
         )
@@ -147,8 +192,7 @@ def test_create_source_rejects_existing_id_in_another_root(tmp_path: Path) -> No
     with pytest.raises(FileExistsError, match="Source id 'demo.weather'"):
         create_source_yaml(
             source_id="demo.weather",
-            loader_ep="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser_ep="identity",
             root=plugin_root,
             project_yaml=project_yaml,
@@ -171,18 +215,15 @@ def test_create_source_does_not_validate_unrelated_source_values(
         "id: demo.existing\n"
         "parser: {entrypoint: identity}\n"
         "loader:\n"
-        "  entrypoint: core.io\n"
-        "  args:\n"
-        "    transport: ${env:SECRET}\n"
-        "    format: jsonl\n"
-        "    path: data.jsonl\n",
+        "  transport: ${env:SECRET}\n"
+        "  path: data.jsonl\n"
+        "  reader: {format: jsonl}\n",
         encoding="utf-8",
     )
 
     path = create_source_yaml(
         source_id="demo.weather",
-        loader_ep="custom.loader",
-        loader_args={},
+        loader={"entrypoint": "custom.loader", "args": {}},
         parser_ep="identity",
         root=plugin_root,
         project_yaml=project_yaml,
@@ -204,8 +245,7 @@ def test_create_source_rejects_unsafe_source_id(
     with pytest.raises(ValueError, match="source_id"):
         create_source_yaml(
             source_id=source_id,
-            loader_ep="custom.loader",
-            loader_args={},
+            loader={"entrypoint": "custom.loader", "args": {}},
             parser_ep="identity",
             root=plugin_root,
         )

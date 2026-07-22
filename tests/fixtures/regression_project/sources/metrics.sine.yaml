@@ -4,8 +4,7 @@ parser:
   entrypoint: core.temporal_record
   args: {}
 loader:
-  entrypoint: "core.io"
-  args:
-    transport: fs
+  transport: fs
+  path: data/sine_subhour.jsonl
+  reader:
     format: jsonl
-    path: data/sine_subhour.jsonl
