@@ -115,7 +115,7 @@ class ExecutionEventFormatter:
         if isinstance(event, PipelineSummary):
             return f"[{event.pipeline_name}] {event.summary}"
         if isinstance(event, PipelineStarted):
-            return f"[{event.pipeline_name}] started nodes={event.node_count}"
+            return f"[{event.pipeline_name}] started"
         if isinstance(event, PipelineProgress):
             return (
                 f"[{event.pipeline_name}] running "

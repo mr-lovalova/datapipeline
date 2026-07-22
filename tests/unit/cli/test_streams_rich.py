@@ -133,7 +133,7 @@ def _node_progress(
 def _info_progress(*node_names: str) -> tuple[Progress, _ExecutionProgress]:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=False)
-    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20", node_count=4))
+    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
     for node_index, node_name in enumerate(node_names):
         _start_node(renderer, node_index, node_name)
     return progress, renderer
@@ -258,7 +258,7 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
         get_time=lambda: now,
     )
     renderer = _ExecutionProgress(progress, debug=False)
-    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20", node_count=4))
+    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
     _start_node(renderer, 0, "order_records")
 
     now = 10.0
@@ -311,7 +311,7 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
 def test_debug_progress_shows_root_and_active_nodes() -> None:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=True)
-    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20", node_count=4))
+    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
     _start_node(renderer, 0, "order_records")
     _start_node(renderer, 1, "open_source")
     _start_node(
@@ -364,13 +364,12 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
 def test_root_pipeline_finish_clears_progress_and_remains_a_static_event() -> None:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=False)
-    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20", node_count=4))
+    renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
 
     with patch.object(progress, "refresh", wraps=progress.refresh) as refresh:
         renderer.handle(
             PipelineFinished(
                 pipeline_name="stream:adv.20",
-                node_count=4,
                 status="success",
                 output_items=100,
                 elapsed_seconds=1,
@@ -414,7 +413,7 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
         "Operation serve:dataset 0:00:10 · last report: write_output · 2,592,885 rows"
     )
 
-    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0", node_count=5))
+    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0"))
     assert [task.description for task in progress.tasks] == [
         "Operation serve:dataset",
         "[dataset:fold_0]",
@@ -422,7 +421,6 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     renderer.handle(
         PipelineFinished(
             pipeline_name="dataset:fold_0",
-            node_count=5,
             status="success",
             output_items=100,
             elapsed_seconds=1,
@@ -430,7 +428,7 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     )
     assert [task.description for task in progress.tasks] == ["Operation serve:dataset"]
 
-    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1", node_count=5))
+    renderer.handle(PipelineStarted(pipeline_name="dataset:fold_1"))
     assert [task.description for task in progress.tasks] == [
         "Operation serve:dataset",
         "[dataset:fold_1]",
@@ -565,10 +563,9 @@ def test_rich_renderer_persists_root_pipeline_lifecycle() -> None:
     console, output = _console()
     progress_renderer = _CaptureRenderer()
     renderer = _RichExecutionRenderer(logging.INFO, console, progress_renderer)
-    root = PipelineStarted(pipeline_name="stream:adv.20", node_count=4)
+    root = PipelineStarted(pipeline_name="stream:adv.20")
     root_finished = PipelineFinished(
         pipeline_name="stream:adv.20",
-        node_count=4,
         status="success",
         output_items=100,
         elapsed_seconds=1,
@@ -580,7 +577,7 @@ def test_rich_renderer_persists_root_pipeline_lifecycle() -> None:
 
     assert progress_renderer.events == events
     assert output.getvalue().splitlines() == [
-        "[stream:adv.20] started nodes=4",
+        "[stream:adv.20] started",
         "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
     ]
 
@@ -618,10 +615,9 @@ def test_rich_renderer_renders_operation_sequence_once_and_in_order() -> None:
         ExecutionMessage(
             message='Config:\n{"stream": "adv.20"}', log_level=logging.DEBUG
         ),
-        PipelineStarted(pipeline_name="stream:adv.20", node_count=1),
+        PipelineStarted(pipeline_name="stream:adv.20"),
         PipelineFinished(
             pipeline_name="stream:adv.20",
-            node_count=1,
             status="success",
             output_items=10,
             elapsed_seconds=1,
@@ -704,7 +700,6 @@ def test_rich_renderer_styles_only_final_status() -> None:
     success = renderer._render_event(
         PipelineFinished(
             pipeline_name="stream:adv.20",
-            node_count=4,
             status="success",
             output_items=100,
             elapsed_seconds=1,

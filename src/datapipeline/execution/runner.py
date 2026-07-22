@@ -252,7 +252,6 @@ def _run_observed(
         observer(
             PipelineStarted(
                 pipeline_name=pipeline.name,
-                node_count=pipeline.node_count,
             )
         )
         if pipeline.summary:
@@ -315,7 +314,6 @@ def _run_observed(
                 observer(
                     PipelineFinished(
                         pipeline_name=pipeline.name,
-                        node_count=pipeline.node_count,
                         output_items=progress.output_items,
                         elapsed_seconds=time.perf_counter() - start_time,
                         status=status,

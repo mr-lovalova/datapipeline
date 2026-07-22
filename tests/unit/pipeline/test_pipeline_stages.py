@@ -280,12 +280,12 @@ class _StubSource:
 
 class _PipelineStarts:
     def __init__(self) -> None:
-        self.starts: list[tuple[str, int]] = []
+        self.starts: list[str] = []
         self.nodes: list[str] = []
 
     def __call__(self, event: PipelineEvent) -> None:
         if isinstance(event, PipelineStarted):
-            self.starts.append((event.pipeline_name, event.node_count))
+            self.starts.append(event.pipeline_name)
         elif isinstance(event, NodeStarted):
             self.nodes.append(event.node_name)
 
@@ -1551,7 +1551,7 @@ def test_variable_record_sort_is_part_of_the_observed_stream_pipeline(
 
     materialize_variable_records(runtime, VariableRecordsTask())
 
-    assert observer.starts == [("variable_records:stream", 5)]
+    assert observer.starts == ["variable_records:stream"]
     assert "project_variable_records" in observer.nodes
     assert "order_variable_records" in observer.nodes
 

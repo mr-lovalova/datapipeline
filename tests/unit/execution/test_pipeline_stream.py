@@ -180,7 +180,7 @@ def test_run_starts_lazily(tmp_path: Path) -> None:
     assert next(stream) == 1
     assert opened == ["source"]
     assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="lazy", node_count=1)
+        PipelineStarted(pipeline_name="lazy")
     ]
     stream.close()
 
@@ -239,7 +239,7 @@ def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
         "scale": (2, 2, "success"),
     }
     assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="numbers", node_count=3)
+        PipelineStarted(pipeline_name="numbers")
     ]
     assert observer.pipeline_summaries == [
         PipelineSummary(pipeline_name="numbers", summary="filter then scale")
@@ -327,7 +327,7 @@ def test_pipeline_only_observation_skips_node_instrumentation(tmp_path: Path) ->
 
     assert list(run_pipeline(context, pipeline)) == [2, 4]
     assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="pipeline-only", node_count=2)
+        PipelineStarted(pipeline_name="pipeline-only")
     ]
     assert observer.pipeline_summaries == [
         PipelineSummary(pipeline_name="pipeline-only", summary="two stages")

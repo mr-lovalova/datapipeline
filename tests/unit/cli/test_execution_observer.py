@@ -75,9 +75,9 @@ class _CaptureHandler:
             "Command serve finished status=error elapsed=2.500000s",
         ),
         (
-            PipelineStarted(pipeline_name="pipeline", node_count=2),
+            PipelineStarted(pipeline_name="pipeline"),
             logging.INFO,
-            "[pipeline] started nodes=2",
+            "[pipeline] started",
         ),
         (
             PipelineSummary(
@@ -99,7 +99,6 @@ class _CaptureHandler:
         (
             PipelineFinished(
                 pipeline_name="pipeline",
-                node_count=2,
                 status="success",
                 output_items=3,
                 elapsed_seconds=0.5,
@@ -178,7 +177,6 @@ def test_typed_execution_event_formatting(event, level, message) -> None:
 def test_failed_terminal_events_are_errors() -> None:
     event = PipelineFinished(
         pipeline_name="pipeline",
-        node_count=1,
         status="error",
         output_items=0,
         elapsed_seconds=1,
@@ -193,7 +191,7 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
     observer = make_pipeline_observer(logger)
 
     with caplog.at_level(logging.INFO, logger=logger.name):
-        observer(PipelineStarted(pipeline_name="stream:prices", node_count=2))
+        observer(PipelineStarted(pipeline_name="stream:prices"))
         observer(
             PipelineSummary(
                 pipeline_name="stream:prices",
@@ -203,7 +201,6 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
         observer(
             PipelineFinished(
                 pipeline_name="stream:prices",
-                node_count=2,
                 output_items=3,
                 elapsed_seconds=0.02,
                 status="success",
@@ -211,7 +208,7 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
         )
 
     assert [record.getMessage() for record in caplog.records] == [
-        "[stream:prices] started nodes=2",
+        "[stream:prices] started",
         "[stream:prices] transport=fs.file file=prices",
         "[stream:prices] finished status=success items=3 elapsed=0.020000s",
     ]
@@ -314,7 +311,6 @@ def test_observer_includes_error_details_on_failure(caplog) -> None:
         observer(
             PipelineFinished(
                 pipeline_name="dataset",
-                node_count=3,
                 output_items=0,
                 elapsed_seconds=0.5,
                 status="error",
@@ -340,11 +336,10 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
     try:
         observer = make_pipeline_observer(logger=logger)
         with caplog.at_level(logging.INFO, logger=logger.name):
-            observer(PipelineStarted(pipeline_name="dataset", node_count=3))
+            observer(PipelineStarted(pipeline_name="dataset"))
             observer(
                 PipelineFinished(
                     pipeline_name="dataset",
-                    node_count=3,
                     output_items=1,
                     elapsed_seconds=0.5,
                     status="success",
@@ -358,7 +353,7 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
         PipelineFinished,
     ]
     assert [record.getMessage() for record in caplog.records] == [
-        "[dataset] started nodes=3",
+        "[dataset] started",
         "[dataset] finished status=success items=1 elapsed=0.500000s",
     ]
 
@@ -369,7 +364,7 @@ def test_context_handler_is_resolved_when_each_event_is_emitted(caplog) -> None:
     token = set_current_execution_event_handler(capture)
     try:
         observer = make_pipeline_observer(logger=logger)
-        observer(PipelineStarted(pipeline_name="dataset", node_count=3))
+        observer(PipelineStarted(pipeline_name="dataset"))
     finally:
         reset_current_execution_event_handler(token)
 
@@ -377,7 +372,6 @@ def test_context_handler_is_resolved_when_each_event_is_emitted(caplog) -> None:
         observer(
             PipelineFinished(
                 pipeline_name="dataset",
-                node_count=3,
                 output_items=1,
                 elapsed_seconds=0.5,
                 status="success",

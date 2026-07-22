@@ -8,7 +8,6 @@ RunStatus = Literal["success", "error"]
 @dataclass(frozen=True, kw_only=True)
 class PipelineStarted:
     pipeline_name: str
-    node_count: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,7 +93,6 @@ class NodeFinished:
 @dataclass(frozen=True, kw_only=True)
 class PipelineFinished:
     pipeline_name: str
-    node_count: int
     output_items: int
     elapsed_seconds: float
     status: RunStatus
