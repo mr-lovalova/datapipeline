@@ -16,7 +16,7 @@ from datapipeline.runtime import (
 )
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
-from datapipeline.sources.models.source import Source
+from datapipeline.sources.source import Source
 
 
 class _PipelineObserver:

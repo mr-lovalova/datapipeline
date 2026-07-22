@@ -71,9 +71,9 @@ from datapipeline.runtime import (
     SourceRuntimeStream,
 )
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
-from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
-from datapipeline.sources.models.source import Source
+from datapipeline.sources.source import Source
 from datapipeline.utils.time import parse_cadence
 from datapipeline.artifacts.variable_records import (
     VariableShard,

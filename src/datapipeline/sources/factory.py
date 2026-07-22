@@ -12,14 +12,13 @@ from datapipeline.config.sources import (
 )
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
-from datapipeline.sources.data_loader import DataLoader
 from datapipeline.sources.decoders import (
     CsvDecoder,
     Decoder,
     JsonDecoder,
     JsonLinesDecoder,
 )
-from datapipeline.sources.models.loader import BaseDataLoader
+from datapipeline.sources.loader import BaseDataLoader, DataLoader
 from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.sources.ports import SourceTransport
 

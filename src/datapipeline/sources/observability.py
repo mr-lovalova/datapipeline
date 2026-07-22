@@ -7,10 +7,10 @@ from datapipeline.execution.events import ProgressResource, ProgressSnapshot
 from datapipeline.execution.node import NodeProgressReader
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
-from datapipeline.sources.data_loader import DataLoader
-from datapipeline.sources.models.source import Source
+from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.parquet_loader import ParquetLoader
 from datapipeline.sources.ports import SourceTransport
+from datapipeline.sources.source import Source
 
 
 def source_progress(

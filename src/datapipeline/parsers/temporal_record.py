@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.sources.models.parser import DataParser
+from datapipeline.sources.parser import DataParser
 from datapipeline.utils.time import parse_datetime
 
 

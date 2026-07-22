@@ -3,9 +3,9 @@ import pyarrow.parquet as parquet
 
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
-from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.decoders import CsvDecoder, JsonLinesDecoder
-from datapipeline.sources.models.source import Source
+from datapipeline.sources.source import Source
 from datapipeline.sources.observability import (
     source_progress,
     source_summary,

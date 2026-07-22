@@ -11,7 +11,7 @@ from datapipeline.config.sources import (
 from datapipeline.plugins import LOADERS_EP, MAPPERS_EP, PARSERS_EP
 from datapipeline.services.path_policy import resolve_relative_fs_loader_path
 from datapipeline.sources.factory import build_builtin_loader
-from datapipeline.sources.models.source import Source
+from datapipeline.sources.source import Source
 from datapipeline.utils.load import load_ep
 from datapipeline.utils.placeholders import normalize_args
 

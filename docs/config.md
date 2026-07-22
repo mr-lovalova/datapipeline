@@ -122,6 +122,24 @@ The same move applies to `encoding`, `error_prefixes`, and JSON `array_field`.
 Existing source-dependent artifacts become stale and rebuild when next selected;
 do not change `artifact_revision` solely for this migration.
 
+Custom source plugins must also update their Python imports:
+
+```python
+# schema 2 / Jerry 6
+from datapipeline.sources.models.loader import BaseDataLoader
+from datapipeline.sources.models.parser import DataParser
+
+# schema 3 / Jerry 7
+from datapipeline.sources.loader import BaseDataLoader
+from datapipeline.sources.parser import DataParser
+```
+
+Generative loaders can implement the structural `RowGenerator` contract and
+adapt it with `GeneratorLoader`, both from `datapipeline.sources.loader`.
+Less commonly imported runtime types moved from `sources.models.source.Source`
+to `sources.source.Source` and from `sources.models.parsing_error.ParsingError`
+to `sources.parser.ParsingError`.
+
 ### Serve Profiles (`profiles/serve.<name>.yaml`)
 
 ```yaml

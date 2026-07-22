@@ -14,7 +14,7 @@ from datapipeline.config.sources import (
 )
 from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.adapters.http import HttpTransport
-from datapipeline.sources.data_loader import DataLoader
+from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.decoders import JsonDecoder, JsonLinesDecoder
 from datapipeline.sources.factory import build_builtin_loader
 from datapipeline.sources.ports import SourceResource, SourceTransport

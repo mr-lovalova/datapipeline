@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from datapipeline.sources.models.parser import DataParser
+from datapipeline.sources.parser import DataParser
 
 from demo.dtos.sandbox_ohlcv_dto import SandboxOhlcvDTO
 

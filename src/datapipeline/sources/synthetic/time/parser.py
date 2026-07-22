@@ -1,7 +1,7 @@
 from typing import Any
 
 from datapipeline.domain.record import TemporalRecord
-from datapipeline.sources.models.parser import DataParser
+from datapipeline.sources.parser import DataParser
 
 
 class TimeRowParser(DataParser[TemporalRecord]):

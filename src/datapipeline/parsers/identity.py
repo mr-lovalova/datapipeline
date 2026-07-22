@@ -1,6 +1,6 @@
 from typing import Any
 
-from datapipeline.sources.models.parser import DataParser
+from datapipeline.sources.parser import DataParser
 
 
 class IdentityParser(DataParser[Any]):

@@ -2,7 +2,7 @@ import glob
 from collections.abc import Iterator
 from typing import Any
 
-from datapipeline.sources.models.loader import BaseDataLoader, SourceProgressUnit
+from datapipeline.sources.loader import BaseDataLoader, SourceProgressUnit
 
 
 DEFAULT_BATCH_ROWS = 65_536

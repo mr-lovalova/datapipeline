@@ -1,13 +1,12 @@
 from collections.abc import Iterator
 from typing import Any
 
-from datapipeline.sources.models.generator import DataGenerator
-from datapipeline.sources.models.loader import SyntheticLoader
+from datapipeline.sources.loader import GeneratorLoader
 from datapipeline.utils.placeholders import coalesce_missing
 from datapipeline.utils.time import parse_datetime, parse_timecode
 
 
-class TimeTicksGenerator(DataGenerator):
+class TimeTicksGenerator:
     def __init__(self, start: str, end: str, frequency: str | None = "1h"):
         self.start = parse_datetime(start)
         self.end = parse_datetime(end)
@@ -28,7 +27,7 @@ def make_time_loader(
     start: str,
     end: str,
     frequency: str | None = "1h",
-) -> SyntheticLoader:
+) -> GeneratorLoader:
     """Build a bounded synthetic time source."""
     start_value = coalesce_missing(start)
     end_value = coalesce_missing(end)
@@ -39,4 +38,7 @@ def make_time_loader(
             "synthetic time loader requires non-null start and end; "
             "set explicit project.globals.start_time/end_time or override source.loader.args."
         )
-    return SyntheticLoader(TimeTicksGenerator(start_value, end_value, frequency_value))
+    return GeneratorLoader(
+        TimeTicksGenerator(start_value, end_value, frequency_value),
+        progress_unit="ticks",
+    )

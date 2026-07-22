@@ -1,8 +1,17 @@
-from typing import Any
+from abc import ABC, abstractmethod
+from typing import Any, Generic, TypeVar
+
+
+TRecord = TypeVar("TRecord")
+
+
+class DataParser(ABC, Generic[TRecord]):
+    @abstractmethod
+    def parse(self, raw: Any) -> TRecord | None: ...
 
 
 class ParsingError(Exception):
-    """Raised when a single row fails to parse."""
+    """Raised when a single source row fails to parse."""
 
     def __init__(
         self,
@@ -20,8 +29,6 @@ class ParsingError(Exception):
             else "Failed to parse row: "
         )
         message = prefix + repr(row)
-
         if original_exc is not None:
             message += f" (caused by {type(original_exc).__name__}: {original_exc})"
-
         super().__init__(message)
