@@ -277,7 +277,7 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
         for segment in console.render(row, console.options)
         if "0:00:10" in segment.text
     )
-    assert str(timer.style) == "cyan"
+    assert timer.style is None
     assert _render_progress_row(order_records).startswith(
         "[stream:adv.20/order_records] 0:00:10"
     )

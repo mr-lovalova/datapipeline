@@ -60,10 +60,7 @@ class _ProgressRowColumn(ProgressColumn):
         row.add_column(min_width=7, no_wrap=True)
         cells: list[RenderableType] = [
             Text(task.description, no_wrap=True, overflow="ellipsis"),
-            Text(
-                str(timedelta(seconds=int(task.elapsed or 0))),
-                style="cyan",
-            ),
+            Text(str(timedelta(seconds=int(task.elapsed or 0)))),
         ]
         status = task.fields["status"]
         if task.total is not None:
