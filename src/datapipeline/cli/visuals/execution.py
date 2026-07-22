@@ -137,7 +137,7 @@ class ExecutionEventFormatter:
         if isinstance(event, OperationProgress):
             return (
                 f"Operation {event.name} · {event.step} · running "
-                f"elapsed={event.step_elapsed_seconds:.0f}s "
+                f"reported_at={int(event.reported_at_seconds)}s "
                 f"{event.unit}={event.completed}"
             )
         if isinstance(event, NodeFinished):

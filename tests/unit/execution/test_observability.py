@@ -21,7 +21,7 @@ from datapipeline.execution.observability import (
 
 
 def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -> None:
-    times = iter((3.0, 4.25))
+    times = iter((3.0, 4.0, 4.25))
     monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
     events: list[OperationEvent] = []
     observer = events.append
@@ -29,7 +29,7 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
     assert current_operation_observer() is None
     assert emit_file_result("Output", Path("/tmp/out.jsonl")) is False
     assert emit_rows_written("train", 3) is False
-    assert emit_operation_progress("outside", 1, 1, "rows") is False
+    assert emit_operation_progress("outside", 1, "rows") is False
 
     with operation_observer(observer):
         assert current_operation_observer() is observer
@@ -39,7 +39,7 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
             Path("/tmp/model_grid.jsonl"),
         )
         with operation_scope("build:model_grid"):
-            assert emit_operation_progress("write", 1, 3, "rows")
+            assert emit_operation_progress("write", 3, "rows")
 
     assert current_operation_observer() is None
     assert events == [
@@ -49,7 +49,7 @@ def test_observer_routes_operation_lifecycle_results_and_progress(monkeypatch) -
         OperationProgress(
             name="build:model_grid",
             step="write",
-            step_elapsed_seconds=1,
+            reported_at_seconds=1,
             completed=3,
             unit="rows",
         ),
@@ -73,7 +73,7 @@ def test_operation_scope_emits_failure_and_restores_progress_context(
             with operation_scope("serve:test"):
                 raise ValueError("  bad input  ")
 
-        assert emit_operation_progress("after", 1, 1, "rows") is False
+        assert emit_operation_progress("after", 1, "rows") is False
 
     assert events == [
         OperationStarted("serve:test"),
@@ -92,15 +92,14 @@ def test_operation_progress_tracker_preserves_interval_counts_and_unit(
 ) -> None:
     times = iter((0.0, 0.5, 1.0, 1.4, 2.1))
     monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
-    emitted: list[tuple[str, float, int, str]] = []
+    emitted: list[tuple[str, int, str]] = []
 
     def capture_progress(
         step: str,
-        elapsed_seconds: float,
         completed: int,
         unit: str,
     ) -> bool:
-        emitted.append((step, elapsed_seconds, completed, unit))
+        emitted.append((step, completed, unit))
         return True
 
     monkeypatch.setattr(observability, "emit_operation_progress", capture_progress)
@@ -112,8 +111,8 @@ def test_operation_progress_tracker_preserves_interval_counts_and_unit(
     progress.advance()
 
     assert emitted == [
-        ("write", 1.0, 3, "rows"),
-        ("write", 2.1, 8, "rows"),
+        ("write", 3, "rows"),
+        ("write", 8, "rows"),
     ]
 
 

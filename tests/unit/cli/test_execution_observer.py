@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import datapipeline.execution.observability as observability
 from datapipeline.cli.visuals.execution import (
     ExecutionEventFormatter,
     ExecutionMessage,
@@ -138,12 +139,12 @@ class _CaptureHandler:
             OperationProgress(
                 name="build:schema",
                 step="write",
-                step_elapsed_seconds=1,
+                reported_at_seconds=1.9,
                 completed=3,
                 unit="rows",
             ),
             logging.INFO,
-            "Operation build:schema · write · running elapsed=1s rows=3",
+            "Operation build:schema · write · running reported_at=1s rows=3",
         ),
         (
             OperationStarted("serve:dataset"),
@@ -407,7 +408,12 @@ def test_emit_execution_message_logs_without_context_handler(caplog) -> None:
     assert getattr(caplog.records[-1], "dp_event_kind", None) == "execution"
 
 
-def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> None:
+def test_operation_scope_emits_flat_lifecycle_result_and_progress(
+    caplog,
+    monkeypatch,
+) -> None:
+    times = iter((0.0, 1.0, 1.25))
+    monkeypatch.setattr(observability.time, "perf_counter", lambda: next(times))
     capture = _CaptureHandler()
     logger = logging.getLogger("datapipeline.cli.visuals.execution.test.operation")
     token = set_current_execution_event_handler(capture)
@@ -418,7 +424,6 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
                 assert emit_file_result("Model grid", Path("/tmp/model_grid.jsonl"))
                 assert emit_operation_progress(
                     "write_artifact",
-                    1,
                     3,
                     "rows",
                 )
@@ -437,7 +442,8 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(caplog) -> Non
     assert "Operation build:model_grid started" in messages
     assert "Model grid: /tmp/model_grid.jsonl" in messages
     assert (
-        "Operation build:model_grid · write_artifact · running elapsed=1s rows=3"
+        "Operation build:model_grid · write_artifact · running "
+        "reported_at=1s rows=3"
         in messages
     )
     assert messages[-1].startswith("Operation build:model_grid finished status=success")

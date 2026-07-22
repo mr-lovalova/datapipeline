@@ -396,7 +396,7 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
         OperationProgress(
             name="serve:dataset",
             step="write_output",
-            step_elapsed_seconds=5,
+            reported_at_seconds=5.9,
             completed=2_592_885,
             unit="rows",
         )
@@ -405,12 +405,15 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     operation = progress.tasks[0]
     assert operation.description == "Operation serve:dataset"
     status = operation.fields["status"]
-    assert status.plain == "last report: write_output · 2,592,885 rows"
+    assert status.plain == (
+        "last report at 0:00:05 · write_output · 2,592,885 rows"
+    )
     assert [
         (status.plain[span.start : span.end], str(span.style)) for span in status.spans
     ] == [("2,592,885", "cyan")]
     assert _render_progress_row(operation) == (
-        "Operation serve:dataset 0:00:10 · last report: write_output · 2,592,885 rows"
+        "Operation serve:dataset 0:00:10 · last report at 0:00:05 · "
+        "write_output · 2,592,885 rows"
     )
 
     renderer.handle(PipelineStarted(pipeline_name="dataset:fold_0"))
@@ -447,7 +450,9 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
     progress.add_task(
         "Operation serve:dataset",
         total=None,
-        status=Text("last report: write_output · 1,974,178 rows"),
+        status=Text(
+            "last report at 0:03:00 · write_output · 1,974,178 rows"
+        ),
     )
     progress.add_task(
         "[dataset:fold_1/vector_assemble]",
@@ -460,7 +465,7 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
 
     lines = output.getvalue().splitlines()
     assert len(lines) == 2
-    assert "Operation serve:dataset 0:00:00 · last report:" in lines[0]
+    assert "Operation serve:dataset 0:00:00 · last report at 0:03:00" in lines[0]
     assert "0:00:00" in lines[1]
     assert "━" in lines[1]
     assert "emitting" in lines[1]
@@ -660,7 +665,7 @@ def test_rich_renderer_renders_operation_header_and_keeps_progress_live() -> Non
     progress = OperationProgress(
         name="materialize:adv.20",
         step="write_output",
-        step_elapsed_seconds=60,
+        reported_at_seconds=60,
         completed=100,
         unit="rows",
     )

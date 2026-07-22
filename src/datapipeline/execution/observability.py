@@ -20,7 +20,7 @@ class OperationStarted:
 class OperationProgress:
     name: str
     step: str
-    step_elapsed_seconds: float
+    reported_at_seconds: float
     completed: int
     unit: str
 
@@ -59,12 +59,18 @@ OperationEvent = (
 OperationObserver = Callable[[OperationEvent], None]
 
 
+@dataclass(frozen=True)
+class _OperationContext:
+    name: str
+    started_at: float
+
+
 _CURRENT_OPERATION_OBSERVER: ContextVar[OperationObserver | None] = ContextVar(
     "datapipeline_current_operation_observer",
     default=None,
 )
-_CURRENT_OPERATION_NAME: ContextVar[str | None] = ContextVar(
-    "datapipeline_current_operation_name",
+_CURRENT_OPERATION: ContextVar[_OperationContext | None] = ContextVar(
+    "datapipeline_current_operation",
     default=None,
 )
 
@@ -85,10 +91,10 @@ def operation_observer(observer: OperationObserver):
 @contextmanager
 def operation_scope(name: str):
     observer = current_operation_observer()
-    started_at = time.perf_counter()
+    context = _OperationContext(name, time.perf_counter())
     if observer is not None:
         observer(OperationStarted(name))
-    token = _CURRENT_OPERATION_NAME.set(name)
+    token = _CURRENT_OPERATION.set(context)
     try:
         yield
     except BaseException as exc:
@@ -97,7 +103,7 @@ def operation_scope(name: str):
                 OperationFinished(
                     name=name,
                     status="error",
-                    elapsed_seconds=time.perf_counter() - started_at,
+                    elapsed_seconds=time.perf_counter() - context.started_at,
                     error_type=type(exc).__name__,
                     error_message=str(exc),
                 )
@@ -109,11 +115,11 @@ def operation_scope(name: str):
                 OperationFinished(
                     name=name,
                     status="success",
-                    elapsed_seconds=time.perf_counter() - started_at,
+                    elapsed_seconds=time.perf_counter() - context.started_at,
                 )
             )
     finally:
-        _CURRENT_OPERATION_NAME.reset(token)
+        _CURRENT_OPERATION.reset(token)
 
 
 def emit_file_result(
@@ -137,19 +143,18 @@ def emit_rows_written(output_id: str, row_count: int) -> bool:
 
 def emit_operation_progress(
     step: str,
-    step_elapsed_seconds: float,
     completed: int,
     unit: str,
 ) -> bool:
-    name = _CURRENT_OPERATION_NAME.get()
+    context = _CURRENT_OPERATION.get()
     observer = current_operation_observer()
-    if name is None or observer is None:
+    if context is None or observer is None:
         return False
     observer(
         OperationProgress(
-            name=name,
+            name=context.name,
             step=step,
-            step_elapsed_seconds=step_elapsed_seconds,
+            reported_at_seconds=time.perf_counter() - context.started_at,
             completed=completed,
             unit=unit,
         )
@@ -165,8 +170,7 @@ class OperationProgressTracker:
         self._step = step
         self._unit = unit
         self._interval_seconds = interval
-        self._started_at = time.perf_counter()
-        self._last_emit_at = self._started_at
+        self._last_emit_at = time.perf_counter()
         self._completed = 0
 
     def advance(self, count: int = 1) -> None:
@@ -177,5 +181,4 @@ class OperationProgressTracker:
         if now - self._last_emit_at < self._interval_seconds:
             return
         self._last_emit_at = now
-        elapsed = now - self._started_at
-        emit_operation_progress(self._step, elapsed, self._completed, self._unit)
+        emit_operation_progress(self._step, self._completed, self._unit)

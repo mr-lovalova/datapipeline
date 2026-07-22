@@ -134,8 +134,9 @@ class _ExecutionProgress:
             raise RuntimeError("Cannot update operation progress before it starts")
         if self._operation_name != event.name:
             raise RuntimeError("Operation progress updated out of order")
+        reported_at = timedelta(seconds=int(event.reported_at_seconds))
         status = Text.assemble(
-            f"last report: {event.step} · ",
+            f"last report at {reported_at} · {event.step} · ",
             (f"{event.completed:,}", "cyan"),
             f" {event.unit}",
         )
