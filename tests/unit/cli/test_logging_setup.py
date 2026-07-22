@@ -22,6 +22,7 @@ from datapipeline.cli.visuals.execution_context import (
     set_current_execution_event_handler,
     set_current_terminal_log_handler,
 )
+from datapipeline.cli.visuals.rich.progress import visual_summary
 from datapipeline.execution.observability import (
     CommandFinished,
     emit_file_result,
@@ -151,8 +152,7 @@ def test_operation_heartbeat_stays_in_file_during_visuals(
 
     content = log_path.read_text(encoding="utf-8")
     heartbeat = (
-        "Operation serve:dataset · write_output · running "
-        "reported_at=180s rows=2592885"
+        "Operation serve:dataset · write_output · running reported_at=180s rows=2592885"
     )
     assert content.count(heartbeat) == 1
     assert len(handler.events) == 3
@@ -287,6 +287,38 @@ def test_configure_root_logging_suppresses_terminal_execution_events_during_visu
     rendered = stream.getvalue()
     assert "plain log line" in rendered
     assert "Pipeline started name=demo" not in rendered
+
+
+def test_visual_command_summary_is_rendered_and_logged_once(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    stream = io.StringIO()
+    log_path = tmp_path / "command.log"
+    monkeypatch.setattr(sys, "stderr", stream)
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.rich_visuals_supported",
+        lambda: True,
+    )
+    configure_root_logging(
+        level=logging.INFO,
+        output=LogOutputSettings(
+            outputs=(
+                LogOutputTarget(transport="stderr"),
+                LogOutputTarget(transport="fs", destination=log_path),
+            )
+        ),
+    )
+    event = CommandFinished("serve", "success", 1.5)
+    logger = logging.getLogger("datapipeline.tests.logging_setup.command_visual")
+
+    with visual_summary(logging.INFO, enabled=True):
+        route_execution_event(event, logger)
+    _flush_root_handlers()
+
+    message = "Command serve finished status=success elapsed=1.500000s"
+    assert stream.getvalue().count(message) == 1
+    assert log_path.read_text(encoding="utf-8") == f"{message}\n"
 
 
 def test_configure_root_logging_keeps_execution_events_in_file_during_visuals(

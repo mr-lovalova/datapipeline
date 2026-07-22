@@ -13,6 +13,8 @@ per active node. File-backed sources include the current file and position
 (`2/17`). Determinate bars appear only when the item total is known; otherwise
 the timer and current activity remain visible. Visuals are independent of log
 filtering.
+The final command summary uses the same Rich styling when any selected command
+phase has visuals enabled.
 
 ### Preview Stages
 

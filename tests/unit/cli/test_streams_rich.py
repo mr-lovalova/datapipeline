@@ -30,6 +30,7 @@ from datapipeline.cli.visuals.rich.progress import (
     _RichExecutionRenderer,
     rich_visuals_supported,
     visual_execution,
+    visual_summary,
 )
 from datapipeline.execution.events import (
     NodeFinished,
@@ -42,6 +43,7 @@ from datapipeline.execution.events import (
     ProgressSnapshot,
 )
 from datapipeline.execution.observability import (
+    CommandFinished,
     FileResult,
     OperationFinished,
     OperationProgress,
@@ -405,9 +407,7 @@ def test_operation_progress_stays_live_across_sequential_pipelines() -> None:
     operation = progress.tasks[0]
     assert operation.description == "Operation serve:dataset"
     status = operation.fields["status"]
-    assert status.plain == (
-        "last report at 0:00:05 · write_output · 2,592,885 rows"
-    )
+    assert status.plain == ("last report at 0:00:05 · write_output · 2,592,885 rows")
     assert [
         (status.plain[span.start : span.end], str(span.style)) for span in status.spans
     ] == [("2,592,885", "cyan")]
@@ -450,9 +450,7 @@ def test_determinate_progress_stays_on_one_line_at_standard_width() -> None:
     progress.add_task(
         "Operation serve:dataset",
         total=None,
-        status=Text(
-            "last report at 0:03:00 · write_output · 1,974,178 rows"
-        ),
+        status=Text("last report at 0:03:00 · write_output · 1,974,178 rows"),
     )
     progress.add_task(
         "[dataset:fold_1/vector_assemble]",
@@ -718,8 +716,16 @@ def test_rich_renderer_styles_only_final_status() -> None:
             error_type="ValueError",
         )
     )
+    command_success = renderer._render_event(CommandFinished("serve", "success", 1))
+    command_error = renderer._render_event(CommandFinished("serve", "error", 1))
 
-    assert success.style == operation_error.style == ""
+    assert (
+        success.style
+        == operation_error.style
+        == command_success.style
+        == command_error.style
+        == ""
+    )
     assert [
         (success.plain[span.start : span.end], str(span.style))
         for span in success.spans
@@ -727,6 +733,14 @@ def test_rich_renderer_styles_only_final_status() -> None:
     assert [
         (operation_error.plain[span.start : span.end], str(span.style))
         for span in operation_error.spans
+    ] == [("status=error", "red")]
+    assert [
+        (command_success.plain[span.start : span.end], str(span.style))
+        for span in command_success.spans
+    ] == [("status=success", "green")]
+    assert [
+        (command_error.plain[span.start : span.end], str(span.style))
+        for span in command_error.spans
     ] == [("status=error", "red")]
 
 
@@ -796,6 +810,56 @@ def test_visual_execution_restores_existing_context(monkeypatch) -> None:
     finally:
         reset_current_terminal_log_handler(log_token)
         reset_current_execution_event_handler(event_token)
+
+
+def test_visual_summary_uses_a_stateless_renderer_and_restores_context(
+    monkeypatch,
+) -> None:
+    console, output = _console()
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.Console",
+        lambda **_kwargs: console,
+    )
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.rich_visuals_supported",
+        lambda: True,
+    )
+
+    def fail_progress(*_args, **_kwargs):
+        raise AssertionError("A command summary must not start live progress")
+
+    monkeypatch.setattr(
+        "datapipeline.cli.visuals.rich.progress.Progress",
+        fail_progress,
+    )
+
+    def previous_handler(_event) -> None:
+        pass
+
+    token = set_current_execution_event_handler(previous_handler)
+    try:
+        with visual_summary(logging.INFO, enabled=True):
+            handler = current_execution_event_handler()
+            assert handler is not None
+            assert handler is not previous_handler
+            handler(CommandFinished("serve", "success", 1.5))
+        assert current_execution_event_handler() is previous_handler
+
+        with visual_summary(logging.INFO, enabled=False):
+            assert current_execution_event_handler() is previous_handler
+
+        monkeypatch.setattr(
+            "datapipeline.cli.visuals.rich.progress.rich_visuals_supported",
+            lambda: False,
+        )
+        with visual_summary(logging.INFO, enabled=True):
+            assert current_execution_event_handler() is previous_handler
+    finally:
+        reset_current_execution_event_handler(token)
+
+    assert output.getvalue() == (
+        "Command serve finished status=success elapsed=1.500000s\n"
+    )
 
 
 def test_visual_execution_releases_file_proxies_before_process_shutdown() -> None:

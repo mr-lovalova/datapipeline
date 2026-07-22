@@ -354,6 +354,20 @@ def rich_visuals_supported() -> bool:
 
 
 @contextmanager
+def visual_summary(log_level: int, enabled: bool):
+    if not enabled or not rich_visuals_supported():
+        yield
+        return
+    console = Console(file=sys.stderr, markup=False, highlight=False)
+    renderer = _RichExecutionRenderer(log_level, console)
+    event_token = set_current_execution_event_handler(renderer.render)
+    try:
+        yield
+    finally:
+        reset_current_execution_event_handler(event_token)
+
+
+@contextmanager
 def visual_execution(log_level: int):
     console = Console(file=sys.stderr, markup=False, highlight=False)
     debug = log_level <= logging.DEBUG

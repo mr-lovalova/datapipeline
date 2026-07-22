@@ -1,5 +1,6 @@
 import json
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -79,18 +80,20 @@ _LOG_OUTPUT = LogOutputSettings(outputs=())
 def _artifact_settings(
     mode: str = "AUTO",
     heartbeat_interval_seconds: float | None = None,
+    visuals: str = "off",
 ) -> BuildSettings:
     return BuildSettings(
         mode=mode,
-        observability=_observability(heartbeat_interval_seconds),
+        observability=_observability(heartbeat_interval_seconds, visuals),
     )
 
 
 def _observability(
     heartbeat_interval_seconds: float | None = None,
+    visuals: str = "off",
 ) -> ObservabilitySettings:
     return ObservabilitySettings(
-        visuals="off",
+        visuals=visuals,
         heartbeat_interval_seconds=heartbeat_interval_seconds,
         log_decision=_LOG_DECISION,
         log_output=_LOG_OUTPUT,
@@ -300,6 +303,52 @@ def test_run_profiles_emits_one_command_summary(monkeypatch, tmp_path: Path) -> 
         CommandFinished("serve", "success", 1.0),
         CommandFinished("inspect", "success", 1.0),
         CommandFinished("materialize", "success", 1.0),
+    ]
+
+
+def test_run_profiles_renders_command_summary_inside_command_visuals(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    task = MetadataTask(id="metadata")
+    request = _build_request(
+        tmp_path,
+        [task],
+        [BuildJob(task, _artifact_settings(visuals="on"))],
+    )
+    times = iter((0.0, 1.0))
+    calls = []
+
+    @contextmanager
+    def visual_summary(_level, enabled):
+        assert enabled
+        calls.append("enter")
+        yield
+        calls.append("exit")
+
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.time.perf_counter",
+        lambda: next(times),
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration._run_build_profiles",
+        lambda _request: None,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.visual_summary",
+        visual_summary,
+    )
+    monkeypatch.setattr(
+        "datapipeline.profiles.orchestration.route_execution_event",
+        lambda event, _logger: calls.append(event),
+    )
+
+    run_profiles(request)
+
+    assert calls == [
+        "enter",
+        CommandFinished("build", "success", 1.0),
+        "exit",
     ]
 
 

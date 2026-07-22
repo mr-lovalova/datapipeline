@@ -10,6 +10,7 @@ from datapipeline.artifacts.planning import (
 )
 from datapipeline.artifacts.series import prune_series_cache
 from datapipeline.cli.visuals.execution import route_execution_event
+from datapipeline.cli.visuals.rich.progress import visual_summary
 from datapipeline.config.tasks import SeriesTask
 from datapipeline.execution.events import RunStatus
 from datapipeline.execution.observability import CommandFinished
@@ -48,6 +49,14 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+def _command_uses_visuals(request: ProfileRunRequest) -> bool:
+    if isinstance(request, BuildRunRequest):
+        return any(job.settings.observability.visuals == "on" for job in request.jobs)
+    return request.artifact_settings.observability.visuals == "on" or any(
+        job.observability.visuals == "on" for job in request.jobs
+    )
+
+
 def run_profiles(request: ProfileRunRequest) -> None:
     started_at = time.perf_counter()
     status: RunStatus = "error"
@@ -70,14 +79,15 @@ def run_profiles(request: ProfileRunRequest) -> None:
     else:
         status = "success"
     finally:
-        route_execution_event(
-            CommandFinished(
-                command=request.command,
-                status=status,
-                elapsed_seconds=time.perf_counter() - started_at,
-            ),
-            logger,
-        )
+        with visual_summary(logger.getEffectiveLevel(), _command_uses_visuals(request)):
+            route_execution_event(
+                CommandFinished(
+                    command=request.command,
+                    status=status,
+                    elapsed_seconds=time.perf_counter() - started_at,
+                ),
+                logger,
+            )
 
 
 def _prune_series_caches(request: ProfileRunRequest) -> None:
