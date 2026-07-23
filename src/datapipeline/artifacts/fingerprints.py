@@ -18,7 +18,7 @@ from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    StatsTask,
+    CoverageStatsTask,
     TicksTask,
     SeriesTask,
 )
@@ -203,13 +203,13 @@ def _artifact_inputs(
             source_ids,
         )
 
-    if isinstance(task, StatsTask) and task.stage == "postprocessed":
+    if isinstance(task, CoverageStatsTask) and task.stage == "postprocessed":
         return {"postprocess": dataset.postprocess.model_dump(mode="json")}, set()
 
     if isinstance(task, MetadataTask):
         return {"metadata_format_version": VECTOR_METADATA_VERSION}, set()
 
-    if isinstance(task, StatsTask):
+    if isinstance(task, CoverageStatsTask):
         return {}, set()
 
     # Plugin artifacts receive the full Runtime and declare no input contract.

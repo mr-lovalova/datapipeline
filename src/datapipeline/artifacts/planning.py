@@ -9,7 +9,7 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     SERIES,
     VECTOR_METADATA,
-    VECTOR_STATS,
+    COVERAGE_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
 )
@@ -201,7 +201,7 @@ class ArtifactGraph:
                 return declared | dataset_tick_artifacts
             return declared | {VECTOR_METADATA}
         if isinstance(task, CoverageTask):
-            return declared | {VECTOR_STATS}
+            return declared | {COVERAGE_STATS}
         if isinstance(task, MatrixTask):
             return declared | {VECTOR_METADATA}
         return declared

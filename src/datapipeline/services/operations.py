@@ -2,6 +2,7 @@ from typing import Any
 
 from datapipeline.config.tasks import (
     ArtifactTask,
+    CoverageStatsTask,
     CoverageTask,
     DatasetTask,
     MatrixTask,
@@ -9,7 +10,6 @@ from datapipeline.config.tasks import (
     RuntimeTask,
     ScalerTask,
     SeriesTask,
-    StatsTask,
     Task,
     TicksTask,
 )
@@ -25,7 +25,7 @@ CORE_OPERATION_MODELS: dict[str, type[Task]] = {
     "scaler": ScalerTask,
     "series": SeriesTask,
     "metadata": MetadataTask,
-    "stats": StatsTask,
+    "coverage_stats": CoverageStatsTask,
     "dataset": DatasetTask,
     "coverage": CoverageTask,
     "matrix": MatrixTask,
@@ -39,7 +39,7 @@ CORE_ARTIFACT_IDS_BY_ENTRYPOINT = {
     "core.artifact.scaler": "scaler",
     "core.artifact.series": "series",
     "core.artifact.metadata": "metadata",
-    "core.artifact.stats": "stats",
+    "core.artifact.coverage_stats": "coverage_stats",
 }
 
 

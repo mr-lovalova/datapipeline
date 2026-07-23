@@ -13,7 +13,7 @@ from datapipeline.artifacts.settings import BuildSettings
 from datapipeline.artifacts.specs import (
     SERIES,
     VECTOR_METADATA,
-    VECTOR_STATS,
+    COVERAGE_STATS,
 )
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
@@ -33,7 +33,7 @@ from datapipeline.config.tasks import (
     MetadataTask,
     RuntimeTask,
     SeriesTask,
-    StatsTask,
+    CoverageStatsTask,
     TicksTask,
 )
 from datapipeline.execution.observability import CommandFinished
@@ -418,14 +418,14 @@ def test_run_profiles_preserves_process_control_exceptions(
 def test_build_order_accepts_configured_dependency_order() -> None:
     series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    stats = StatsTask(id="stats", stage="postprocessed")
-    graph = build_artifact_graph([series, metadata, stats])
+    coverage_stats = CoverageStatsTask(id="coverage_stats", stage="postprocessed")
+    graph = build_artifact_graph([series, metadata, coverage_stats])
 
     _validate_build_order(
         [
             BuildJob(series, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
-            BuildJob(stats, _artifact_settings()),
+            BuildJob(coverage_stats, _artifact_settings()),
         ],
         graph,
     )
@@ -465,24 +465,24 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
 ) -> None:
     series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    stats = StatsTask(id="stats", stage="postprocessed")
+    coverage_stats = CoverageStatsTask(id="coverage_stats", stage="postprocessed")
     vector_runtime = _runtime(tmp_path, "vector-runtime")
     metadata_runtime = _runtime(tmp_path, "metadata-runtime")
-    stats_runtime = _runtime(tmp_path, "stats-runtime")
+    coverage_stats_runtime = _runtime(tmp_path, "coverage-stats-runtime")
     execution = ExecutionConfig(sort_buffer_mb=32)
     request = _build_request(
         tmp_path,
-        [series, metadata, stats],
+        [series, metadata, coverage_stats],
         [
             BuildJob(series, _artifact_settings()),
             BuildJob(metadata, _artifact_settings()),
-            BuildJob(stats, _artifact_settings("FORCE")),
+            BuildJob(coverage_stats, _artifact_settings("FORCE")),
         ],
         execution,
     )
     calls: list[dict[str, object]] = []
     execution_specs: list[ExecutionSpec] = []
-    runtimes = iter((vector_runtime, metadata_runtime, stats_runtime))
+    runtimes = iter((vector_runtime, metadata_runtime, coverage_stats_runtime))
 
     def build(_project, **kwargs):
         calls.append(dict(kwargs))
@@ -510,28 +510,28 @@ def test_build_jobs_keep_order_and_share_resolved_artifacts(
     assert [call["required_artifacts"] for call in calls] == [
         {SERIES},
         {VECTOR_METADATA},
-        {VECTOR_STATS},
+        {COVERAGE_STATS},
     ]
     assert [call["runtime"].marker for call in calls] == [
         "vector-runtime",
         "metadata-runtime",
-        "stats-runtime",
+        "coverage-stats-runtime",
     ]
     assert [call["settings"].mode for call in calls] == ["AUTO", "AUTO", "FORCE"]
     assert calls[0]["resolved_artifacts"] is calls[2]["resolved_artifacts"]
     assert calls[2]["resolved_artifacts"] == {
         SERIES,
         VECTOR_METADATA,
-        VECTOR_STATS,
+        COVERAGE_STATS,
     }
     assert [spec.runtime for spec in execution_specs] == [
         vector_runtime,
         metadata_runtime,
-        stats_runtime,
+        coverage_stats_runtime,
     ]
     assert vector_runtime.execution == execution
     assert metadata_runtime.execution == execution
-    assert stats_runtime.execution == execution
+    assert coverage_stats_runtime.execution == execution
 
 
 def test_runtime_artifact_union_is_prepared_once_before_jobs(

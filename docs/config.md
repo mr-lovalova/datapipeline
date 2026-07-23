@@ -75,7 +75,8 @@ globals:
 - `paths.operations` optionally points to `operations/*.yaml`. Omit it when the
   built-in operations are sufficient. When configured, the directory must exist.
   Core artifact operations are `scaler`, `series`, `metadata`, and
-  `stats`; core runtime operations are `dataset`, `coverage`, and `matrix`.
+  `coverage_stats`; core runtime operations are `dataset`, `coverage`, and
+  `matrix`.
   Files override core settings or declare custom operations.
 - `paths.profiles` points to profile specs grouped by type:
   `profiles/serve.<name>.yaml`, `profiles/build.<name>.yaml`,
@@ -274,8 +275,8 @@ mode: AUTO # AUTO | FORCE | "OFF"
 
 - Build profiles are orchestration profiles; they do not replace operation definitions.
 - `operation` selects the artifact operation ID for that profile (`metadata`,
-  `scaler`, `stats`, ...). Selected build profiles must reference distinct
-  operations.
+  `scaler`, `coverage_stats`, ...). Selected build profiles must reference
+  distinct operations.
 - Build profile `observability.logging.outputs[].path` values are resolved relative to the dataset project root (`project.yaml` directory).
 - `jerry build` runs enabled build profiles when they exist;
   `jerry build --profile <name>` selects one profile.
@@ -331,7 +332,7 @@ options:
   stage: assembled
   max_cells: 250000
 
-# operations/stats.yaml — optional summary-stage override
+# operations/coverage_stats.yaml — optional summary-stage override
 stage: assembled
 
 # operations/custom_report.yaml — custom operation
@@ -361,7 +362,8 @@ options: {}
     output are not accepted by other runtime operations.
   - `core.runtime.coverage`: optional `threshold` between `0` and `1`
     (default: `0.95`). Results are ordered from lowest to highest coverage.
-    Coverage reads a completed stats artifact, so it does not accept `--limit`.
+    Coverage reads a completed `coverage_stats` artifact, so it does not accept
+    `--limit`.
   - `core.runtime.matrix`: optional `stage: assembled|postprocessed` (default:
     `postprocessed`) and positive `max_cells` (default: `1000000`). The bound
     counts scalar cells and individual list elements. `jerry inspect --limit N`

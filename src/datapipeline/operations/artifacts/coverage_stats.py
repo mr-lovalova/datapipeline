@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from datapipeline.analysis.vector.stats import VectorStatsAccumulator
-from datapipeline.artifacts.models import VectorStatsArtifact
+from datapipeline.analysis.vector.coverage_stats import CoverageStatsAccumulator
+from datapipeline.artifacts.models import CoverageStatsArtifact
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
-from datapipeline.config.tasks import StatsTask
+from datapipeline.config.tasks import CoverageStatsTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.pipelines.dataset.postprocess import build_postprocess_plan
@@ -12,9 +12,9 @@ from datapipeline.runtime import Runtime
 from datapipeline.utils.json_artifact import write_json_artifact
 
 
-def materialize_vector_stats(
+def build_coverage_stats_artifact(
     runtime: Runtime,
-    task_cfg: StatsTask,
+    task_cfg: CoverageStatsTask,
 ) -> ArtifactOutput:
     dataset = runtime.dataset
     context = PipelineContext(runtime)
@@ -37,8 +37,8 @@ def materialize_vector_stats(
         target_entries = plan.target_entries
         samples = plan.apply(samples)
 
-    feature_stats = VectorStatsAccumulator(feature_entries)
-    target_stats = VectorStatsAccumulator(target_entries)
+    feature_accumulator = CoverageStatsAccumulator(feature_entries)
+    target_accumulator = CoverageStatsAccumulator(target_entries)
     total_samples = 0
     empty_samples = 0
     try:
@@ -47,19 +47,19 @@ def materialize_vector_stats(
             target_values = sample.targets.values if sample.targets is not None else {}
             if not sample.features.values and not target_values:
                 empty_samples += 1
-            feature_stats.update(sample.features.values)
-            target_stats.update(target_values)
+            feature_accumulator.update(sample.features.values)
+            target_accumulator.update(target_values)
     finally:
         close = getattr(samples, "close", None)
         if callable(close):
             close()
 
-    artifact = VectorStatsArtifact(
+    artifact = CoverageStatsArtifact(
         stage=task_cfg.stage,
         total_samples=total_samples,
         empty_samples=empty_samples,
-        features=feature_stats.finish(),
-        targets=target_stats.finish(),
+        features=feature_accumulator.finish(),
+        targets=target_accumulator.finish(),
     )
     relative_path = Path(task_cfg.output)
     destination = (runtime.artifacts_root / relative_path).resolve()

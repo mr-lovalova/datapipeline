@@ -1,12 +1,12 @@
 from typing import Any
 
 from datapipeline.artifacts.models import (
-    ListVectorColumnStats,
-    VectorBaseStats,
-    VectorColumnStats,
-    VectorStatsSection,
+    CoverageBaseStats,
+    CoverageColumnStats,
+    CoverageStatsSection,
+    ListCoverageColumnStats,
 )
-from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
+from datapipeline.artifacts.registry import COVERAGE_STATS_SPEC
 from datapipeline.config.tasks import CoverageTask
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.persistence import RuntimeOutput
@@ -29,7 +29,7 @@ def _availability(
 
 
 def _base_metric(
-    entry: VectorBaseStats,
+    entry: CoverageBaseStats,
     total_samples: int,
 ) -> dict[str, Any]:
     return {
@@ -43,7 +43,7 @@ def _base_metric(
 
 
 def _column_metric(
-    entry: VectorColumnStats,
+    entry: CoverageColumnStats,
     total_samples: int,
 ) -> dict[str, Any]:
     metric = {
@@ -56,7 +56,7 @@ def _column_metric(
             total_samples,
         ),
     }
-    if isinstance(entry, ListVectorColumnStats):
+    if isinstance(entry, ListCoverageColumnStats):
         opportunities = total_samples * entry.length
         metric.update(
             {
@@ -72,7 +72,7 @@ def _column_metric(
 
 
 def _section_report(
-    section: VectorStatsSection,
+    section: CoverageStatsSection,
     total_samples: int,
     threshold: float,
 ) -> dict[str, Any]:
@@ -97,22 +97,22 @@ def run_coverage_operation(
     task: CoverageTask,
 ) -> RuntimeOutput:
     options = task.options
-    stats = PipelineContext(runtime).require_artifact(VECTOR_STATS_SPEC)
+    coverage_stats = PipelineContext(runtime).require_artifact(COVERAGE_STATS_SPEC)
     return RuntimeOutput(
         payload={
             "report": "coverage",
-            "stage": stats.stage,
+            "stage": coverage_stats.stage,
             "threshold": options.threshold,
-            "total_samples": stats.total_samples,
-            "empty_samples": stats.empty_samples,
+            "total_samples": coverage_stats.total_samples,
+            "empty_samples": coverage_stats.empty_samples,
             "features": _section_report(
-                stats.features,
-                stats.total_samples,
+                coverage_stats.features,
+                coverage_stats.total_samples,
                 options.threshold,
             ),
             "targets": _section_report(
-                stats.targets,
-                stats.total_samples,
+                coverage_stats.targets,
+                coverage_stats.total_samples,
                 options.threshold,
             ),
         }

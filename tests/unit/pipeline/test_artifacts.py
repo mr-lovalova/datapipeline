@@ -13,7 +13,7 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     SERIES,
     VECTOR_METADATA,
-    VECTOR_STATS,
+    COVERAGE_STATS,
     ArtifactDefinition,
     dataset_requires_scaler,
 )
@@ -36,7 +36,7 @@ from datapipeline.config.tasks import (
     RuntimeTask,
     ScalerTask,
     SeriesTask,
-    StatsTask,
+    CoverageStatsTask,
     TicksTask,
 )
 from datapipeline.plugins import BUILD_OPERATIONS_EP
@@ -81,7 +81,7 @@ def test_artifact_keys_match_task_ids():
         [
             MetadataTask(id="metadata"),
             ScalerTask(id="scaler"),
-            StatsTask(id="stats", stage="assembled"),
+            CoverageStatsTask(id="coverage_stats", stage="assembled"),
             SeriesTask(id="series"),
         ]
     )
@@ -89,26 +89,26 @@ def test_artifact_keys_match_task_ids():
     assert graph.declared_artifact_keys() == {
         VECTOR_METADATA,
         SCALER_STATISTICS,
-        VECTOR_STATS,
+        COVERAGE_STATS,
         SERIES,
     }
 
 
 @pytest.mark.parametrize("stage", ["assembled", "postprocessed"])
-def test_stats_build_selects_metadata_dependency_chain(stage):
+def test_coverage_stats_build_selects_metadata_dependency_chain(stage):
     graph = build_artifact_graph(
         [
-            StatsTask(id="stats", stage=stage),
+            CoverageStatsTask(id="coverage_stats", stage=stage),
             MetadataTask(id="metadata"),
             SeriesTask(id="series"),
             ScalerTask(id="scaler"),
         ]
     )
 
-    keys = set(graph.dependency_closure({"stats"}))
+    keys = set(graph.dependency_closure({"coverage_stats"}))
 
     assert keys == {
-        VECTOR_STATS,
+        COVERAGE_STATS,
         VECTOR_METADATA,
         SERIES,
     }
@@ -176,7 +176,7 @@ def test_tick_artifacts_feed_scaler_and_series() -> None:
         SCALER_STATISTICS,
         SERIES,
         VECTOR_METADATA,
-        VECTOR_STATS,
+        COVERAGE_STATS,
     }
 
 
@@ -686,12 +686,12 @@ def test_invalid_dataset_preview_is_rejected_for_empty_dataset() -> None:
         )
 
 
-def test_runtime_dependency_closure_uses_stats_task_stage():
+def test_runtime_dependency_closure_uses_coverage_stats_task_stage():
     graph = build_artifact_graph(
         [
             SeriesTask(id="series"),
             MetadataTask(id="metadata"),
-            StatsTask(id="stats", stage="assembled"),
+            CoverageStatsTask(id="coverage_stats", stage="assembled"),
         ]
     )
     task = CoverageTask(id="coverage")
@@ -701,7 +701,7 @@ def test_runtime_dependency_closure_uses_stats_task_stage():
         task,
         preview=None,
         dataset=dataset,
-    ) == (SERIES, VECTOR_METADATA, VECTOR_STATS)
+    ) == (SERIES, VECTOR_METADATA, COVERAGE_STATS)
 
 
 @pytest.mark.parametrize(
@@ -711,7 +711,7 @@ def test_runtime_dependency_closure_uses_stats_task_stage():
         ("postprocessed", (SERIES, VECTOR_METADATA)),
     ],
 )
-def test_matrix_uses_vector_artifacts_without_stats(stage, expected) -> None:
+def test_matrix_uses_vector_artifacts_without_coverage_stats(stage, expected) -> None:
     graph = build_artifact_graph(
         [
             SeriesTask(id="series"),
@@ -887,7 +887,10 @@ def test_artifact_definitions_have_runner_bound_entrypoints():
     task_by_id = {
         "metadata": MetadataTask(id="metadata"),
         "scaler": ScalerTask(id="scaler"),
-        "stats": StatsTask(id="stats", stage="postprocessed"),
+        "coverage_stats": CoverageStatsTask(
+            id="coverage_stats",
+            stage="postprocessed",
+        ),
         "series": SeriesTask(id="series"),
     }
     for definition in ARTIFACT_DEFINITIONS:

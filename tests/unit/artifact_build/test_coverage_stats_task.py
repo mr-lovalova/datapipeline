@@ -5,11 +5,13 @@ from datapipeline.artifacts.models import VectorMetadata
 from datapipeline.artifacts.specs import VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.series import SeriesConfig
-from datapipeline.config.tasks import StatsTask
+from datapipeline.config.tasks import CoverageStatsTask
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.pipeline import Stage
-from datapipeline.operations.artifacts.stats import materialize_vector_stats
+from datapipeline.operations.artifacts.coverage_stats import (
+    build_coverage_stats_artifact,
+)
 from datapipeline.pipelines.dataset.postprocess import PostprocessPlan
 from datapipeline.runtime import Runtime
 
@@ -87,7 +89,7 @@ def _postprocess_plan(*stages: Stage) -> PostprocessPlan:
     )
 
 
-def test_materialize_vector_stats_writes_bounded_v3_summary(
+def test_build_coverage_stats_artifact_writes_bounded_v3_summary(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -101,22 +103,23 @@ def test_materialize_vector_stats_writes_bounded_v3_summary(
         Sample(key=(_ts(2),), features=Vector(values={}), targets=Vector(values={})),
     ]
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
+        "datapipeline.operations.artifacts.coverage_stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.open_samples",
+        "datapipeline.operations.artifacts.coverage_stats.open_samples",
         lambda *_args, **_kwargs: iter(samples),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        "datapipeline.operations.artifacts.coverage_stats.build_postprocess_plan",
         lambda _context: _postprocess_plan(),
     )
 
-    result = materialize_vector_stats(
+    result = build_coverage_stats_artifact(
         runtime,
-        StatsTask(stage="postprocessed", output="build/stats.json"),
+        CoverageStatsTask(),
     )
 
+    assert result.relative_path == "build/coverage_stats.json"
     payload = json.loads(
         (runtime.artifacts_root / result.relative_path).read_text(encoding="utf-8")
     )
@@ -139,31 +142,36 @@ def test_materialize_vector_stats_writes_bounded_v3_summary(
     assert "group_feature_status" not in payload
 
 
-def test_assembled_stats_do_not_apply_postprocess(monkeypatch, tmp_path) -> None:
+def test_assembled_coverage_stats_do_not_apply_postprocess(
+    monkeypatch,
+    tmp_path,
+) -> None:
     runtime = _runtime(tmp_path)
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
+        "datapipeline.operations.artifacts.coverage_stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.open_samples",
+        "datapipeline.operations.artifacts.coverage_stats.open_samples",
         lambda *_args, **_kwargs: iter(()),
     )
 
     def fail_plan(*_args):
-        raise AssertionError("assembled stats must not build a postprocess plan")
+        raise AssertionError(
+            "assembled coverage stats must not build a postprocess plan"
+        )
 
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        "datapipeline.operations.artifacts.coverage_stats.build_postprocess_plan",
         fail_plan,
     )
 
-    materialize_vector_stats(
+    build_coverage_stats_artifact(
         runtime,
-        StatsTask(stage="assembled", output="build/stats.json"),
+        CoverageStatsTask(stage="assembled"),
     )
 
 
-def test_postprocessed_stats_keep_planned_columns_when_every_sample_is_dropped(
+def test_postprocessed_coverage_stats_keep_columns_when_every_sample_is_dropped(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -175,20 +183,20 @@ def test_postprocessed_stats_keep_planned_columns_when_every_sample_is_dropped(
     )
     drop_all = Stage(name="drop_all", apply=lambda _samples: iter(()))
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.PipelineContext", _Context
+        "datapipeline.operations.artifacts.coverage_stats.PipelineContext", _Context
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.open_samples",
+        "datapipeline.operations.artifacts.coverage_stats.open_samples",
         lambda *_args, **_kwargs: iter((sample,)),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.stats.build_postprocess_plan",
+        "datapipeline.operations.artifacts.coverage_stats.build_postprocess_plan",
         lambda _context: _postprocess_plan(drop_all),
     )
 
-    result = materialize_vector_stats(
+    result = build_coverage_stats_artifact(
         runtime,
-        StatsTask(stage="postprocessed", output="build/stats.json"),
+        CoverageStatsTask(),
     )
 
     payload = json.loads(

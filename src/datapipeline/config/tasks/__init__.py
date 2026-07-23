@@ -1,11 +1,11 @@
 from .base import ArtifactTask, RuntimeTask, Task
 from .coverage import CoverageOptions, CoverageTask
+from .coverage_stats import CoverageStatsTask
 from .dataset import DatasetTask
 from .matrix import MatrixOptions, MatrixTask
 from .metadata import MetadataTask
 from .scaler import ScalerTask
 from .series import SeriesTask
-from .stats import StatsTask
 from .ticks import TicksTask
 
 __all__ = [
@@ -13,6 +13,7 @@ __all__ = [
     "ArtifactTask",
     "RuntimeTask",
     "CoverageOptions",
+    "CoverageStatsTask",
     "CoverageTask",
     "DatasetTask",
     "MatrixOptions",
@@ -20,6 +21,5 @@ __all__ = [
     "MetadataTask",
     "ScalerTask",
     "SeriesTask",
-    "StatsTask",
     "TicksTask",
 ]

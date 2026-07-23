@@ -134,8 +134,8 @@ def test_inspect_profile_rejects_artifact_operation(tmp_path: Path, caplog):
     project_yaml = _write_project(tmp_path)
     profiles = tmp_path / "profiles"
     profiles.mkdir(parents=True, exist_ok=True)
-    (profiles / "inspect.stats.yaml").write_text(
-        "operation: stats\n",
+    (profiles / "inspect.coverage_stats.yaml").write_text(
+        "operation: coverage_stats\n",
         encoding="utf-8",
     )
 
@@ -144,7 +144,7 @@ def test_inspect_profile_rejects_artifact_operation(tmp_path: Path, caplog):
 
     assert exc.value.code == 2
     assert (
-        "must reference a runtime operation; 'stats' is an artifact operation"
+        "must reference a runtime operation; 'coverage_stats' is an artifact operation"
         in caplog.text
     )
 

@@ -15,7 +15,7 @@ from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     SERIES,
     VECTOR_METADATA,
-    VECTOR_STATS,
+    COVERAGE_STATS,
 )
 from datapipeline.build.state import (
     ArtifactFileFingerprint,
@@ -30,7 +30,7 @@ from datapipeline.config.tasks import (
     ArtifactTask,
     MetadataTask,
     ScalerTask,
-    StatsTask,
+    CoverageStatsTask,
     SeriesTask,
 )
 from datapipeline.execution.settings import (
@@ -609,7 +609,7 @@ def test_stale_dependency_rebuilds_current_dependent(
     assert plan.jobs[0].invalidated_artifacts == (
         SERIES,
         VECTOR_METADATA,
-        VECTOR_STATS,
+        COVERAGE_STATS,
     )
 
 
@@ -905,7 +905,7 @@ def test_execute_build_job_invalidates_only_graph_descendants(
             scaler,
             series,
             MetadataTask(id="metadata"),
-            StatsTask(id="stats", stage="postprocessed"),
+            CoverageStatsTask(id="coverage_stats", stage="postprocessed"),
             custom,
         ]
     )
@@ -934,7 +934,7 @@ def test_execute_build_job_invalidates_only_graph_descendants(
                 (
                     SERIES,
                     VECTOR_METADATA,
-                    VECTOR_STATS,
+                    COVERAGE_STATS,
                 ),
             ),
         ),
@@ -1080,8 +1080,8 @@ def test_run_build_hydrates_current_dependencies_before_job(
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    stats = StatsTask(id="stats", stage="assembled")
-    graph = build_artifact_graph([series, metadata, stats])
+    coverage_stats = CoverageStatsTask(id="coverage_stats", stage="assembled")
+    graph = build_artifact_graph([series, metadata, coverage_stats])
     state = BuildState()
     for task in (series, metadata):
         _register_artifact(
@@ -1094,8 +1094,8 @@ def test_run_build_hydrates_current_dependencies_before_job(
     runtime = _runtime(definition.project.artifacts_root)
 
     def build(runtime, task):
-        assert task == stats
-        assert task is not stats
+        assert task == coverage_stats
+        assert task is not coverage_stats
         assert runtime.artifacts.has(VECTOR_METADATA)
         return _build_artifact(runtime, task)
 
@@ -1104,7 +1104,7 @@ def test_run_build_hydrates_current_dependencies_before_job(
     did_build = build_exec.run_build_if_needed(
         definition,
         graph=graph,
-        required_artifacts={VECTOR_STATS},
+        required_artifacts={COVERAGE_STATS},
         settings=_build_settings(),
         runtime=runtime,
     )
@@ -1120,8 +1120,8 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
     definition = _definition(tmp_path, _dataset_with_feature(scale=False))
     series = SeriesTask(id="series")
     metadata = MetadataTask(id="metadata")
-    stats = StatsTask(id="stats", stage="postprocessed")
-    graph = build_artifact_graph([series, metadata, stats])
+    coverage_stats = CoverageStatsTask(id="coverage_stats", stage="postprocessed")
+    graph = build_artifact_graph([series, metadata, coverage_stats])
     state = BuildState()
     for task in (series, metadata):
         _register_artifact(
@@ -1152,14 +1152,14 @@ def test_force_build_preserves_artifacts_resolved_by_previous_profile(
     assert build_exec.run_build_if_needed(
         definition,
         graph=graph,
-        required_artifacts={VECTOR_STATS},
+        required_artifacts={COVERAGE_STATS},
         settings=_build_settings("FORCE"),
         runtime=runtime,
         resolved_artifacts=resolved,
     )
 
-    assert built == [VECTOR_STATS]
-    assert resolved == {SERIES, VECTOR_METADATA, VECTOR_STATS}
+    assert built == [COVERAGE_STATS]
+    assert resolved == {SERIES, VECTOR_METADATA, COVERAGE_STATS}
 
 
 def test_run_build_keeps_loaded_definition_when_config_changes(

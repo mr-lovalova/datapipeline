@@ -191,7 +191,7 @@ class VectorMetadata(BaseModel):
         return self
 
 
-class VectorBaseStats(BaseModel):
+class CoverageBaseStats(BaseModel):
     """Sample-level availability for one unpartitioned vector ID."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -207,15 +207,15 @@ class VectorBaseStats(BaseModel):
         return self
 
 
-class _VectorColumnStats(VectorBaseStats):
+class _CoverageColumnStats(CoverageBaseStats):
     base_id: str = Field(min_length=1)
 
 
-class ScalarVectorColumnStats(_VectorColumnStats):
+class ScalarCoverageColumnStats(_CoverageColumnStats):
     kind: Literal["scalar"]
 
 
-class ListVectorColumnStats(_VectorColumnStats):
+class ListCoverageColumnStats(_CoverageColumnStats):
     kind: Literal["list"]
     length: int = Field(strict=True, gt=0)
     observed_elements: int = Field(strict=True, ge=0)
@@ -232,35 +232,35 @@ class ListVectorColumnStats(_VectorColumnStats):
         return self
 
 
-VectorColumnStats = Annotated[
-    ScalarVectorColumnStats | ListVectorColumnStats,
+CoverageColumnStats = Annotated[
+    ScalarCoverageColumnStats | ListCoverageColumnStats,
     Field(discriminator="kind"),
 ]
 
 
-class VectorStatsSection(BaseModel):
+class CoverageStatsSection(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    bases: tuple[VectorBaseStats, ...] = ()
-    columns: tuple[VectorColumnStats, ...] = ()
+    bases: tuple[CoverageBaseStats, ...] = ()
+    columns: tuple[CoverageColumnStats, ...] = ()
 
     @model_validator(mode="after")
     def _validate_ids(self) -> Self:
         base_ids = [entry.id for entry in self.bases]
         if len(base_ids) != len(set(base_ids)):
-            raise ValueError("vector stats base IDs must be unique")
+            raise ValueError("coverage stats base IDs must be unique")
         column_ids = [entry.id for entry in self.columns]
         if len(column_ids) != len(set(column_ids)):
-            raise ValueError("vector stats column IDs must be unique")
+            raise ValueError("coverage stats column IDs must be unique")
         unknown_bases = {
             entry.base_id for entry in self.columns if entry.base_id not in base_ids
         }
         if unknown_bases:
-            raise ValueError("vector stats columns must reference declared base IDs")
+            raise ValueError("coverage stats columns must reference declared base IDs")
         return self
 
 
-class VectorStatsArtifact(BaseModel):
+class CoverageStatsArtifact(BaseModel):
     """Bounded summary of samples before or after postprocessing."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -269,8 +269,8 @@ class VectorStatsArtifact(BaseModel):
     stage: Literal["assembled", "postprocessed"]
     total_samples: int = Field(strict=True, ge=0)
     empty_samples: int = Field(strict=True, ge=0)
-    features: VectorStatsSection
-    targets: VectorStatsSection
+    features: CoverageStatsSection
+    targets: CoverageStatsSection
 
     @model_validator(mode="after")
     def _validate_counts_and_ids(self) -> Self:
@@ -280,12 +280,12 @@ class VectorStatsArtifact(BaseModel):
             for entry in (*section.bases, *section.columns):
                 if entry.present_samples > self.total_samples:
                     raise ValueError(
-                        "vector stats present_samples cannot exceed total_samples"
+                        "coverage stats present_samples cannot exceed total_samples"
                     )
         feature_ids = {entry.id for entry in self.features.columns}
         target_ids = {entry.id for entry in self.targets.columns}
         if feature_ids & target_ids:
             raise ValueError(
-                "vector stats column IDs must be unique across features and targets"
+                "coverage stats column IDs must be unique across features and targets"
             )
         return self

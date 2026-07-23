@@ -4,7 +4,7 @@ Core artifact operations are registered by Jerry and use these default outputs.
 Projects declare YAML only for overrides and custom operations:
 
 An artifact's registry key is its operation ID (`scaler`, `series`,
-`metadata`, or `stats`). Custom operation IDs come from their YAML
+`metadata`, or `coverage_stats`). Custom operation IDs come from their YAML
 filenames, such as `operations/model_grid.yaml`.
 
 - `build/series/manifest.json` plus compressed feature/target shards under
@@ -22,16 +22,17 @@ filenames, such as `operations/model_grid.yaml`.
 - `build/metadata.json`: the typed feature/target contract used during
   postprocess, including identifiers, scalar/list kinds, fixed list lengths,
   coverage counts, value types, sample domain, and resolved dataset window.
-- `build/stats.json`: bounded assembled or postprocessed availability counters
-  used by coverage inspection. It never stores per-sample status maps.
+- `build/coverage_stats.json`: bounded assembled or postprocessed availability
+  counters used by coverage inspection. It never stores per-sample status maps.
 - Tick operation outputs: named timestamp grids used by `ensure_ticks`
   transforms. Their output paths are operation-defined.
 
 The dependency graph is explicit: tick artifacts referenced by configured
 dataset streams feed the scaler and series artifacts; series feeds metadata;
-stats depends on metadata. Matrix inspection reads series directly and enforces
-a configured cell bound instead of expanding the stats artifact. Nested tick
-artifacts are rejected because that dependency is not yet representable safely.
+`coverage_stats` depends on metadata. Matrix inspection reads series directly
+and enforces a configured cell bound instead of expanding the `coverage_stats`
+artifact. Nested tick artifacts are rejected because that dependency is not
+yet representable safely.
 
 Coverage treats null values as uncovered. Base and scalar-column coverage is
 the number of non-null samples divided by total samples. List-column coverage
@@ -66,7 +67,26 @@ Jerry 7 renames the v6 `variable_records` artifact to `series`:
 The old build-state entry and `build/variable_records/` directory are ignored;
 `AUTO` builds the new artifact and its dependents. They may be deleted manually
 after the migration. Reinstall an editable checkout after upgrading so its
-entry-point metadata exposes `core.artifact.series`.
+entry-point metadata exposes the renamed core artifacts.
+
+Jerry 7 also renames the raw availability-counter artifact from `stats` to
+`coverage_stats`:
+
+- `operations/stats.yaml` becomes `operations/coverage_stats.yaml`.
+- `profiles/build.stats.yaml` becomes `profiles/build.coverage_stats.yaml`, and
+  its `operation` value becomes `coverage_stats`.
+- Custom dependencies use `requires: [coverage_stats]`.
+- `core.artifact.stats` becomes `core.artifact.coverage_stats`.
+- `build/stats.json` becomes `build/coverage_stats.json`.
+
+Python integrations likewise use `CoverageStatsTask`,
+`CoverageStatsArtifact`, `COVERAGE_STATS`, and `COVERAGE_STATS_SPEC`; the old
+names are removed.
+
+The runtime `coverage` operation and `inspect.coverage.yaml` profiles are
+unchanged. The old build-state entry and `build/stats.json` are ignored; `AUTO`
+builds the renamed artifact, while `OFF` requires it to exist first. The old
+file may be deleted manually after the migration.
 
 Jerry 6 also removes the separate `schema` artifact because `metadata` now owns
 the complete typed feature/target contract. Delete build profiles whose

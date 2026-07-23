@@ -93,7 +93,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.artifact.series" = "datapipeline.operations.artifacts.series:build_series_artifact"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
-"core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"
+"core.artifact.coverage_stats" = "datapipeline.operations.artifacts.coverage_stats:build_coverage_stats_artifact"
 "core.artifact.ticks" = "datapipeline.operations.artifacts.ticks:materialize_ticks"
 
 [tool.pytest.ini_options]

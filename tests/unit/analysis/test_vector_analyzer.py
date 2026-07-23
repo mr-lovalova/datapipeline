@@ -3,14 +3,14 @@ import json
 import pytest
 
 from datapipeline.analysis.vector.matrix import MatrixBuilder, render_matrix_html
-from datapipeline.analysis.vector.stats import VectorStatsAccumulator
+from datapipeline.analysis.vector.coverage_stats import CoverageStatsAccumulator
 from datapipeline.artifacts.models import (
-    ListVectorColumnStats,
+    ListCoverageColumnStats,
     ListVectorMetadataEntry,
     ScalarVectorMetadataEntry,
-    VectorStatsArtifact,
+    CoverageStatsArtifact,
 )
-from datapipeline.artifacts.registry import VECTOR_STATS_SPEC
+from datapipeline.artifacts.registry import COVERAGE_STATS_SPEC
 from datapipeline.operations.runtime.coverage import _section_report
 
 
@@ -38,8 +38,8 @@ def _sequence(identifier: str, base_id: str, length: int):
     )
 
 
-def test_stats_accumulator_keeps_only_bounded_counters() -> None:
-    accumulator = VectorStatsAccumulator(
+def test_coverage_stats_accumulator_keeps_only_bounded_counters() -> None:
+    accumulator = CoverageStatsAccumulator(
         (
             _scalar("speed__@station:A", "speed"),
             _scalar("speed__@station:B", "speed"),
@@ -75,15 +75,15 @@ def test_stats_accumulator_keeps_only_bounded_counters() -> None:
     assert not hasattr(accumulator, "group_feature_status")
 
 
-def test_stats_accumulator_rejects_metadata_drift() -> None:
-    accumulator = VectorStatsAccumulator((_scalar("speed", "speed"),))
+def test_coverage_stats_accumulator_rejects_metadata_drift() -> None:
+    accumulator = CoverageStatsAccumulator((_scalar("speed", "speed"),))
 
     with pytest.raises(ValueError, match="missing from metadata"):
         accumulator.update({"temperature": 4.0})
 
 
-def test_stats_accumulator_retains_declared_zero_count_columns() -> None:
-    accumulator = VectorStatsAccumulator(
+def test_coverage_stats_accumulator_retains_declared_zero_count_columns() -> None:
+    accumulator = CoverageStatsAccumulator(
         (_scalar("kept", "kept"), _scalar("removed", "removed"))
     )
     accumulator.update({"kept": None})
@@ -97,12 +97,12 @@ def test_stats_accumulator_retains_declared_zero_count_columns() -> None:
     assert removed.non_null_samples == 0
 
 
-def test_stats_v3_rejects_old_snapshots_and_impossible_list_counts() -> None:
+def test_coverage_stats_v3_rejects_old_snapshots_and_impossible_list_counts() -> None:
     with pytest.raises(ValueError, match="schema_version"):
-        VectorStatsArtifact.model_validate({"schema_version": 2})
+        CoverageStatsArtifact.model_validate({"schema_version": 2})
 
     with pytest.raises(ValueError, match="cannot exceed observed_elements"):
-        ListVectorColumnStats(
+        ListCoverageColumnStats(
             id="history",
             base_id="history",
             kind="list",
@@ -113,7 +113,7 @@ def test_stats_v3_rejects_old_snapshots_and_impossible_list_counts() -> None:
         )
 
     with pytest.raises(ValueError, match=r"present_samples \* length"):
-        ListVectorColumnStats(
+        ListCoverageColumnStats(
             id="history",
             base_id="history",
             kind="list",
@@ -124,16 +124,16 @@ def test_stats_v3_rejects_old_snapshots_and_impossible_list_counts() -> None:
         )
 
 
-def test_stats_artifact_loader_rejects_v2_with_rebuild_message(tmp_path) -> None:
-    path = tmp_path / "stats.json"
+def test_coverage_stats_loader_rejects_v2_with_rebuild_message(tmp_path) -> None:
+    path = tmp_path / "coverage_stats.json"
     path.write_text('{"schema_version": 2}', encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Rebuild stats in FORCE mode"):
-        VECTOR_STATS_SPEC.loader(path)
+    with pytest.raises(ValueError, match="Rebuild coverage_stats in FORCE mode"):
+        COVERAGE_STATS_SPEC.loader(path)
 
 
 def test_coverage_counts_nulls_and_missing_elements_as_uncovered() -> None:
-    accumulator = VectorStatsAccumulator(
+    accumulator = CoverageStatsAccumulator(
         (_scalar("speed", "speed"), _sequence("history", "history", 2))
     )
     accumulator.update({"speed": None, "history": [1.0, None]})

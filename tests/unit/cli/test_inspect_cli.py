@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from datapipeline.artifacts.models import VectorMetadata, VectorStatsArtifact
-from datapipeline.artifacts.specs import VECTOR_METADATA, VECTOR_STATS
+from datapipeline.artifacts.models import CoverageStatsArtifact, VectorMetadata
+from datapipeline.artifacts.specs import COVERAGE_STATS, VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import CoverageTask, MatrixTask
@@ -19,8 +19,8 @@ from datapipeline.operations.runtime import matrix as matrix_ops
 from datapipeline.pipelines.dataset.postprocess import PostprocessPlan
 
 
-def _stats() -> VectorStatsArtifact:
-    return VectorStatsArtifact.model_validate(
+def _coverage_stats() -> CoverageStatsArtifact:
+    return CoverageStatsArtifact.model_validate(
         {
             "schema_version": 3,
             "stage": "postprocessed",
@@ -74,8 +74,8 @@ class _CoverageContext:
         self.runtime = runtime
 
     def require_artifact(self, spec):
-        assert spec.key == VECTOR_STATS
-        return _stats()
+        assert spec.key == COVERAGE_STATS
+        return _coverage_stats()
 
 
 class _MatrixContext:
@@ -129,7 +129,10 @@ def _persist_result(result, target: OutputTarget | None) -> None:
     )
 
 
-def test_inspect_coverage_reads_typed_stats_artifact(monkeypatch, tmp_path) -> None:
+def test_inspect_coverage_reads_typed_coverage_stats_artifact(
+    monkeypatch,
+    tmp_path,
+) -> None:
     monkeypatch.setattr(coverage_ops, "PipelineContext", _CoverageContext)
     destination = (tmp_path / "coverage.txt").resolve()
 

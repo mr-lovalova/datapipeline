@@ -6,13 +6,13 @@ from typing import Any, Generic, TypeVar
 
 from datapipeline.artifacts.models import (
     VectorMetadata,
-    VectorStatsArtifact,
+    CoverageStatsArtifact,
 )
 from datapipeline.artifacts.scaler import ScalerArtifact, load_scaler_artifact
 from datapipeline.artifacts.specs import (
     SCALER_STATISTICS,
     VECTOR_METADATA,
-    VECTOR_STATS,
+    COVERAGE_STATS,
 )
 from datapipeline.utils.json_artifact import read_json_artifact
 
@@ -107,15 +107,15 @@ def _read_vector_metadata(path: Path) -> VectorMetadata:
     return VectorMetadata.model_validate(read_json_artifact(path))
 
 
-def _read_vector_stats(path: Path) -> VectorStatsArtifact:
+def _read_coverage_stats(path: Path) -> CoverageStatsArtifact:
     payload = read_json_artifact(path)
     version = payload.get("schema_version")
     if version != 3:
         raise ValueError(
-            f"Unsupported vector stats schema version {version!r}. "
-            "Rebuild stats in FORCE mode."
+            f"Unsupported coverage stats schema version {version!r}. "
+            "Rebuild coverage_stats in FORCE mode."
         )
-    return VectorStatsArtifact.model_validate(payload)
+    return CoverageStatsArtifact.model_validate(payload)
 
 
 VECTOR_METADATA_SPEC = ArtifactSpec[VectorMetadata](
@@ -128,7 +128,7 @@ SCALER_SPEC = ArtifactSpec[ScalerArtifact](
     loader=load_scaler_artifact,
 )
 
-VECTOR_STATS_SPEC = ArtifactSpec[VectorStatsArtifact](
-    key=VECTOR_STATS,
-    loader=_read_vector_stats,
+COVERAGE_STATS_SPEC = ArtifactSpec[CoverageStatsArtifact](
+    key=COVERAGE_STATS,
+    loader=_read_coverage_stats,
 )

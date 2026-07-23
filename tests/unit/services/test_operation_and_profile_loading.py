@@ -122,7 +122,7 @@ def test_artifact_tasks_load_configs(tmp_path):
         "scaler",
         "series",
         "metadata",
-        "stats",
+        "coverage_stats",
         "schema",
     }
     schema = next(task for task in tasks if task.id == "schema")
@@ -144,7 +144,7 @@ def test_core_operations_load_without_configuration(tmp_path):
         "scaler",
         "series",
         "metadata",
-        "stats",
+        "coverage_stats",
     ]
     assert [task.id for task in runtime_tasks] == [
         "dataset",
@@ -155,6 +155,11 @@ def test_core_operations_load_without_configuration(tmp_path):
     assert task.id == "series"
     assert task.entrypoint == "core.artifact.series"
     assert task.output == "build/series/manifest.json"
+    coverage_stats = next(
+        task for task in artifact_tasks if task.id == "coverage_stats"
+    )
+    assert coverage_stats.entrypoint == "core.artifact.coverage_stats"
+    assert coverage_stats.output == "build/coverage_stats.json"
 
 
 @pytest.mark.parametrize("operation_id", ["vector_inputs", "variable_records"])
@@ -279,37 +284,42 @@ def test_core_operation_rejects_entrypoint_override(tmp_path):
         _artifact_tasks(project_yaml)
 
 
-def test_stats_task_loads_configs(tmp_path):
+def test_coverage_stats_task_loads_configs(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "stats.yaml").write_text(
-        "output: build/custom-stats.json\nstage: assembled\n",
+    (config_dir / "coverage_stats.yaml").write_text(
+        "output: build/custom-coverage-stats.json\nstage: assembled\n",
         encoding="utf-8",
     )
 
     tasks = _artifact_tasks(project_yaml)
-    stats = next(task for task in tasks if task.id == "stats")
-    assert stats.output == "build/custom-stats.json"
-    assert stats.stage == "assembled"
+    coverage_stats = next(task for task in tasks if task.id == "coverage_stats")
+    assert coverage_stats.output == "build/custom-coverage-stats.json"
+    assert coverage_stats.stage == "assembled"
 
 
-def test_stats_task_defaults_to_postprocessed_stage(tmp_path):
+def test_coverage_stats_task_defaults_to_postprocessed_stage(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "stats.yaml").write_text(
-        "output: build/custom-stats.json\n",
+    (config_dir / "coverage_stats.yaml").write_text(
+        "output: build/custom-coverage-stats.json\n",
         encoding="utf-8",
     )
 
-    stats = next(task for task in _artifact_tasks(project_yaml) if task.id == "stats")
+    coverage_stats = next(
+        task for task in _artifact_tasks(project_yaml) if task.id == "coverage_stats"
+    )
 
-    assert stats.stage == "postprocessed"
+    assert coverage_stats.stage == "postprocessed"
 
 
-def test_stats_task_rejects_unknown_fields(tmp_path):
+def test_coverage_stats_task_rejects_unknown_fields(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _operations_dir(project_yaml)
-    (config_dir / "stats.yaml").write_text("unexpected: true\n", encoding="utf-8")
+    (config_dir / "coverage_stats.yaml").write_text(
+        "unexpected: true\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         _artifact_tasks(project_yaml)
@@ -603,7 +613,7 @@ def test_build_profiles_load_and_respect_enabled(tmp_path):
         encoding="utf-8",
     )
     (config_dir / "build.full.yaml").write_text(
-        "enabled: false\nmode: force\noperation: stats\n",
+        "enabled: false\nmode: force\noperation: coverage_stats\n",
         encoding="utf-8",
     )
 
@@ -1118,7 +1128,7 @@ def test_plugin_runtime_options_remain_plugin_owned(tmp_path: Path) -> None:
         "core.artifact.scaler",
         "core.artifact.series",
         "core.artifact.metadata",
-        "core.artifact.stats",
+        "core.artifact.coverage_stats",
     ],
 )
 def test_custom_artifact_rejects_reserved_core_entrypoint(
@@ -1264,7 +1274,7 @@ def test_duplicate_build_profile_names_raise(tmp_path):
     project_yaml = _write_project(tmp_path, operations_ref="operations")
     config_dir = _profile_kind_dir(project_yaml)
     (config_dir / "build.nightly.yaml").write_text(
-        "operation: stats\n",
+        "operation: coverage_stats\n",
         encoding="utf-8",
     )
     (config_dir / "build.nightly.yml").write_text(

@@ -3,13 +3,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from datapipeline.artifacts.models import (
-    ListVectorColumnStats,
+    CoverageBaseStats,
+    CoverageColumnStats,
+    CoverageStatsSection,
+    ListCoverageColumnStats,
     ListVectorMetadataEntry,
-    ScalarVectorColumnStats,
-    VectorBaseStats,
-    VectorColumnStats,
+    ScalarCoverageColumnStats,
     VectorMetadataEntry,
-    VectorStatsSection,
 )
 from datapipeline.transforms.utils import is_missing
 
@@ -21,7 +21,7 @@ class _Counts:
     observed_elements: int = 0
 
 
-class VectorStatsAccumulator:
+class CoverageStatsAccumulator:
     """Collect bounded availability counters for one vector section."""
 
     def __init__(self, entries: Sequence[VectorMetadataEntry]) -> None:
@@ -65,21 +65,21 @@ class VectorStatsAccumulator:
         for base_id in non_null_bases:
             self._bases[base_id].non_null_samples += 1
 
-    def finish(self) -> VectorStatsSection:
+    def finish(self) -> CoverageStatsSection:
         bases = tuple(
-            VectorBaseStats(
+            CoverageBaseStats(
                 id=identifier,
                 present_samples=counts.present_samples,
                 non_null_samples=counts.non_null_samples,
             )
             for identifier, counts in sorted(self._bases.items())
         )
-        columns: list[VectorColumnStats] = []
+        columns: list[CoverageColumnStats] = []
         for identifier, entry in sorted(self._entries.items()):
             counts = self._columns[identifier]
             if isinstance(entry, ListVectorMetadataEntry):
                 columns.append(
-                    ListVectorColumnStats(
+                    ListCoverageColumnStats(
                         id=identifier,
                         base_id=entry.base_id,
                         present_samples=counts.present_samples,
@@ -91,7 +91,7 @@ class VectorStatsAccumulator:
                 )
             else:
                 columns.append(
-                    ScalarVectorColumnStats(
+                    ScalarCoverageColumnStats(
                         id=identifier,
                         base_id=entry.base_id,
                         present_samples=counts.present_samples,
@@ -99,7 +99,7 @@ class VectorStatsAccumulator:
                         kind="scalar",
                     )
                 )
-        return VectorStatsSection(bases=bases, columns=tuple(columns))
+        return CoverageStatsSection(bases=bases, columns=tuple(columns))
 
 
 def _observed_list_elements(

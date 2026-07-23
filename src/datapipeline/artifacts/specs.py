@@ -5,7 +5,7 @@ from datapipeline.config.dataset.dataset import DatasetConfig
 
 SCALER_STATISTICS = "scaler"
 VECTOR_METADATA = "metadata"
-VECTOR_STATS = "stats"
+COVERAGE_STATS = "coverage_stats"
 SERIES = "series"
 
 
@@ -41,7 +41,7 @@ ARTIFACT_DEFINITIONS: tuple[ArtifactDefinition, ...] = (
         dependencies=(SERIES,),
     ),
     ArtifactDefinition(
-        key=VECTOR_STATS,
+        key=COVERAGE_STATS,
         dependencies=(VECTOR_METADATA,),
     ),
 )
