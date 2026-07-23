@@ -32,13 +32,13 @@ def build_record_order_stage(
 ) -> Stage:
     if presorted:
         return Stage(
-            name="order_records",
+            name="ensure_record_order",
             apply=partial(validate_record_order, partition_by),
         )
 
     progress = SortProgress()
     return Stage(
-        name="order_records",
+        name="ensure_record_order",
         apply=partial(sort_records, partition_by, buffer_bytes, progress),
         progress=progress.snapshot,
     )

@@ -252,7 +252,7 @@ def test_observer_logs_pipeline_heartbeat_at_info(caplog) -> None:
         observer(
             NodeProgress(
                 pipeline_name="series:close",
-                node_name="order_records",
+                node_name="ensure_record_order",
                 node_index=2,
                 progress=ProgressSnapshot(completed=20),
                 elapsed_seconds=60,
@@ -282,7 +282,7 @@ def test_observer_logs_only_heartbeat_node_progress_at_debug(caplog) -> None:
         observer(
             NodeProgress(
                 pipeline_name="series:close",
-                node_name="order_records",
+                node_name="ensure_record_order",
                 node_index=2,
                 progress=ProgressSnapshot(completed=10),
                 elapsed_seconds=1,
@@ -291,7 +291,7 @@ def test_observer_logs_only_heartbeat_node_progress_at_debug(caplog) -> None:
         observer(
             NodeProgress(
                 pipeline_name="series:close",
-                node_name="order_records",
+                node_name="ensure_record_order",
                 node_index=2,
                 progress=ProgressSnapshot(completed=20),
                 elapsed_seconds=60,
@@ -300,7 +300,7 @@ def test_observer_logs_only_heartbeat_node_progress_at_debug(caplog) -> None:
         )
 
     assert [record.getMessage() for record in caplog.records] == [
-        "[series:close/order_records] running elapsed=60s items=20"
+        "[series:close/ensure_record_order] running elapsed=60s items=20"
     ]
 
 

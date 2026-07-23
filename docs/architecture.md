@@ -53,7 +53,7 @@ stream:<id>
   input: open_source
   stage: map_records
   <one stage per configured preprocess transform>
-  stage: order_records
+  stage: ensure_record_order
   <one stage per configured ordered transform>
 ```
 

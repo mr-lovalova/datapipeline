@@ -159,7 +159,7 @@ def _record_preview_pipeline():
                 apply=lambda rows: (f"transformed:{row}" for row in rows),
             ),
             Stage(
-                name="order_records",
+                name="ensure_record_order",
                 apply=lambda rows: (f"records:{row}" for row in rows),
             ),
         ),

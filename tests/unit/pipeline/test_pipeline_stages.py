@@ -399,7 +399,7 @@ def test_source_pipeline_carries_source_summary(tmp_path: Path) -> None:
     assert pipeline.input.name == "open_source"
     assert [stage.name for stage in pipeline.stages] == [
         "map_records",
-        "order_records",
+        "ensure_record_order",
     ]
     assert pipeline.input.progress is not None
     assert [stage.progress is not None for stage in pipeline.stages] == [False, True]
@@ -435,7 +435,7 @@ def test_stream_pipeline_carries_source_summary(tmp_path: Path) -> None:
     assert pipeline.input.name == "stream:source/open_source"
     assert [stage.name for stage in pipeline.stages] == [
         "stream:source/map_records",
-        "stream:source/order_records",
+        "stream:source/ensure_record_order",
     ]
     assert pipeline.input.progress is not None
     assert [stage.progress is not None for stage in pipeline.stages] == [False, True]
@@ -465,7 +465,7 @@ def test_derived_stream_reuses_upstream_order_without_a_mapper(
     assert pipeline.input.name == "stream:stream/open_source"
     assert [stage.name for stage in pipeline.stages] == [
         "stream:stream/map_records",
-        "stream:stream/order_records",
+        "stream:stream/ensure_record_order",
     ]
     records = list(run_pipeline(context, pipeline))
     assert [(record.symbol, record.time.hour) for record in records] == [
@@ -497,7 +497,7 @@ def test_derived_record_previews_use_records_before_derived_transforms(
     assert pipeline.input.name == "stream:stream/open_source"
     assert [stage.name for stage in pipeline.stages] == [
         "stream:stream/map_records",
-        "stream:stream/order_records",
+        "stream:stream/ensure_record_order",
         "ensure_cadence",
     ]
 
@@ -882,7 +882,7 @@ def test_pipeline_builders_expose_structure(tmp_path: Path) -> None:
     assert series_pipeline.input.name == "stream:stream/open_source"
     assert [stage.name for stage in series_pipeline.stages] == [
         "stream:stream/map_records",
-        "stream:stream/order_records",
+        "stream:stream/ensure_record_order",
         "project_series",
     ]
     assert series_pipeline.summary is None

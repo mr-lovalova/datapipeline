@@ -142,7 +142,7 @@ def _info_progress(*node_names: str) -> tuple[Progress, _ExecutionProgress]:
 
 
 def test_info_progress_shows_node_and_local_detail() -> None:
-    progress, renderer = _info_progress("order_records")
+    progress, renderer = _info_progress("ensure_record_order")
     _start_node(
         renderer,
         1,
@@ -151,7 +151,7 @@ def test_info_progress_shows_node_and_local_detail() -> None:
     renderer.handle(
         _node_progress(
             0,
-            "order_records",
+            "ensure_record_order",
             ProgressSnapshot(completed=100, phase="reading", unit="records"),
         )
     )
@@ -167,13 +167,13 @@ def test_info_progress_shows_node_and_local_detail() -> None:
         )
     )
 
-    root, order_records, open_source = progress.tasks
+    root, order_task, open_source = progress.tasks
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
     assert root.fields["status"].plain == ""
     assert root.visible is True
-    assert order_records.visible is False
+    assert order_task.visible is False
     assert open_source.visible is True
     assert open_source.completed == 20_000
     status = open_source.fields["status"]
@@ -189,17 +189,17 @@ def test_info_progress_shows_node_and_local_detail() -> None:
         _finish_node(renderer, 1, "open_source")
     refresh.assert_called_once_with()
 
-    root, order_records = progress.tasks
+    root, order_task = progress.tasks
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.fields["status"].plain == ""
-    assert order_records.visible is True
-    assert order_records.fields["status"].plain == "reading · 100 records"
+    assert order_task.visible is True
+    assert order_task.fields["status"].plain == "reading · 100 records"
 
 
 def test_info_progress_selects_meaningful_event_owner() -> None:
     progress, renderer = _info_progress(
-        "order_records",
+        "ensure_record_order",
         "map_records",
         "open_source",
     )
@@ -213,7 +213,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
             ),
         )
     )
-    root, order_records, map_records, open_source = progress.tasks
+    root, order_task, map_records, open_source = progress.tasks
     assert root.fields["status"].plain == ""
     assert open_source.visible is True
     assert open_source.fields["status"].plain == '2/17 "2011.jsonl" · 20,000 items'
@@ -227,15 +227,15 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
     renderer.handle(
         _node_progress(
             0,
-            "order_records",
+            "ensure_record_order",
             ProgressSnapshot(completed=25, total=100, phase="merging"),
         )
     )
     assert open_source.visible is False
-    assert order_records.visible is True
-    assert order_records.completed == 25
-    assert order_records.total == 100
-    assert order_records.fields["status"].plain == "merging · 25/100 items"
+    assert order_task.visible is True
+    assert order_task.completed == 25
+    assert order_task.total == 100
+    assert order_task.fields["status"].plain == "merging · 25/100 items"
 
     renderer.handle(
         _node_progress(
@@ -246,7 +246,7 @@ def test_info_progress_selects_meaningful_event_owner() -> None:
         )
     )
 
-    assert order_records.visible is False
+    assert order_task.visible is False
     assert map_records.visible is True
     assert map_records.fields["status"].plain == "20,000 items"
 
@@ -261,17 +261,17 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
     )
     renderer = _ExecutionProgress(progress, debug=False)
     renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
-    _start_node(renderer, 0, "order_records")
+    _start_node(renderer, 0, "ensure_record_order")
 
     now = 10.0
     renderer.handle(
         _node_progress(
             0,
-            "order_records",
+            "ensure_record_order",
             ProgressSnapshot(completed=100, total=100, phase="merging"),
         )
     )
-    root, order_records = progress.tasks
+    root, order_task = progress.tasks
     row = _ProgressRowColumn(Column()).render(root)
     assert _render_progress_row(root) == "[stream:adv.20] 0:00:10"
     console, _ = _console(width=200)
@@ -281,40 +281,40 @@ def test_info_elapsed_continues_after_completed_local_phase() -> None:
         if "0:00:10" in segment.text
     )
     assert timer.style is None
-    assert _render_progress_row(order_records).startswith(
-        "[stream:adv.20/order_records] 0:00:10"
+    assert _render_progress_row(order_task).startswith(
+        "[stream:adv.20/ensure_record_order] 0:00:10"
     )
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
-    assert order_records.total == 100
-    assert order_records.completed == 100
+    assert order_task.total == 100
+    assert order_task.completed == 100
 
     now = 20.0
     renderer.handle(
         _node_progress(
             0,
-            "order_records",
+            "ensure_record_order",
             ProgressSnapshot(completed=20, total=100, phase="emitting"),
         )
     )
 
-    root, order_records = progress.tasks
+    root, order_task = progress.tasks
     assert _render_progress_row(root) == "[stream:adv.20] 0:00:20"
-    assert _render_progress_row(order_records).startswith(
-        "[stream:adv.20/order_records] 0:00:20"
+    assert _render_progress_row(order_task).startswith(
+        "[stream:adv.20/ensure_record_order] 0:00:20"
     )
     assert root.description == "[stream:adv.20]"
     assert root.total is None
     assert root.completed == 0
-    assert order_records.completed == 20
+    assert order_task.completed == 20
 
 
 def test_debug_progress_shows_root_and_active_nodes() -> None:
     progress = _progress()
     renderer = _ExecutionProgress(progress, debug=True)
     renderer.handle(PipelineStarted(pipeline_name="stream:adv.20"))
-    _start_node(renderer, 0, "order_records")
+    _start_node(renderer, 0, "ensure_record_order")
     _start_node(renderer, 1, "open_source")
     _start_node(
         renderer,
@@ -339,7 +339,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
         for task in tasks
     ] == [
         ("[stream:adv.20]", ""),
-        ("[stream:adv.20/order_records]", "0 out"),
+        ("[stream:adv.20/ensure_record_order]", "0 out"),
         ("[stream:adv.20/open_source]", "25/100 records"),
         ("[stream:adv.20/decode_records]", "0 out"),
     ]
@@ -347,7 +347,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     row_column = _ProgressRowColumn(Column())
     assert _render_progress_row(root_task) == "[stream:adv.20] 0:00:00"
     assert _render_progress_row(order_task) == (
-        "[stream:adv.20/order_records] 0:00:00 · 0 out"
+        "[stream:adv.20/ensure_record_order] 0:00:00 · 0 out"
     )
     assert source_task.completed == 25
     assert source_task.total == 100
@@ -358,7 +358,7 @@ def test_debug_progress_shows_root_and_active_nodes() -> None:
     _finish_node(renderer, 1, "open_source")
     assert [task.description for task in progress.tasks] == [
         "[stream:adv.20]",
-        "[stream:adv.20/order_records]",
+        "[stream:adv.20/ensure_record_order]",
         "[stream:adv.20/decode_records]",
     ]
 
