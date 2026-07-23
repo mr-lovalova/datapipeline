@@ -52,7 +52,7 @@ about a lower pipeline boundary.
 
 Mutation testing is intentionally a reviewed diagnostic, separate from the fast
 pull-request suite. The configured scope covers alignment, sorting, sample-key
-generation, split labeling, typed vector normalization, scaling, and metadata
+generation, split labeling, typed vector conformance, scaling, and metadata
 collection.
 
 ```bash

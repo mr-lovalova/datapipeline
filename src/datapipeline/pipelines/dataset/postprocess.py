@@ -16,9 +16,9 @@ from datapipeline.transforms.vector.drop.vertical import (
     SelectFeaturesTransform,
     SelectTargetsTransform,
 )
-from datapipeline.transforms.vector.normalize import (
-    NormalizeFeaturesTransform,
-    NormalizeTargetsTransform,
+from datapipeline.transforms.vector.conform import (
+    ConformFeaturesTransform,
+    ConformTargetsTransform,
 )
 
 
@@ -110,23 +110,25 @@ def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
 
     stages.append(
         Stage(
-            name="normalize_features",
-            apply=NormalizeFeaturesTransform(feature_entries).apply,
+            name="conform_features",
+            apply=ConformFeaturesTransform(feature_entries).apply,
         )
     )
 
     if target_entries:
-        target_normalizer = NormalizeTargetsTransform(target_entries).apply
-        target_stage_name = "normalize_targets"
-    else:
-        target_normalizer = _reject_undeclared_targets
-        target_stage_name = "reject_undeclared_targets"
-    stages.append(
-        Stage(
-            name=target_stage_name,
-            apply=target_normalizer,
+        stages.append(
+            Stage(
+                name="conform_targets",
+                apply=ConformTargetsTransform(target_entries).apply,
+            )
         )
-    )
+    else:
+        stages.append(
+            Stage(
+                name="reject_undeclared_targets",
+                apply=_reject_undeclared_targets,
+            )
+        )
 
     if config.samples.features is not None:
         feature_filter = DropSamplesTransform(

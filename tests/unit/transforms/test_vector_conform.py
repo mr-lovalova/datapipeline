@@ -7,9 +7,9 @@ from datapipeline.artifacts.models import (
 )
 from datapipeline.domain.sample import Sample
 from datapipeline.domain.vector import Vector
-from datapipeline.transforms.vector.normalize import (
-    NormalizeFeaturesTransform,
-    NormalizeTargetsTransform,
+from datapipeline.transforms.vector.conform import (
+    ConformFeaturesTransform,
+    ConformTargetsTransform,
 )
 from tests.unit.transforms.helpers import make_vector
 
@@ -36,8 +36,8 @@ def _sequence(identifier: str, size: int) -> VectorMetadataEntry:
     )
 
 
-def test_normalize_features_fills_missing_values_and_orders_schema() -> None:
-    transform = NormalizeFeaturesTransform(
+def test_conform_features_fills_missing_values_and_orders_schema() -> None:
+    transform = ConformFeaturesTransform(
         [_scalar("first"), _sequence("history", 2), _scalar("last")]
     )
 
@@ -50,11 +50,11 @@ def test_normalize_features_fills_missing_values_and_orders_schema() -> None:
     }
 
 
-def test_normalize_features_reuses_validated_sequence() -> None:
+def test_conform_features_reuses_validated_sequence() -> None:
     history = [1.0, 2.0]
     sample = make_vector(0, {"history": history})
 
-    [output] = NormalizeFeaturesTransform([_sequence("history", 2)]).apply(
+    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(
         iter([sample])
     )
 
@@ -62,26 +62,26 @@ def test_normalize_features_reuses_validated_sequence() -> None:
 
 
 @pytest.mark.parametrize("missing", [None, float("nan")])
-def test_normalize_features_expands_null_sequence(missing: object) -> None:
+def test_conform_features_expands_null_sequence(missing: object) -> None:
     sample = make_vector(0, {"history": missing})
 
-    [output] = NormalizeFeaturesTransform([_sequence("history", 2)]).apply(
+    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(
         iter([sample])
     )
 
     assert output.features.values == {"history": [None, None]}
 
 
-def test_normalize_features_normalizes_null_scalar() -> None:
+def test_conform_features_canonicalizes_null_scalar() -> None:
     sample = make_vector(0, {"value": float("nan")})
 
-    [output] = NormalizeFeaturesTransform([_scalar("value")]).apply(iter([sample]))
+    [output] = ConformFeaturesTransform([_scalar("value")]).apply(iter([sample]))
 
     assert output.features.values == {"value": None}
 
 
-def test_normalize_features_rejects_unknown_ids() -> None:
-    transform = NormalizeFeaturesTransform([_scalar("known")])
+def test_conform_features_rejects_unknown_ids() -> None:
+    transform = ConformFeaturesTransform([_scalar("known")])
 
     with pytest.raises(ValueError, match="unexpected ids"):
         list(transform.apply(iter([make_vector(0, {"known": 1.0, "extra": 2.0})])))
@@ -91,32 +91,32 @@ def test_normalize_features_rejects_unknown_ids() -> None:
     "value",
     [[1.0], [1.0, 2.0, 3.0], 1.0],
 )
-def test_normalize_features_rejects_wrong_sequence_shape(value: object) -> None:
-    transform = NormalizeFeaturesTransform([_sequence("history", 2)])
+def test_conform_features_rejects_wrong_sequence_shape(value: object) -> None:
+    transform = ConformFeaturesTransform([_sequence("history", 2)])
 
     with pytest.raises((TypeError, ValueError)):
         list(transform.apply(iter([make_vector(0, {"history": value})])))
 
 
 @pytest.mark.parametrize("value", ["category", float("inf")])
-def test_normalize_features_preserves_scalar_values(value: object) -> None:
-    transform = NormalizeFeaturesTransform([_scalar("value")])
+def test_conform_features_preserves_scalar_values(value: object) -> None:
+    transform = ConformFeaturesTransform([_scalar("value")])
 
     [output] = transform.apply(iter([make_vector(0, {"value": value})]))
 
     assert output.features.values == {"value": value}
 
 
-def test_normalize_features_rejects_list_for_scalar() -> None:
-    transform = NormalizeFeaturesTransform([_scalar("value")])
+def test_conform_features_rejects_list_for_scalar() -> None:
+    transform = ConformFeaturesTransform([_scalar("value")])
 
     with pytest.raises(TypeError, match="must contain a scalar"):
         list(transform.apply(iter([make_vector(0, {"value": [1.0]})])))
 
 
-def test_normalize_targets_creates_missing_target_vector() -> None:
+def test_conform_targets_creates_missing_target_vector() -> None:
     sample = make_vector(0, {"feature": 1.0})
-    transform = NormalizeTargetsTransform([_scalar("target")])
+    transform = ConformTargetsTransform([_scalar("target")])
 
     output = list(transform.apply(iter([sample])))
 
@@ -125,13 +125,13 @@ def test_normalize_targets_creates_missing_target_vector() -> None:
     assert output[0].targets.values == {"target": None}
 
 
-def test_normalize_targets_preserves_feature_vector() -> None:
+def test_conform_targets_preserves_feature_vector() -> None:
     sample = Sample(
         key=(0,),
         features=Vector(values={"feature": 1.0}),
         targets=Vector(values={"target": 2.0}),
     )
-    transform = NormalizeTargetsTransform([_scalar("target")])
+    transform = ConformTargetsTransform([_scalar("target")])
 
     output = list(transform.apply(iter([sample])))
 
@@ -140,13 +140,13 @@ def test_normalize_targets_preserves_feature_vector() -> None:
     assert output[0].targets.values == {"target": 2.0}
 
 
-def test_normalize_targets_fills_and_orders_scalar_and_sequence_entries() -> None:
+def test_conform_targets_fills_and_orders_scalar_and_sequence_entries() -> None:
     sample = Sample(
         key=(0,),
         features=Vector(values={"feature": 1.0}),
         targets=Vector(values={"last": 3.0, "history": [1.0, 2.0]}),
     )
-    transform = NormalizeTargetsTransform(
+    transform = ConformTargetsTransform(
         [_scalar("first"), _sequence("history", 2), _scalar("last")]
     )
 

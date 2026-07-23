@@ -65,7 +65,7 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
     assert pipeline.name == "dataset"
     assert pipeline.input.name == "assemble_samples"
     assert [stage.name for stage in pipeline.stages] == [
-        "normalize_features",
+        "conform_features",
         "reject_undeclared_targets",
     ]
     assert pipeline.input.progress is None
@@ -120,7 +120,7 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
     assert plan.target_entries == ()
     assert [stage.name for stage in plan.stages] == [
         "select_features",
-        "normalize_features",
+        "conform_features",
         "reject_undeclared_targets",
         "filter_samples_by_features",
     ]

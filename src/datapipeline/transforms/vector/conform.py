@@ -7,7 +7,7 @@ from datapipeline.domain.vector import Vector
 from datapipeline.transforms.utils import is_missing
 
 
-class _VectorNormalizer:
+class _VectorConformer:
     def __init__(self, entries: Sequence[VectorMetadataEntry]) -> None:
         self.entries = tuple(entries)
         if not self.entries:
@@ -26,18 +26,18 @@ class _VectorNormalizer:
         if extras:
             raise ValueError(f"Vector contains unexpected ids: {extras!r}")
 
-        normalized: dict[str, Any] = {}
+        conformed: dict[str, Any] = {}
         for entry in self.entries:
             value = values.get(entry.id)
             if is_missing(value):
-                normalized[entry.id] = (
+                conformed[entry.id] = (
                     None if entry.kind == "scalar" else [None] * entry.length
                 )
                 continue
             if entry.kind == "scalar":
                 if isinstance(value, list):
                     raise TypeError(f"Vector id {entry.id!r} must contain a scalar.")
-                normalized[entry.id] = value
+                conformed[entry.id] = value
                 continue
             if not isinstance(value, list):
                 raise TypeError(f"Vector id {entry.id!r} must contain a list.")
@@ -46,30 +46,30 @@ class _VectorNormalizer:
                     f"Vector id {entry.id!r} requires {entry.length} values; "
                     f"got {len(value)}."
                 )
-            normalized[entry.id] = value
-        return normalized
+            conformed[entry.id] = value
+        return conformed
 
 
-class NormalizeFeaturesTransform:
-    """Normalize feature vectors against their metadata contract."""
+class ConformFeaturesTransform:
+    """Conform feature vectors to their metadata contract."""
 
     def __init__(self, entries: Sequence[VectorMetadataEntry]) -> None:
-        self._normalizer = _VectorNormalizer(entries)
+        self._conformer = _VectorConformer(entries)
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         for sample in stream:
-            values = self._normalizer.apply(sample.features.values)
+            values = self._conformer.apply(sample.features.values)
             yield sample.with_features(Vector(values=values))
 
 
-class NormalizeTargetsTransform:
-    """Normalize target vectors against their metadata contract."""
+class ConformTargetsTransform:
+    """Conform target vectors to their metadata contract."""
 
     def __init__(self, entries: Sequence[VectorMetadataEntry]) -> None:
-        self._normalizer = _VectorNormalizer(entries)
+        self._conformer = _VectorConformer(entries)
 
     def apply(self, stream: Iterator[Sample]) -> Iterator[Sample]:
         for sample in stream:
             current = sample.targets.values if sample.targets is not None else {}
-            values = self._normalizer.apply(current)
+            values = self._conformer.apply(current)
             yield sample.with_targets(Vector(values=values))

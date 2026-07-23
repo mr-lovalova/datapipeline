@@ -773,12 +773,12 @@ postprocess:
 - `postprocess.columns.features` and `postprocess.columns.targets` have separate
   selection policies.
 - `postprocess.samples.features` and `postprocess.samples.targets` filter
-  complete rows after typed normalization.
+  complete rows after typed conformance.
 - `ids` is optional. Selection and sample filters default to every retained ID.
   Empty, duplicate, or unknown IDs are errors.
-- Column selection and normalization use the same typed `build/metadata.json`
+- Column selection and conformance use the same typed `build/metadata.json`
   artifact.
-- Execution order is fixed: column selection, typed normalization, then sample
+- Execution order is fixed: column selection, typed conformance, then sample
   filters.
 - Postprocess does not mutate values. Configure missing-value repair on the
   ordered record stream before feature extraction.

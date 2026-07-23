@@ -116,7 +116,7 @@ injection, transform plugin lookup, or debug transform registry.
 Sequence construction remains a series-pipeline stage rather than preprocess
 or an ordered stream transform. Scaling is applied later, after a dataset fold
 is selected, so every train, validation, and test output uses its fold's fitted
-scaler. This keeps stream normalization separate from dataset shaping and split
+scaler. This keeps numerical scaling separate from dataset shaping and split
 policy.
 
 ## Vector postprocess
@@ -131,8 +131,8 @@ dataset
   assemble_samples
   optional select_features
   optional select_targets
-  normalize_features
-  normalize_targets (or reject_undeclared_targets)
+  conform_features
+  conform_targets (or reject_undeclared_targets)
   optional filter_samples_by_features
   optional filter_samples_by_targets
 ```

@@ -135,7 +135,7 @@ def _sample_preview_pipeline():
         ),
         stages=(
             Stage(
-                name="normalize_features",
+                name="conform_features",
                 apply=lambda stream: (f"post:{item}" for item in stream),
             ),
         ),

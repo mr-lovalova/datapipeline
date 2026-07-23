@@ -25,7 +25,7 @@ The pipeline has one fixed order:
 
 1. assemble feature and target vectors;
 2. select feature and target columns;
-3. normalize vectors against the retained typed metadata contract;
+3. conform vectors to the retained typed metadata contract;
 4. filter sample rows by feature coverage, then target coverage.
 
 Feature and target policies are separate. Row filtering is also separate from
@@ -56,10 +56,10 @@ buckets where the list happened to appear. The pipeline uses the feature or
 target vector count from `build/metadata.json`, matching the population used to
 collect `present_count`, `null_count`, and `observed_elements`.
 
-## Typed normalization
+## Typed conformance
 
-`NormalizeFeaturesTransform` and `NormalizeTargetsTransform` receive typed
+`ConformFeaturesTransform` and `ConformTargetsTransform` receive typed
 `VectorMetadataEntry` objects directly. They fill wholly absent metadata
-entries, order values by the metadata contract, and reject unexpected IDs,
-invalid numeric values, and incorrect list lengths. They do not truncate
+entries, order values by the metadata contract, canonicalize missing values,
+and reject unexpected IDs and incorrect value shapes. They do not truncate
 values, silently discard extra columns, or mutate the pipeline context.
