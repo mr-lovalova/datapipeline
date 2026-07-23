@@ -14,7 +14,7 @@ from datapipeline.runtime import (
     DerivedRuntimeStream,
     SourceRuntimeStream,
 )
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.sources.source import Source
 
@@ -83,7 +83,7 @@ map:
             encoding="utf-8",
         )
 
-    runtime = compile_runtime(load_pipeline(project_yaml))
+    runtime = compile_runtime(load_project_definition(project_yaml))
     left = runtime.streams["left"]
     right = runtime.streams["right"]
 
@@ -143,7 +143,7 @@ transforms:
         encoding="utf-8",
     )
 
-    runtime = compile_runtime(load_pipeline(project_yaml))
+    runtime = compile_runtime(load_project_definition(project_yaml))
     derived = runtime.streams["filtered"]
 
     assert isinstance(derived, DerivedRuntimeStream)
@@ -238,7 +238,7 @@ transforms:
         lambda group, entrypoint: attach_reference,
     )
 
-    runtime = compile_runtime(load_pipeline(project_yaml))
+    runtime = compile_runtime(load_project_definition(project_yaml))
     enriched = runtime.streams["enriched"]
 
     assert isinstance(enriched, BroadcastRuntimeStream)
@@ -345,7 +345,7 @@ combine:
         load_mapper,
     )
 
-    runtime = compile_runtime(load_pipeline(project_yaml))
+    runtime = compile_runtime(load_project_definition(project_yaml))
     context = PipelineContext(runtime)
     pipeline = build_stream_pipeline(context, "combined")
     assert pipeline.name == "stream:combined"

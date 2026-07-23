@@ -26,7 +26,7 @@ from datapipeline.config.tasks import (
 )
 from datapipeline.runtime import Runtime
 from datapipeline.services.definitions import ArtifactHashes
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 
 
@@ -275,7 +275,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
-    definition = load_pipeline(project_path)
+    definition = load_project_definition(project_path)
     runtime = compile_runtime(definition)
     output = runtime.artifacts_root / "build/custom.json"
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +294,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
 
     task_path.write_text(task_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
 
-    whitespace_definition = load_pipeline(project_path)
+    whitespace_definition = load_project_definition(project_path)
     whitespace_runtime = compile_runtime(whitespace_definition)
     assert whitespace_definition.artifact_hashes == definition.artifact_hashes
     assert hydrate_runtime_artifacts_for_pipeline(
@@ -311,7 +311,7 @@ def test_project_hydration_uses_semantic_artifact_hash(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    changed_definition = load_pipeline(project_path)
+    changed_definition = load_project_definition(project_path)
     changed_runtime = compile_runtime(changed_definition)
     assert changed_definition.artifact_hashes != definition.artifact_hashes
     assert (

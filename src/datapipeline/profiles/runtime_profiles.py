@@ -22,7 +22,7 @@ from datapipeline.io.output import (
     resolve_output_target,
 )
 from datapipeline.io.runs import RunPaths, get_run_paths
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.definitions import ProjectDefinition
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class ResolvedRuntimeProfile:
 
 
 def _resolve_serve_output_ids(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     profile: ServeProfile,
     preview: PreviewStage | None,
     operation: RuntimeTask | None,
@@ -104,7 +104,7 @@ def _validate_output_collisions(profiles: Sequence[ResolvedRuntimeProfile]) -> N
 
 
 def resolve_serve_profiles(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     profiles: Sequence[ServeProfile],
     preview: PreviewStage | None,
     limit: int | None,
@@ -193,7 +193,7 @@ def resolve_serve_profiles(
 
 
 def resolve_inspect_profiles(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     profiles: Sequence[InspectProfile],
     limit: int | None,
     cli_output: ServeOutputConfig | None,

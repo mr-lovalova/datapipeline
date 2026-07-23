@@ -7,7 +7,7 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.pipelines.dataset.postprocess import apply_postprocess
 from datapipeline.pipelines.sample.input import open_samples
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 from tests.series_helpers import register_series
 
@@ -15,7 +15,7 @@ from tests.series_helpers import register_series
 def test_drop_with_metadata_and_partitioned_streams(copy_fixture):
     project_root = copy_fixture("drop_null_project")
     project = project_root / "project.yaml"
-    definition = load_pipeline(project)
+    definition = load_project_definition(project)
     runtime = compile_runtime(definition)
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     dataset = definition.dataset

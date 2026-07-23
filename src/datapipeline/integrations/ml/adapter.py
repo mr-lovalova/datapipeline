@@ -24,7 +24,7 @@ from datapipeline.pipelines.dataset.pipeline import (
     run_scaled_dataset_pipeline,
 )
 from datapipeline.runtime import Runtime
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 
 GroupFormat = Literal["mapping", "tuple", "list", "flat"]
@@ -92,7 +92,7 @@ class VectorAdapter:
         output_id: str | None = None,
     ) -> "VectorAdapter":
         project_path = Path(project_yaml)
-        definition = load_pipeline(project_path)
+        definition = load_project_definition(project_path)
         runtime = compile_runtime(definition)
         hydrate_runtime_artifacts_for_pipeline(runtime, definition)
         return cls(

@@ -7,12 +7,12 @@ from datapipeline.config.streams import StreamsConfig
 from datapipeline.config.tasks import ArtifactTask, RuntimeTask
 from datapipeline.services.definitions import (
     ArtifactHashes,
-    PipelineDefinition,
+    ProjectDefinition,
     ProjectManifest,
 )
 
 
-def pipeline_definition(
+def project_definition(
     project_path: Path,
     *,
     dataset: DatasetConfig | None = None,
@@ -20,7 +20,7 @@ def pipeline_definition(
     artifact_operations: Sequence[ArtifactTask] = (),
     runtime_operations: Sequence[RuntimeTask] = (),
     artifact_hash: str = "artifact-hash",
-) -> PipelineDefinition:
+) -> ProjectDefinition:
     project_path = project_path.resolve()
     root = project_path.parent
     project = ProjectManifest(
@@ -48,7 +48,7 @@ def pipeline_definition(
         operations_dir=root / "operations",
         profiles_dir=root / "profiles",
     )
-    return PipelineDefinition(
+    return ProjectDefinition(
         project=project,
         dataset=(
             dataset

@@ -18,7 +18,7 @@ from datapipeline.operations.artifacts.scaler import materialize_scaler_statisti
 from datapipeline.operations.artifacts.series import build_series_artifact
 from datapipeline.pipelines.dataset.postprocess import apply_postprocess
 from datapipeline.pipelines.sample.input import open_samples
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 
 
@@ -32,7 +32,7 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         shutil.rmtree(build_dir)
 
     # Build metadata artifact for the fixture project.
-    definition = load_pipeline(project)
+    definition = load_project_definition(project)
     runtime = compile_runtime(definition)
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     scaler_rel = materialize_scaler_statistics(

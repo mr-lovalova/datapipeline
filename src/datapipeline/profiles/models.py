@@ -11,7 +11,7 @@ from datapipeline.execution.settings import (
 from datapipeline.io.output import OutputTarget
 from datapipeline.io.runs import RunPaths
 from datapipeline.runtime import Runtime
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.definitions import ProjectDefinition
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class MaterializeJob:
 
 @dataclass(frozen=True, kw_only=True)
 class BuildRunRequest:
-    definition: PipelineDefinition
+    definition: ProjectDefinition
     jobs: Sequence[BuildJob]
     execution: ExecutionConfig
     command: Literal["build"] = field(default="build", init=False)
@@ -59,7 +59,7 @@ class BuildRunRequest:
 @dataclass(frozen=True, kw_only=True)
 class RuntimeRunRequest:
     command: Literal["serve", "inspect"]
-    definition: PipelineDefinition
+    definition: ProjectDefinition
     jobs: Sequence[RuntimeJob]
     execution: ExecutionConfig
     artifact_settings: BuildSettings
@@ -68,7 +68,7 @@ class RuntimeRunRequest:
 
 @dataclass(frozen=True, kw_only=True)
 class MaterializeRunRequest:
-    definition: PipelineDefinition
+    definition: ProjectDefinition
     jobs: Sequence[MaterializeJob]
     execution: ExecutionConfig
     artifact_settings: BuildSettings

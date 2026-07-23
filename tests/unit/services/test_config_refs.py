@@ -8,7 +8,7 @@ from datapipeline.services.config_refs import (
     interpolate_config_vars,
     resolve_config_refs,
 )
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.project import load_project
 from datapipeline.services.streams.loader import load_streams
 from datapipeline.services.streams.source import build_source
@@ -24,7 +24,7 @@ def _sources(project_yaml: Path):
 
 
 def _artifact_hashes(project_yaml: Path):
-    return load_pipeline(project_yaml).artifact_hashes
+    return load_project_definition(project_yaml).artifact_hashes
 
 
 def _write_project_yaml(
@@ -636,13 +636,13 @@ def test_artifact_hash_ignores_source_document_order(tmp_path: Path) -> None:
         "loader: {entrypoint: custom.loader}\n",
         encoding="utf-8",
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     temporary_path = project_root / "sources" / "temporary.yaml"
     alpha_path.rename(temporary_path)
     zeta_path.rename(alpha_path)
     temporary_path.rename(zeta_path)
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert second.streams == first.streams
     assert second.artifact_hashes == first.artifact_hashes
@@ -708,7 +708,7 @@ def test_artifact_hash_tracks_local_source_snapshot(
     first = data_dir / "a.jsonl"
     first.write_text("one\n", encoding="utf-8")
 
-    baseline_definition = load_pipeline(project_yaml)
+    baseline_definition = load_project_definition(project_yaml)
     baseline = baseline_definition.artifact_hashes
     assert _artifact_hashes(project_yaml) == baseline
 
@@ -721,18 +721,18 @@ def test_artifact_hash_tracks_local_source_snapshot(
         first,
         ns=(previous.st_atime_ns, previous.st_mtime_ns + 1_000_000),
     )
-    edited_definition = load_pipeline(project_yaml)
+    edited_definition = load_project_definition(project_yaml)
     edited = edited_definition.artifact_hashes
     assert edited != baseline
 
     second = data_dir / "b.jsonl"
     second.write_text("three\n", encoding="utf-8")
-    added_definition = load_pipeline(project_yaml)
+    added_definition = load_project_definition(project_yaml)
     added = added_definition.artifact_hashes
     assert (added != edited) is tracks_inventory
 
     second.unlink()
-    restored_definition = load_pipeline(project_yaml)
+    restored_definition = load_project_definition(project_yaml)
     assert restored_definition.artifact_hashes == edited
 
     first.unlink()

@@ -35,7 +35,7 @@ class ArtifactHashes:
 
 
 @dataclass(frozen=True, slots=True)
-class PipelineDefinition:
+class ProjectDefinition:
     project: ProjectManifest
     dataset: DatasetConfig
     streams: StreamsConfig

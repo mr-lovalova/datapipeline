@@ -16,12 +16,12 @@ from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
 from datapipeline.operations.artifacts.series import build_series_artifact
 from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 
 
 def _dataset_samples(project_yaml):
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
     runtime = compile_runtime(definition)
     hydrate_runtime_artifacts_for_pipeline(runtime, definition)
     dataset = definition.dataset

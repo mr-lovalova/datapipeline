@@ -65,7 +65,7 @@ def test_inspect_request_requires_declared_inspect_profiles(tmp_path: Path):
     assert exc.value.code == 2
 
 
-def test_pipeline_validation_does_not_log_secret_inputs(
+def test_project_definition_validation_does_not_log_secret_inputs(
     tmp_path: Path,
     monkeypatch,
     caplog,

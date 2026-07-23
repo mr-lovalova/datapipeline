@@ -20,7 +20,7 @@ from datapipeline.operations.runtime.coverage import run_coverage_operation
 from datapipeline.operations.runtime.dataset import run_dataset_operation
 from datapipeline.operations.runtime.matrix import run_matrix_operation
 from datapipeline.plugins import RUNTIME_OPERATIONS_EP
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.definitions import ProjectDefinition
 from datapipeline.utils.load import load_ep
 
 from .models import RuntimeJob
@@ -37,7 +37,7 @@ class RuntimeJobPlan:
 def validate_build_job(
     task: ArtifactTask,
     graph: ArtifactGraph,
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
 ) -> None:
     roots = {task.id}
     artifact_keys = set(graph.dependency_closure(roots))
@@ -49,7 +49,7 @@ def validate_build_job(
 def plan_runtime_job(
     job: RuntimeJob,
     graph: ArtifactGraph,
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
 ) -> RuntimeJobPlan:
     if job.output.format == "parquet" and not isinstance(job.task, DatasetTask):
         raise ValueError("Parquet output is supported only by the dataset operation.")
@@ -99,7 +99,7 @@ def run_runtime_operation(job: RuntimeJob) -> object:
 
 def execute_runtime_job(
     command: Literal["serve", "inspect"],
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     graph: ArtifactGraph,
     plan: RuntimeJobPlan,
 ) -> None:

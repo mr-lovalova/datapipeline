@@ -24,7 +24,7 @@ from datapipeline.profiles.runtime_profiles import (
     resolve_inspect_profiles,
     resolve_serve_profiles,
 )
-from tests.unit.profiles.helpers import pipeline_definition
+from tests.unit.profiles.helpers import project_definition
 
 
 def _definition(
@@ -32,7 +32,7 @@ def _definition(
     split: HashSplitConfig | TimeSplitConfig | None = None,
     runtime_operations: tuple[RuntimeTask, ...] = (),
 ):
-    return pipeline_definition(
+    return project_definition(
         project_path,
         dataset=DatasetConfig(
             sample=SampleConfig(cadence="1h"),

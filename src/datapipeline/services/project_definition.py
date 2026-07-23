@@ -6,7 +6,7 @@ from datapipeline.services.dataset import (
     dataset_from_document,
     validate_dataset_streams,
 )
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.definitions import ProjectDefinition
 from datapipeline.services.operations import (
     operation_documents,
     operations_from_documents,
@@ -16,7 +16,7 @@ from datapipeline.services.streams.loader import load_streams
 from datapipeline.utils.load import read_yaml_document
 
 
-def load_pipeline(project_yaml: Path) -> PipelineDefinition:
+def load_project_definition(project_yaml: Path) -> ProjectDefinition:
     project = load_project(project_yaml)
     dataset_document = read_yaml_document(project.dataset_path)
     operation_config_documents = operation_documents(project)
@@ -36,7 +36,7 @@ def load_pipeline(project_yaml: Path) -> PipelineDefinition:
         streams,
         artifact_operations,
     )
-    return PipelineDefinition(
+    return ProjectDefinition(
         project=project,
         dataset=dataset,
         streams=streams,

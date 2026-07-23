@@ -40,8 +40,8 @@ from datapipeline.execution.settings import (
     ObservabilitySettings,
 )
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.definitions import ArtifactHashes, ProjectDefinition
+from datapipeline.services.project_definition import load_project_definition
 
 
 def _dataset_with_feature(*, scale: bool) -> DatasetConfig:
@@ -99,8 +99,8 @@ def _write_project(tmp_path: Path) -> Path:
 def _definition(
     tmp_path: Path,
     dataset: DatasetConfig | None = None,
-) -> PipelineDefinition:
-    definition = load_pipeline(_write_project(tmp_path))
+) -> ProjectDefinition:
+    definition = load_project_definition(_write_project(tmp_path))
     if dataset is None:
         return definition
     return replace(definition, dataset=dataset)
@@ -108,7 +108,7 @@ def _definition(
 
 def _definition_with_local_source(
     tmp_path: Path,
-) -> tuple[PipelineDefinition, Path]:
+) -> tuple[ProjectDefinition, Path]:
     project = _write_project(tmp_path)
     data = tmp_path / "data"
     data.mkdir()
@@ -131,7 +131,7 @@ def _definition_with_local_source(
         "targets: []\n",
         encoding="utf-8",
     )
-    return load_pipeline(project), source_path
+    return load_project_definition(project), source_path
 
 
 def _edit_source(path: Path) -> None:
@@ -146,7 +146,7 @@ def _remove_source(path: Path) -> None:
     path.unlink()
 
 
-def _build_state_path(definition: PipelineDefinition) -> Path:
+def _build_state_path(definition: ProjectDefinition) -> Path:
     return (
         definition.project.artifacts_root / "_system" / "build" / "state.json"
     ).resolve()
@@ -468,7 +468,7 @@ def test_runtime_operation_change_keeps_artifact_plan_current(
         "kind: runtime\nentrypoint: plugin.report\noptions: {threshold: 1}\n",
         encoding="utf-8",
     )
-    first = load_pipeline(project)
+    first = load_project_definition(project)
     task = next(
         task for task in first.artifact_operations if task.id == "custom_snapshot"
     )
@@ -485,7 +485,7 @@ def test_runtime_operation_change_keeps_artifact_plan_current(
         "kind: runtime\nentrypoint: plugin.report\noptions: {threshold: 2}\n",
         encoding="utf-8",
     )
-    second = load_pipeline(project)
+    second = load_project_definition(project)
     plan = build_exec._plan_build(
         definition=second,
         graph=build_artifact_graph(second.artifact_operations),

@@ -71,7 +71,7 @@ from datapipeline.profiles.models import (
 )
 from datapipeline.profiles.orchestration import _validate_build_order, run_profiles
 from datapipeline.services.materialize import resolve_materialize_output
-from tests.unit.profiles.helpers import pipeline_definition
+from tests.unit.profiles.helpers import project_definition
 
 _LOG_DECISION = LogLevelDecision(name="INFO", value=logging.INFO)
 _LOG_OUTPUT = LogOutputSettings(outputs=())
@@ -192,7 +192,7 @@ def _build_request(
     execution: ExecutionConfig | None = None,
 ) -> BuildRunRequest:
     return BuildRunRequest(
-        definition=pipeline_definition(
+        definition=project_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
             streams=_stream_catalog(),
@@ -215,7 +215,7 @@ def _runtime_request(
 ) -> RuntimeRunRequest:
     return RuntimeRunRequest(
         command=command,
-        definition=pipeline_definition(
+        definition=project_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
             streams=_stream_catalog(),
@@ -236,7 +236,7 @@ def _materialize_request(
     execution: ExecutionConfig | None = None,
 ) -> MaterializeRunRequest:
     return MaterializeRunRequest(
-        definition=pipeline_definition(
+        definition=project_definition(
             tmp_path / "project.yaml",
             dataset=_dataset(),
             streams=_stream_catalog(),
@@ -827,7 +827,7 @@ def test_runtime_job_emits_resolved_config_at_debug(
 
     execute_runtime_job(
         "inspect",
-        pipeline_definition(tmp_path / "project.yaml", dataset=runtime.dataset),
+        project_definition(tmp_path / "project.yaml", dataset=runtime.dataset),
         build_artifact_graph([]),
         RuntimeJobPlan(job, ()),
     )
@@ -865,7 +865,7 @@ def test_runtime_job_does_not_hide_plugin_value_errors(
     with pytest.raises(ValueError, match="plugin bug"):
         execute_runtime_job(
             "inspect",
-            pipeline_definition(tmp_path / "project.yaml"),
+            project_definition(tmp_path / "project.yaml"),
             build_artifact_graph([]),
             RuntimeJobPlan(job, ()),
         )
@@ -887,7 +887,7 @@ def test_runtime_job_reports_unavailable_artifacts(monkeypatch, tmp_path: Path) 
     ):
         execute_runtime_job(
             "inspect",
-            pipeline_definition(tmp_path / "project.yaml"),
+            project_definition(tmp_path / "project.yaml"),
             build_artifact_graph([]),
             RuntimeJobPlan(job, ("snapshot",)),
         )
@@ -1426,7 +1426,7 @@ def test_materialize_hydrates_current_tick_artifact_when_build_skips(
         overwrite=False,
         observability=_observability(),
     )
-    definition = pipeline_definition(
+    definition = project_definition(
         tmp_path / "project.yaml",
         dataset=_dataset(),
         streams=_stream_catalog(),

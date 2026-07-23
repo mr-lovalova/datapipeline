@@ -1,7 +1,7 @@
 # Pipeline Architecture
 
 Each command reads and validates the project, dataset, source, stream,
-and operation YAML once into a `PipelineDefinition`. That definition is the
+and operation YAML once into a `ProjectDefinition`. That definition is the
 command's configuration snapshot. Planning, validation, artifact hydration,
 and execution do not re-read configuration or environment values. Changes are
 picked up by the next command. Its per-artifact hashes cover each producer's
@@ -36,7 +36,7 @@ no parallel source, mapper, transform, or debug registries to keep synchronized.
 
 ```mermaid
 flowchart LR
-  config["project configuration"] --> definition["PipelineDefinition<br/>validated snapshot"]
+  config["project configuration"] --> definition["ProjectDefinition<br/>validated snapshot"]
   definition --> runtime["Runtime.streams<br/>id -> compiled stream"]
   runtime --> records["linear record pipeline"]
   records --> projection["feature/target projection"] --> inputs["series"]

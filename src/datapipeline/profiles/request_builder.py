@@ -47,9 +47,9 @@ from datapipeline.profiles.runtime_profiles import (
     resolve_inspect_profiles,
     resolve_serve_profiles,
 )
-from datapipeline.services.definitions import PipelineDefinition, ProjectManifest
+from datapipeline.services.definitions import ProjectDefinition, ProjectManifest
 from datapipeline.services.path_policy import sanitize_path_segment
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 
 logger = logging.getLogger(__name__)
@@ -71,17 +71,17 @@ def _execution_root(artifacts_root: Path) -> Path:
     return (artifacts_root / "_system" / "executions" / execution_id).resolve()
 
 
-def _load_definition(project: str) -> PipelineDefinition:
+def _load_definition(project: str) -> ProjectDefinition:
     try:
-        return load_pipeline(Path(project))
+        return load_project_definition(Path(project))
     except ValidationError as exc:
         logger.error(
-            "Failed to load pipeline inputs: %s",
+            "Failed to load project definition: %s",
             _validation_error_without_inputs(exc),
         )
         raise SystemExit(2) from exc
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        logger.error("Failed to load pipeline inputs: %s", exc)
+        logger.error("Failed to load project definition: %s", exc)
         raise SystemExit(2) from exc
 
 

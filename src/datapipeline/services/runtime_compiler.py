@@ -16,7 +16,7 @@ from datapipeline.runtime import (
     RuntimeStream,
     SourceRuntimeStream,
 )
-from datapipeline.services.definitions import PipelineDefinition
+from datapipeline.services.definitions import ProjectDefinition
 from datapipeline.services.streams.combine import build_combine_stage
 from datapipeline.services.streams.source import build_mapper, build_source
 from datapipeline.services.streams.validation import stream_partition_by
@@ -75,7 +75,7 @@ def _compile_aligned_stream(
     )
 
 
-def compile_runtime(definition: PipelineDefinition) -> Runtime:
+def compile_runtime(definition: ProjectDefinition) -> Runtime:
     stream_configs = definition.streams.streams
     runtime_streams: dict[str, RuntimeStream] = {}
     for stream_id, config in stream_configs.items():

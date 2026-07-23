@@ -22,7 +22,7 @@ from datapipeline.execution.observability import emit_file_result, operation_sco
 from datapipeline.operations.persistence import persist_artifact_output
 from datapipeline.plugins import BUILD_OPERATIONS_EP
 from datapipeline.runtime import Runtime
-from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
+from datapipeline.services.definitions import ArtifactHashes, ProjectDefinition
 from datapipeline.services.path_policy import resolve_artifact_output_path
 from datapipeline.utils.load import load_ep
 
@@ -94,7 +94,7 @@ def _report_artifact_plan(
 
 def _plan_build(
     *,
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     graph: ArtifactGraph,
     required_artifacts: set[str],
     mode: ArtifactMode,
@@ -203,7 +203,7 @@ def _plan_build(
 
 
 def _execute_build_jobs(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     runtime: Runtime,
     plan: BuildPlan,
     settings: BuildSettings,
@@ -292,7 +292,7 @@ def _execute_build_jobs(
 
 
 def _require_stable_artifact_inputs(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     artifact_id: str,
     expected_hash: str,
 ) -> None:
@@ -310,7 +310,7 @@ def _require_stable_artifact_inputs(
 
 
 def run_build_if_needed(
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     *,
     graph: ArtifactGraph,
     required_artifacts: set[str],

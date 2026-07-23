@@ -21,12 +21,12 @@ from datapipeline.config.tasks import (
     SeriesTask,
 )
 from datapipeline.services import config_inventory
-from datapipeline.services.pipeline import load_pipeline
+from datapipeline.services.project_definition import load_project_definition
 from datapipeline.services.runtime_compiler import compile_runtime
 from datapipeline.utils import load as yaml_loader
 
 
-def _write_pipeline(root: Path) -> Path:
+def _write_project(root: Path) -> Path:
     for name in ("sources", "streams", "operations", "profiles"):
         (root / name).mkdir(parents=True)
     project_yaml = root / "project.yaml"
@@ -51,11 +51,11 @@ paths:
     return project_yaml
 
 
-def test_load_pipeline_parses_each_pipeline_document_once(
+def test_load_project_definition_parses_each_config_document_once(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     (tmp_path / "profiles" / "serve.broken.yaml").write_text(
         "this profile is intentionally: [invalid",
         encoding="utf-8",
@@ -70,15 +70,15 @@ def test_load_pipeline_parses_each_pipeline_document_once(
 
     monkeypatch.setattr(yaml_loader.yaml, "load", count_parse)
 
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
 
     assert definition.project.path == project_yaml.resolve()
     assert parsed_documents == 2
 
 
 def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
-    definition = load_pipeline(project_yaml)
+    project_yaml = _write_project(tmp_path)
+    definition = load_project_definition(project_yaml)
     project_yaml.unlink()
     (tmp_path / "dataset.yaml").unlink()
 
@@ -105,10 +105,10 @@ def test_compile_runtime_uses_the_loaded_definition(tmp_path: Path) -> None:
     assert second.window_bounds is None
 
 
-def test_load_pipeline_rejects_legacy_scaler_fold_config(
+def test_load_project_definition_rejects_legacy_scaler_fold_config(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     (tmp_path / "sources" / "prices.yaml").write_text(
         "id: prices\n"
         "parser: {entrypoint: identity}\n"
@@ -136,14 +136,14 @@ def test_load_pipeline_rejects_legacy_scaler_fold_config(
     )
 
     with pytest.raises(ValueError, match="folds"):
-        load_pipeline(project_yaml)
+        load_project_definition(project_yaml)
 
 
-def test_pipeline_definition_keeps_resolved_environment_snapshot(
+def test_project_definition_keeps_resolved_environment_snapshot(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     (tmp_path / "sources" / "prices.yaml").write_text(
         """id: prices
 parser: {entrypoint: identity}
@@ -160,34 +160,34 @@ loader:
         "datapipeline.services.project.merged_project_env",
         lambda _project_yaml: dict(current_environment),
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     source = first.streams.sources["prices"]
     assert source.loader.path == "data/first.jsonl"
 
     current_environment["SOURCE_PATH"] = "data/second.jsonl"
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert first.streams.sources["prices"].loader.path == "data/first.jsonl"
     assert second.streams.sources["prices"].loader.path == "data/second.jsonl"
 
 
-def test_load_pipeline_canonicalizes_symlinked_dataset_path(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+def test_load_project_definition_canonicalizes_symlinked_dataset_path(tmp_path: Path) -> None:
+    project_yaml = _write_project(tmp_path)
     dataset = tmp_path / "dataset.yaml"
     target = tmp_path / "dataset.actual.yaml"
     dataset.rename(target)
     dataset.symlink_to(target)
 
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
 
     assert definition.project.dataset_path == target.resolve()
 
 
-def test_load_pipeline_canonicalizes_symlinked_config_root(
+def test_load_project_definition_canonicalizes_symlinked_config_root(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     shared = tmp_path / "shared"
     (shared / "sources").mkdir(parents=True)
     (tmp_path / "current").symlink_to(shared, target_is_directory=True)
@@ -199,27 +199,27 @@ def test_load_pipeline_canonicalizes_symlinked_config_root(
         encoding="utf-8",
     )
 
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
 
     assert definition.project.source_dirs == ((shared / "sources").resolve(),)
 
 
-def test_load_pipeline_canonicalizes_symlinked_project_path(
+def test_load_project_definition_canonicalizes_symlinked_project_path(
     tmp_path: Path,
 ) -> None:
     actual = tmp_path / "actual"
-    project_yaml = _write_pipeline(actual)
+    project_yaml = _write_project(actual)
     (tmp_path / "current").symlink_to(actual, target_is_directory=True)
 
-    definition = load_pipeline(tmp_path / "current" / project_yaml.name)
+    definition = load_project_definition(tmp_path / "current" / project_yaml.name)
 
     assert definition.project.path == project_yaml.resolve()
 
 
-def test_pipeline_definition_keeps_retargeted_yaml_symlink_snapshot(
+def test_project_definition_keeps_retargeted_yaml_symlink_snapshot(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     first = tmp_path / "first-source.yaml"
     first.write_text(
         "id: linked\nparser: {entrypoint: identity}\n"
@@ -235,12 +235,12 @@ def test_pipeline_definition_keeps_retargeted_yaml_symlink_snapshot(
     linked = tmp_path / "sources" / "linked.yaml"
     linked.symlink_to(first)
 
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
     assert definition.streams.sources["linked"].loader.entrypoint == "custom.loader"
 
     linked.unlink()
     linked.symlink_to(second)
-    reloaded = load_pipeline(project_yaml)
+    reloaded = load_project_definition(project_yaml)
 
     assert definition.streams.sources["linked"].loader.entrypoint == "custom.loader"
     assert reloaded.streams.sources["linked"].loader.entrypoint == "other.loader"
@@ -276,12 +276,12 @@ def test_pipeline_yaml_inventory_rejects_nested_symlink_directories(
         config_inventory.pipeline_yaml_files(tmp_path)
 
 
-def test_next_pipeline_definition_reloads_project_dotenv(
+def test_next_project_definition_reloads_project_dotenv(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     monkeypatch.delenv("SOURCE_PATH", raising=False)
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     (tmp_path / "sources" / "prices.yaml").write_text(
         """id: prices
 parser: {entrypoint: identity}
@@ -295,11 +295,11 @@ loader:
     )
     dotenv = tmp_path / ".env"
     dotenv.write_text("SOURCE_PATH=data/first.jsonl\n", encoding="utf-8")
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     dotenv.write_text("SOURCE_PATH=data/second.jsonl\n", encoding="utf-8")
 
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
     assert first.streams.sources["prices"].loader.path == "data/first.jsonl"
     assert second.streams.sources["prices"].loader.path == "data/second.jsonl"
 
@@ -307,7 +307,7 @@ loader:
 def test_project_without_name_still_validates_dataset_interpolation(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
             "name: snapshot\n",
@@ -324,13 +324,13 @@ def test_project_without_name_still_validates_dataset_interpolation(
         ValueError,
         match="Unknown interpolation variable 'unknown_cadence'",
     ):
-        load_pipeline(project_yaml)
+        load_project_definition(project_yaml)
 
 
 def test_project_without_name_still_validates_operation_interpolation(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
             "name: snapshot\n",
@@ -347,32 +347,32 @@ def test_project_without_name_still_validates_operation_interpolation(
         ValueError,
         match="Unknown interpolation variable 'unknown_output'",
     ):
-        load_pipeline(project_yaml)
+        load_project_definition(project_yaml)
 
 
 def test_runtime_operation_change_does_not_change_artifact_hashes(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     operation = tmp_path / "operations" / "custom.yaml"
     operation.write_text(
         "kind: runtime\nentrypoint: plugin.runtime.custom\noptions: {threshold: 1}\n",
         encoding="utf-8",
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     operation.write_text(
         "kind: runtime\nentrypoint: plugin.runtime.custom\noptions: {threshold: 2}\n",
         encoding="utf-8",
     )
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert second.runtime_operations != first.runtime_operations
     assert second.artifact_hashes == first.artifact_hashes
 
 
 def test_artifact_operation_change_changes_artifact_hashes(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     operation = tmp_path / "operations" / "custom.yaml"
     operation.write_text(
         "kind: artifact\n"
@@ -380,7 +380,7 @@ def test_artifact_operation_change_changes_artifact_hashes(tmp_path: Path) -> No
         "output: build/first.json\n",
         encoding="utf-8",
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     operation.write_text(
         "kind: artifact\n"
@@ -388,7 +388,7 @@ def test_artifact_operation_change_changes_artifact_hashes(tmp_path: Path) -> No
         "output: build/second.json\n",
         encoding="utf-8",
     )
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert second.artifact_hashes != first.artifact_hashes
 
@@ -396,7 +396,7 @@ def test_artifact_operation_change_changes_artifact_hashes(tmp_path: Path) -> No
 def test_custom_artifact_change_does_not_change_core_artifact_hashes(
     tmp_path: Path,
 ) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     first_task = ArtifactTask(
         id="snapshot",
         entrypoint="plugin.snapshot",
@@ -423,7 +423,7 @@ def test_custom_artifact_change_does_not_change_core_artifact_hashes(
 
 
 def test_artifact_hashing_rejects_missing_metadata_dependencies(tmp_path: Path) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
 
     with pytest.raises(
         ValueError,
@@ -438,7 +438,7 @@ def test_artifact_hashing_rejects_missing_metadata_dependencies(tmp_path: Path) 
 
 
 def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     (tmp_path / "sources" / "prices.yaml").write_text(
         "id: prices\n"
         "parser: {entrypoint: identity}\n"
@@ -449,7 +449,7 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
         "id: prices\nfrom: {source: prices}\nmap: {entrypoint: identity}\n",
         encoding="utf-8",
     )
-    definition = load_pipeline(project_yaml)
+    definition = load_project_definition(project_yaml)
     dataset = DatasetConfig(
         sample=SampleConfig(cadence="1h"),
         features=[
@@ -477,7 +477,7 @@ def test_artifact_hashing_rejects_missing_active_scaler(tmp_path: Path) -> None:
 def test_scaling_policy_does_not_invalidate_unscaled_series(
     tmp_path: Path,
 ) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     streams = _single_stream_catalog()
     operations = (ScalerTask(), SeriesTask())
     unscaled = DatasetConfig(
@@ -510,7 +510,7 @@ def test_scaling_policy_does_not_invalidate_unscaled_series(
 
 
 def test_scaler_hash_tracks_every_fold_role(tmp_path: Path) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     streams = _single_stream_catalog()
     feature = SeriesConfig(
         id="price",
@@ -625,7 +625,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
     source_format: str,
     suffix: str,
 ) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     data = tmp_path / "data"
     data.mkdir()
     used = data / f"used{suffix}"
@@ -692,7 +692,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
 def test_artifact_operation_comment_does_not_change_artifact_hashes(
     tmp_path: Path,
 ) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     operation = tmp_path / "operations" / "custom.yaml"
     operation.write_text(
         "kind: artifact\n"
@@ -700,20 +700,20 @@ def test_artifact_operation_comment_does_not_change_artifact_hashes(
         "output: build/custom.json\n",
         encoding="utf-8",
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     operation.write_text(
         operation.read_text(encoding="utf-8") + "# Documentation only.\n",
         encoding="utf-8",
     )
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert second.artifact_hashes == first.artifact_hashes
 
 
 def test_artifact_revision_change_changes_artifact_hashes(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
-    first = load_pipeline(project_yaml)
+    project_yaml = _write_project(tmp_path)
+    first = load_project_definition(project_yaml)
 
     project_yaml.write_text(
         project_yaml.read_text(encoding="utf-8").replace(
@@ -722,13 +722,13 @@ def test_artifact_revision_change_changes_artifact_hashes(tmp_path: Path) -> Non
         ),
         encoding="utf-8",
     )
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert second.artifact_hashes != first.artifact_hashes
 
 
 def test_hash_split_ratio_order_does_not_change_artifact_hash(tmp_path: Path) -> None:
-    project_yaml = _write_pipeline(tmp_path)
+    project_yaml = _write_project(tmp_path)
     dataset = tmp_path / "dataset.yaml"
     dataset.write_text(
         """\
@@ -743,7 +743,7 @@ split:
 """,
         encoding="utf-8",
     )
-    first = load_pipeline(project_yaml)
+    first = load_project_definition(project_yaml)
 
     dataset.write_text(
         """\
@@ -758,7 +758,7 @@ split:
 """,
         encoding="utf-8",
     )
-    second = load_pipeline(project_yaml)
+    second = load_project_definition(project_yaml)
 
     assert first.artifact_hashes == second.artifact_hashes
 
@@ -767,7 +767,7 @@ def test_artifact_cache_version_changes_artifact_hash(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     monkeypatch.setattr(
         fingerprints,
         "ARTIFACT_CACHE_VERSION",
@@ -787,7 +787,7 @@ def test_metadata_format_version_invalidates_only_metadata_and_dependents(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    definition = load_pipeline(_write_pipeline(tmp_path))
+    definition = load_project_definition(_write_project(tmp_path))
     tasks = (SeriesTask(), MetadataTask())
     current = calculate_artifact_hashes(
         definition.project,

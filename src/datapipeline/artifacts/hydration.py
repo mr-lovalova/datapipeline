@@ -4,7 +4,7 @@ from datapipeline.artifacts.planning import ArtifactGraph, build_artifact_graph
 from datapipeline.artifacts.validation import nested_tick_dependencies
 from datapipeline.build.state import BuildState, load_build_state
 from datapipeline.runtime import Runtime
-from datapipeline.services.definitions import ArtifactHashes, PipelineDefinition
+from datapipeline.services.definitions import ArtifactHashes, ProjectDefinition
 
 
 def hydrate_runtime_artifacts(
@@ -45,7 +45,7 @@ def hydrate_runtime_artifacts(
 
 def hydrate_runtime_artifacts_for_pipeline(
     runtime: Runtime,
-    definition: PipelineDefinition,
+    definition: ProjectDefinition,
     *,
     graph: ArtifactGraph | None = None,
 ) -> tuple[str, ...]:
