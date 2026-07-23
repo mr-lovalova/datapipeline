@@ -90,7 +90,7 @@ identity = "datapipeline.parsers.identity:IdentityParser"
 "core.synthetic.ticks" = "datapipeline.sources.synthetic.time.parser:TimeRowParser"
 
 [project.entry-points."datapipeline.operations.build"]
-"core.artifact.series" = "datapipeline.operations.artifacts.series:materialize_series"
+"core.artifact.series" = "datapipeline.operations.artifacts.series:build_series_artifact"
 "core.artifact.metadata" = "datapipeline.operations.artifacts.metadata:materialize_metadata"
 "core.artifact.scaler" = "datapipeline.operations.artifacts.scaler:materialize_scaler_statistics"
 "core.artifact.stats" = "datapipeline.operations.artifacts.stats:materialize_vector_stats"

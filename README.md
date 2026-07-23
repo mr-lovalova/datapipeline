@@ -92,7 +92,7 @@ that profile explicitly, including one configured with `enabled: false`.
 - `jerry plugin init <name> --out lib/`: create a plugin workspace.
 - `jerry inflow create`: scaffold one source-backed stream end to end.
 - `jerry serve`: stream enabled serve profiles.
-- `jerry build`: materialize the series artifact, scaler statistics, and
+- `jerry build`: build the series artifact, scaler statistics, and
   metadata.
 - `jerry inspect`: run coverage, matrix, or custom inspection profiles.
 - `jerry materialize`: write configured streams to durable `.jsonl` or
@@ -104,7 +104,7 @@ Use `jerry <command> --help` for current flags and the
 
 ## MLOps & Reproducibility
 
-- `jerry build` materializes deterministic series, scaler, and metadata
+- `jerry build` builds deterministic series, scaler, and metadata
   artifacts. Builds are keyed by configuration and local-source
   snapshots, and skip work when nothing changed unless you pass `--force`.
 - Filesystem serve output is run-scoped under

@@ -14,9 +14,7 @@ from datapipeline.config.tasks import (
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.series import (
-    materialize_series,
-)
+from datapipeline.operations.artifacts.series import build_series_artifact
 from datapipeline.pipelines.dataset.pipeline import run_scaled_dataset_pipeline
 from datapipeline.services.pipeline import load_pipeline
 from datapipeline.services.runtime_compiler import compile_runtime
@@ -38,7 +36,7 @@ def _dataset_samples(project_yaml):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
-    series_rel = materialize_series(
+    series_rel = build_series_artifact(
         runtime,
         SeriesTask(
             id="series", output="series/manifest.json"

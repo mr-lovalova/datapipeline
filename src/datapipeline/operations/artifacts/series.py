@@ -50,7 +50,7 @@ class _SeriesRow:
     payload: dict[str, Any]
 
 
-def materialize_series(
+def build_series_artifact(
     runtime: Runtime,
     task_cfg: SeriesTask,
 ) -> ArtifactOutput:

@@ -15,9 +15,7 @@ from datapipeline.config.tasks import (
 from datapipeline.execution.context import PipelineContext
 from datapipeline.operations.artifacts.metadata import materialize_metadata
 from datapipeline.operations.artifacts.scaler import materialize_scaler_statistics
-from datapipeline.operations.artifacts.series import (
-    materialize_series,
-)
+from datapipeline.operations.artifacts.series import build_series_artifact
 from datapipeline.pipelines.dataset.postprocess import apply_postprocess
 from datapipeline.pipelines.sample.input import open_samples
 from datapipeline.services.pipeline import load_pipeline
@@ -45,7 +43,7 @@ def test_column_selection_counts_absent_sequence_opportunities(copy_fixture):
         runtime.artifacts.register(
             SCALER_STATISTICS, relative_path=scaler_rel.relative_path
         )
-    series_rel = materialize_series(
+    series_rel = build_series_artifact(
         runtime,
         SeriesTask(id="series", output="series/manifest.json"),
     )

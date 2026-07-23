@@ -38,9 +38,7 @@ from datapipeline.execution.events import (
 )
 from datapipeline.execution.pipeline import Input
 from datapipeline.execution.runner import run_pipeline
-from datapipeline.operations.artifacts.series import (
-    materialize_series,
-)
+from datapipeline.operations.artifacts.series import build_series_artifact
 from datapipeline.operations.runtime.dataset import _record_preview_stream
 from datapipeline.parsers.identity import IdentityParser
 from datapipeline.pipelines.dataset.postprocess import apply_postprocess
@@ -1279,7 +1277,7 @@ def test_series_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     unrelated.parent.mkdir(parents=True)
     unrelated.write_text("keep", encoding="utf-8")
 
-    result = materialize_series(runtime, SeriesTask())
+    result = build_series_artifact(runtime, SeriesTask())
     runtime.artifacts.register(
         SERIES,
         relative_path=result.relative_path,
@@ -1434,7 +1432,7 @@ def test_series_shared_stream_matches_independent_series_pipelines(
         spilling_batch_sort,
     )
 
-    result = materialize_series(runtime, SeriesTask())
+    result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
     actual_price = list(
@@ -1475,7 +1473,7 @@ def test_series_store_sequence_values_unscaled(
         sample=SampleConfig(cadence="1h"),
         features=[config],
     )
-    result = materialize_series(runtime, SeriesTask())
+    result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
     [sequence] = open_series(manifest_path.parent / manifest.features[0].path)
@@ -1512,7 +1510,7 @@ def test_series_writes_empty_shards_from_a_shared_stream(
         ],
     )
 
-    result = materialize_series(runtime, SeriesTask())
+    result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
 
@@ -1537,7 +1535,7 @@ def test_series_record_sort_is_part_of_the_observed_stream_pipeline(
     observer = _PipelineStarts()
     runtime.pipeline_observer = observer
 
-    materialize_series(runtime, SeriesTask())
+    build_series_artifact(runtime, SeriesTask())
 
     assert observer.starts == ["series:stream"]
     assert "project_series" in observer.nodes
@@ -1562,7 +1560,7 @@ def test_series_closes_shared_stream_after_feature_error(
     assert isinstance(source, _StubSource)
 
     with pytest.raises(KeyError, match="Record field 'missing'"):
-        materialize_series(runtime, SeriesTask())
+        build_series_artifact(runtime, SeriesTask())
 
     assert source.opens == 1
     assert source.closes == 1
@@ -1591,7 +1589,7 @@ def test_failed_series_rebuild_preserves_previous_generation(
         ],
     )
     task = SeriesTask()
-    first = materialize_series(runtime, task)
+    first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
     previous = json.loads(previous_manifest)
@@ -1617,7 +1615,7 @@ def test_failed_series_rebuild_preserves_previous_generation(
     )
 
     with pytest.raises(RuntimeError, match="second shard failed"):
-        materialize_series(runtime, task)
+        build_series_artifact(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     assert all(path.is_file() for path in previous_shards)
@@ -1638,7 +1636,7 @@ def test_failed_series_manifest_commit_removes_new_generation(
         features=[SeriesConfig(stream="stream", id="value", field="value")],
     )
     task = SeriesTask()
-    first = materialize_series(runtime, task)
+    first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
     previous = load_series_manifest(manifest_path)
@@ -1654,7 +1652,7 @@ def test_failed_series_manifest_commit_removes_new_generation(
     )
 
     with pytest.raises(OSError, match="manifest commit failed"):
-        materialize_series(runtime, task)
+        build_series_artifact(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
     previous_generation = previous_path.parent.parent
@@ -1674,12 +1672,12 @@ def test_identical_series_rebuild_publishes_a_new_generation(
     )
     task = SeriesTask()
 
-    first = materialize_series(runtime, task)
+    first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     first_manifest = load_series_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
 
-    materialize_series(runtime, task)
+    build_series_artifact(runtime, task)
     second_manifest = load_series_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
 
@@ -1701,7 +1699,7 @@ def test_changed_series_rebuild_retains_previous_generation(
     )
     task = SeriesTask()
 
-    first = materialize_series(runtime, task)
+    first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     first_manifest = load_series_manifest(manifest_path)
     first_path = manifest_path.parent / first_manifest.features[0].path
@@ -1710,7 +1708,7 @@ def test_changed_series_rebuild_retains_previous_generation(
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
     source._rows.append({"time": _ts(1), "value": 2.0})
-    materialize_series(runtime, task)
+    build_series_artifact(runtime, task)
 
     second_manifest = load_series_manifest(manifest_path)
     second_path = manifest_path.parent / second_manifest.features[0].path
@@ -1740,13 +1738,13 @@ def test_series_rebuild_replaces_a_corrupt_generation(
     )
     task = SeriesTask()
 
-    first = materialize_series(runtime, task)
+    first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     manifest = load_series_manifest(manifest_path)
     shard_path = manifest_path.parent / manifest.features[0].path
     shard_path.write_bytes(b"corrupt")
 
-    materialize_series(runtime, task)
+    build_series_artifact(runtime, task)
 
     rebuilt = load_series_manifest(manifest_path)
     rebuilt_path = manifest_path.parent / rebuilt.features[0].path
@@ -1773,7 +1771,7 @@ def test_series_rejects_symlinked_output_before_mutation(
     )
 
     with pytest.raises(ValueError, match="must not resolve through a symlink"):
-        materialize_series(
+        build_series_artifact(
             runtime,
             SeriesTask(output="build/manifest.json"),
         )
