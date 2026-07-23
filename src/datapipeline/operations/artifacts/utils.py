@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -9,11 +9,6 @@ from datapipeline.artifacts.models import (
     VectorMetadataEntry,
 )
 from datapipeline.config.dataset.series import SeriesConfig
-from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
-from datapipeline.execution.observability import OperationProgressTracker
-from datapipeline.pipelines.sample.input import open_samples
-from datapipeline.runtime import Runtime
 from datapipeline.domain.series_id import base_id as _base_series_id
 from datapipeline.transforms.utils import is_missing
 
@@ -88,84 +83,72 @@ class VectorMetadataStats:
         self.scalar_types.add(_type_name(value))
 
 
-def collect_vector_metadata(
-    runtime: Runtime,
-    configs: Sequence[SeriesConfig],
-    cadence: str,
-    sample_keys: Sequence[str],
-    progress_step: str,
-) -> tuple[
-    list[VectorMetadataStats],
-    int,
-    dict[tuple, tuple[datetime, datetime]],
-]:
-    if not configs:
-        return [], 0, {}
-    context = PipelineContext(runtime)
-    samples = open_samples(
-        context,
-        configs,
-        cadence,
-        rectangular=False,
-        sample_keys=sample_keys,
-    )
+class VectorMetadataCollector:
+    def __init__(
+        self,
+        configs: Sequence[SeriesConfig],
+        sample_keys: Sequence[str],
+    ) -> None:
+        self._config_order = {config.id: index for index, config in enumerate(configs)}
+        self._sample_keys = tuple(sample_keys)
+        self._stats: dict[str, VectorMetadataStats] = {}
+        self._sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
+        self._vector_count = 0
 
-    stats: dict[str, VectorMetadataStats] = {}
-    sample_domain: dict[tuple, tuple[datetime, datetime]] = {}
-    vector_count = 0
-    progress = OperationProgressTracker(
-        progress_step,
-        "vectors",
-        resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
-    )
-    try:
-        for sample in samples:
-            vector_count += 1
-            if (
-                not isinstance(sample.key, tuple)
-                or len(sample.key) != len(sample_keys) + 1
-                or not isinstance(sample.key[0], datetime)
-            ):
-                raise RuntimeError(
-                    "Vector sample key does not match the configured sample keys."
+    def observe(self, key: tuple, values: Mapping[str, object]) -> None:
+        if not values:
+            return
+        if (
+            not isinstance(key, tuple)
+            or len(key) != len(self._sample_keys) + 1
+            or not isinstance(key[0], datetime)
+        ):
+            raise RuntimeError(
+                "Vector sample key does not match the configured sample keys."
+            )
+
+        self._vector_count += 1
+        observed_at = key[0]
+        if self._sample_keys:
+            _update_sample_domain(self._sample_domain, key, observed_at)
+        for series_id, value in values.items():
+            entry = self._stats.get(series_id)
+            if entry is None:
+                entry = self._stats[series_id] = VectorMetadataStats(
+                    id=series_id,
+                    base_id=_base_series_id(series_id),
                 )
-            ts = sample.key[0]
-            if sample_keys:
-                _update_sample_domain(sample_domain, sample.key, ts)
-            for fid, value in sample.features.values.items():
-                entry = stats.get(fid)
-                if entry is None:
-                    entry = stats[fid] = VectorMetadataStats(
-                        id=fid,
-                        base_id=_base_series_id(fid),
-                    )
-                entry.observe(value, ts)
-            progress.advance()
-    finally:
-        closer = getattr(samples, "close", None)
-        if callable(closer):
-            closer()
+            entry.observe(value, observed_at)
 
-    config_order = {config.id: index for index, config in enumerate(configs)}
-    observed_ids = {entry.base_id for entry in stats.values()}
-    unexpected_ids = sorted(observed_ids - set(config_order))
-    if unexpected_ids:
-        raise RuntimeError(
-            "Vector metadata contains IDs outside the configured vectors: "
-            f"{unexpected_ids!r}."
+    def result(
+        self,
+    ) -> tuple[
+        list[VectorMetadataStats],
+        int,
+        dict[tuple, tuple[datetime, datetime]],
+    ]:
+        observed_ids = {entry.base_id for entry in self._stats.values()}
+        configured_ids = set(self._config_order)
+        unexpected_ids = sorted(observed_ids - configured_ids)
+        if unexpected_ids:
+            raise RuntimeError(
+                "Vector metadata contains IDs outside the configured vectors: "
+                f"{unexpected_ids!r}."
+            )
+        missing_ids = sorted(configured_ids - observed_ids)
+        if missing_ids:
+            raise RuntimeError(
+                "Configured vectors produced no metadata: "
+                f"{missing_ids!r}. Check upstream source data and credentials."
+            )
+        ordered = sorted(
+            self._stats.values(),
+            key=lambda entry: (
+                self._config_order[entry.base_id],
+                entry.id,
+            ),
         )
-    missing_ids = sorted(set(config_order) - observed_ids)
-    if missing_ids:
-        raise RuntimeError(
-            "Configured vectors produced no metadata: "
-            f"{missing_ids!r}. Check upstream source data and credentials."
-        )
-
-    ordered_stats = sorted(
-        stats.values(),
-        key=lambda entry: (config_order[entry.base_id], entry.id),
-    )
-    return ordered_stats, vector_count, sample_domain
+        return ordered, self._vector_count, self._sample_domain
 
 
 def _update_sample_domain(

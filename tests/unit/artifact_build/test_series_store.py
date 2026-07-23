@@ -3,122 +3,163 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, cast
 
 import pytest
 
 from datapipeline.artifacts.series import (
     SERIES_MANIFEST_VERSION,
+    SeriesRow,
     load_series_manifest,
     open_series,
     prune_series_cache,
-    series_record_to_row,
+    read_series_rows,
     write_series_rows,
 )
-from datapipeline.domain.series import SeriesRecord, SeriesSequence
 
 
 def _time(hour: int) -> datetime:
     return datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
 
 
-def test_series_record_rows_round_trip_json_native_values(tmp_path: Path) -> None:
-    record = SeriesRecord(
-        id="record",
-        time=_time(0),
-        value={"values": [None, True, 1, 1.5, "text"]},
-        entity_key=("A", 7, "north"),
+def _row(
+    hour: int,
+    *,
+    entity_key: tuple = (),
+    features: dict[str, Any] | None = None,
+    targets: dict[str, Any] | None = None,
+) -> SeriesRow:
+    return SeriesRow(
+        time=_time(hour),
+        entity_key=entity_key,
+        features={} if features is None else features,
+        targets={} if targets is None else targets,
     )
-    null_record = SeriesRecord(
-        id="null_record",
-        time=_time(1),
-        value=None,
-    )
-    sequence = SeriesSequence(
-        time=_time(2),
-        id="sequence",
-        values=[None, False, 2, 2.5, "other"],
-        entity_key=("B", 8, "south"),
-    )
-    destination = tmp_path / "inputs.jsonl.gz"
 
-    written = write_series_rows(
-        destination,
-        (
-            MappingProxyType(series_record_to_row(item))
-            for item in (record, null_record, sequence)
+
+def _valid_manifest() -> dict[str, Any]:
+    return {
+        "version": SERIES_MANIFEST_VERSION,
+        "format": "jsonl.gz",
+        "cadence": "1h",
+        "sample_keys": ["security_id"],
+        "sample_key_types": ["string"],
+        "path": "manifest.data/current/series.jsonl.gz",
+        "rows": 1,
+        "sha256": "0" * 64,
+        "features": [{"id": "price", "samples": 1}],
+        "targets": [],
+    }
+
+
+def _write_manifest(
+    root: Path,
+    rows: list[SeriesRow],
+    *,
+    features: list[dict[str, object]],
+    targets: list[dict[str, object]] | None = None,
+    sample_keys: list[str] | None = None,
+    sample_key_types: list[str] | None = None,
+) -> Path:
+    manifest_path = root / "manifest.json"
+    data_path = root / "manifest.data/current/series.jsonl.gz"
+    result = write_series_rows(data_path, rows)
+    payload = {
+        "version": SERIES_MANIFEST_VERSION,
+        "format": "jsonl.gz",
+        "cadence": "1h",
+        "sample_keys": [] if sample_keys is None else sample_keys,
+        "sample_key_types": ([] if sample_key_types is None else sample_key_types),
+        "path": str(data_path.relative_to(root)),
+        "rows": result.rows,
+        "sha256": result.sha256,
+        "features": features,
+        "targets": [] if targets is None else targets,
+    }
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+    return manifest_path
+
+
+def test_series_rows_round_trip_json_native_values(tmp_path: Path) -> None:
+    rows = [
+        _row(
+            0,
+            entity_key=("A", 7, "north"),
+            features={
+                "record": {"values": [None, True, 1, 1.5, "text"]},
+                "null_record": None,
+            },
+            targets={"sequence": [None, False, 2, 2.5, "other"]},
         ),
-    )
-
-    assert written == 3
-    assert list(open_series(destination, expected_rows=3)) == [
-        record,
-        null_record,
-        sequence,
+        _row(
+            1,
+            entity_key=("B", 8, "south"),
+            features={"record": 3.0},
+        ),
     ]
+    destination = tmp_path / "series.jsonl.gz"
+
+    written = write_series_rows(destination, rows)
+
+    assert written.rows == 2
+    assert len(written.sha256) == 64
+    assert list(read_series_rows(destination, expected_rows=2)) == rows
 
 
-def test_series_record_row_preserves_wire_shape() -> None:
-    row = series_record_to_row(
-        SeriesRecord(
-            id="price",
-            time=_time(0),
-            value=1.0,
-            entity_key=("AAPL",),
-        )
+def test_series_row_preserves_wire_shape(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+    write_series_rows(
+        destination,
+        [
+            _row(
+                0,
+                entity_key=("AAPL",),
+                features={"price": 1.0},
+                targets={"return": [0.1, 0.2]},
+            )
+        ],
     )
 
-    assert list(row) == ["id", "time", "entity_key", "kind", "value"]
-    assert row == {
-        "id": "price",
+    with gzip.open(destination, "rt", encoding="utf-8") as handle:
+        payload = json.loads(handle.read())
+
+    assert list(payload) == ["time", "entity_key", "features", "targets"]
+    assert payload == {
         "time": "2024-01-01T00:00:00Z",
         "entity_key": ["AAPL"],
-        "kind": "record",
-        "value": 1.0,
+        "features": {"price": 1.0},
+        "targets": {"return": [0.1, 0.2]},
     }
 
 
-def test_series_record_gzip_is_reproducible(tmp_path: Path) -> None:
-    row = {
-        "id": "price",
-        "time": _time(0).isoformat(),
-        "kind": "record",
-        "entity_key": [],
-        "value": 1.0,
-    }
+def test_series_gzip_is_reproducible(tmp_path: Path) -> None:
+    rows = [_row(0, features={"price": 1.0})]
     first = tmp_path / "first.jsonl.gz"
     second = tmp_path / "second.jsonl.gz"
 
-    first_result = write_series_rows(first, [row])
-    second_result = write_series_rows(second, [row])
+    first_result = write_series_rows(first, rows)
+    second_result = write_series_rows(second, rows)
 
     assert first.read_bytes() == second.read_bytes()
     assert first_result == second_result
+    assert first_result.rows == 1
 
 
-def test_series_record_writer_aborts_when_atomic_commit_fails(
-    monkeypatch,
+def test_series_writer_aborts_when_atomic_commit_fails(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    def fail_commit(*_args):
+    def fail_commit(*_args: object) -> None:
         raise OSError("commit failed")
 
     monkeypatch.setattr(
         "datapipeline.io.sinks.files._commit_temp_file",
         fail_commit,
     )
-    destination = tmp_path / "rows.jsonl.gz"
-    row = {
-        "id": "price",
-        "time": _time(0).isoformat(),
-        "kind": "record",
-        "entity_key": [],
-        "value": 1.0,
-    }
+    destination = tmp_path / "series.jsonl.gz"
 
     with pytest.raises(OSError, match="commit failed"):
-        write_series_rows(destination, [row])
+        write_series_rows(destination, [_row(0, features={"price": 1.0})])
 
     assert list(tmp_path.iterdir()) == []
 
@@ -132,160 +173,142 @@ def test_series_record_writer_aborts_when_atomic_commit_fails(
     ],
     ids=["unsupported-object", "tuple", "non-string-mapping-key"],
 )
-def test_series_record_writer_rejects_lossy_values_atomically(
+def test_series_writer_rejects_lossy_values_atomically(
     tmp_path: Path,
     value: object,
 ) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
+    destination = tmp_path / "series.jsonl.gz"
     destination.write_bytes(b"existing")
-    records = [
-        SeriesRecord(
-            id="valid",
-            time=_time(0),
-            value=1.0,
-        ),
-        SeriesRecord(
-            id="invalid",
-            time=_time(1),
-            value=value,
-        ),
-    ]
 
-    with pytest.raises(TypeError, match="Series record"):
+    with pytest.raises(TypeError, match="Series"):
         write_series_rows(
             destination,
-            (series_record_to_row(item) for item in records),
+            [
+                _row(0, features={"valid": 1.0}),
+                _row(1, features={"invalid": value}),
+            ],
         )
 
     assert destination.read_bytes() == b"existing"
     assert list(tmp_path.iterdir()) == [destination]
 
 
-def test_series_record_writer_rejects_non_scalar_entity_key(tmp_path: Path) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    row = {
-        "id": "price",
-        "time": _time(0).isoformat(),
-        "kind": "record",
-        "entity_key": [["A"]],
-        "value": 1.0,
-    }
+@pytest.mark.parametrize(
+    ("row", "error", "message"),
+    [
+        (
+            cast(Any, object()),
+            TypeError,
+            "Expected SeriesRow",
+        ),
+        (
+            SeriesRow(
+                time=datetime(2024, 1, 1),
+                entity_key=(),
+                features={},
+                targets={},
+            ),
+            ValueError,
+            "timezone-aware",
+        ),
+        (
+            SeriesRow(
+                time=_time(0),
+                entity_key=cast(Any, "AAPL"),
+                features={},
+                targets={},
+            ),
+            TypeError,
+            "entity key must be a tuple",
+        ),
+        (
+            SeriesRow(
+                time=_time(0),
+                entity_key=(),
+                features=cast(Any, ()),
+                targets={},
+            ),
+            TypeError,
+            "features and targets must be dictionaries",
+        ),
+    ],
+    ids=["wrong-type", "naive-time", "non-tuple-key", "non-dict-values"],
+)
+def test_series_writer_rejects_invalid_row_contract(
+    tmp_path: Path,
+    row: SeriesRow,
+    error: type[Exception],
+    message: str,
+) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+
+    with pytest.raises(error, match=message):
+        write_series_rows(destination, [row])
+
+    assert not destination.exists()
+
+
+def test_series_writer_rejects_non_scalar_entity_key(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
 
     with pytest.raises(TypeError, match="Sample key field.*list"):
-        write_series_rows(destination, [row])
+        write_series_rows(
+            destination,
+            [_row(0, entity_key=(["A"],), features={"price": 1.0})],
+        )
 
     assert not destination.exists()
     assert list(tmp_path.iterdir()) == []
 
 
-def test_series_record_row_rejects_non_tuple_entity_key() -> None:
-    record = SeriesRecord(
-        id="price",
-        time=_time(0),
-        value=1.0,
-        entity_key=cast(Any, "AAPL"),
-    )
-
-    with pytest.raises(TypeError, match="price.*entity key must be a tuple"):
-        series_record_to_row(record)
-
-
-def test_series_record_row_rejects_non_list_sequence_values() -> None:
-    sequence = SeriesSequence(
-        time=_time(0),
-        id="prices",
-        values=cast(Any, (1.0, 2.0)),
-    )
-
-    with pytest.raises(TypeError, match="prices.*values must be a list"):
-        series_record_to_row(sequence)
-
-
-@pytest.mark.parametrize("kind", [None, "records"])
-def test_series_record_writer_rejects_unknown_kind(
-    tmp_path: Path,
-    kind: object,
-) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    row = {
-        "id": "price",
-        "time": _time(0).isoformat(),
-        "kind": kind,
-        "entity_key": [],
-        "value": (1.0, 2.0),
-    }
-
-    with pytest.raises(TypeError, match="Unsupported series row kind"):
-        write_series_rows(destination, [row])
-
-    assert not destination.exists()
-
-
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_series_record_writer_rejects_non_finite_values_atomically(
+def test_series_writer_rejects_non_finite_values_atomically(
     tmp_path: Path,
     value: float,
 ) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
+    destination = tmp_path / "series.jsonl.gz"
     destination.write_bytes(b"existing")
-    record = SeriesRecord(
-        id="price",
-        time=_time(0),
-        value={"values": [1.0, value]},
-    )
-    row = series_record_to_row(record)
+    row = _row(0, features={"price": {"values": [1.0, value]}})
 
     with pytest.raises(ValueError, match="Out of range float values"):
         write_series_rows(destination, [row])
 
-    assert row["value"] is record.value
+    assert row.features["price"] == {"values": [1.0, value]}
     assert destination.read_bytes() == b"existing"
     assert list(tmp_path.iterdir()) == [destination]
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_series_record_writer_rejects_non_finite_entity_keys(
+def test_series_writer_rejects_non_finite_entity_keys(
     tmp_path: Path,
     value: float,
 ) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    record = SeriesRecord(
-        id="price",
-        time=_time(0),
-        value=1.0,
-        entity_key=(value,),
-    )
+    destination = tmp_path / "series.jsonl.gz"
 
-    with pytest.raises(ValueError, match="finite floats"):
+    with pytest.raises(ValueError, match="finite float"):
         write_series_rows(
             destination,
-            [series_record_to_row(record)],
+            [_row(0, entity_key=(value,), features={"price": 1.0})],
         )
 
     assert not destination.exists()
 
 
-def test_series_record_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
+def test_series_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> None:
     class InterruptedRows:
         def __init__(self) -> None:
             self.count = 0
 
-        def __iter__(self):
+        def __iter__(self) -> "InterruptedRows":
             return self
 
-        def __next__(self):
+        def __next__(self) -> SeriesRow:
             if self.count == 0:
                 self.count += 1
-                return {
-                    "id": "price",
-                    "time": _time(0).isoformat(),
-                    "kind": "record",
-                    "entity_key": [],
-                    "value": 1.0,
-                }
+                return _row(0, features={"price": 1.0})
             raise KeyboardInterrupt
 
-    destination = tmp_path / "price.jsonl.gz"
+    destination = tmp_path / "series.jsonl.gz"
 
     with pytest.raises(KeyboardInterrupt):
         write_series_rows(destination, InterruptedRows())
@@ -294,7 +317,10 @@ def test_series_record_writer_removes_temp_file_on_interrupt(tmp_path: Path) -> 
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.parametrize("version", [None, 1, 2, 3, 4, 5, 6, 6.0, True])
+@pytest.mark.parametrize(
+    "version",
+    [None, 1, 2, 3, 4, 5, 6, 7, 7.0, True],
+)
 def test_series_manifest_rejects_incompatible_version(
     tmp_path: Path,
     version: object,
@@ -307,36 +333,19 @@ def test_series_manifest_rejects_incompatible_version(
         load_series_manifest(manifest)
 
 
-def _valid_manifest() -> dict[str, Any]:
-    return {
-        "version": SERIES_MANIFEST_VERSION,
-        "format": "jsonl.gz",
-        "cadence": "1h",
-        "sample_keys": ["security_id"],
-        "sample_key_types": ["string"],
-        "features": [
-            {
-                "id": "price",
-                "path": "manifest.shards/features/000000.jsonl.gz",
-                "rows": 1,
-            }
-        ],
-        "targets": [],
-    }
-
-
 def test_cache_pruning_rejects_symlinked_manifest_parent(tmp_path: Path) -> None:
     artifacts_root = tmp_path / "artifacts"
     artifacts_root.mkdir()
     outside = tmp_path / "outside"
-    cache_root = outside / "manifest.shards"
+    cache_root = outside / "manifest.data"
     stale = cache_root / "stale"
     stale.mkdir(parents=True)
     sentinel = stale / "keep"
     sentinel.write_text("keep", encoding="utf-8")
-    payload = _valid_manifest()
-    payload["features"][0]["path"] = "manifest.shards/current/features/000000.jsonl.gz"
-    (outside / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
+    (outside / "manifest.json").write_text(
+        json.dumps(_valid_manifest()),
+        encoding="utf-8",
+    )
     (artifacts_root / "build").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError, match="must stay under artifacts root"):
@@ -358,6 +367,9 @@ def test_cache_pruning_rejects_symlinked_manifest_parent(tmp_path: Path) -> None
         ("rows", True),
         ("rows", -1),
         ("path", "../outside.jsonl.gz"),
+        ("sha256", "not-a-digest"),
+        ("samples", True),
+        ("samples", -1),
     ],
 )
 def test_series_manifest_rejects_invalid_contract(
@@ -366,8 +378,8 @@ def test_series_manifest_rejects_invalid_contract(
     value: object,
 ) -> None:
     payload = _valid_manifest()
-    if change in {"rows", "path"}:
-        payload["features"][0][change] = value
+    if change == "samples":
+        payload["features"][0]["samples"] = value
     else:
         payload[change] = value
     manifest = tmp_path / "manifest.json"
@@ -377,9 +389,17 @@ def test_series_manifest_rejects_invalid_contract(
         load_series_manifest(manifest)
 
 
-def test_series_manifest_rejects_duplicate_shards(tmp_path: Path) -> None:
+@pytest.mark.parametrize("duplicate_role", ["feature", "target"])
+def test_series_manifest_rejects_duplicate_ids(
+    tmp_path: Path,
+    duplicate_role: str,
+) -> None:
     payload = _valid_manifest()
-    payload["features"] = [payload["features"][0], payload["features"][0]]
+    duplicate = {"id": "price", "samples": 1}
+    if duplicate_role == "feature":
+        payload["features"].append(duplicate)
+    else:
+        payload["targets"].append(duplicate)
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -392,105 +412,296 @@ def test_series_manifest_rejects_duplicate_shards(tmp_path: Path) -> None:
     [
         (
             {
-                "id": "price",
-                "time": "2024-01-01T00:00:00Z",
-                "kind": "record",
                 "entity_key": [],
+                "features": {},
+                "targets": {},
             },
-            "define 'value'",
+            "define 'time'",
         ),
         (
             {
-                "id": "price",
                 "time": "2024-01-01T00:00:00Z",
-                "kind": "record",
-                "value": None,
+                "features": {},
+                "targets": {},
             },
             "list 'entity_key'",
         ),
         (
             {
-                "id": "price",
                 "time": "2024-01-01T00:00:00Z",
-                "kind": "record",
                 "entity_key": None,
-                "value": None,
+                "features": {},
+                "targets": {},
             },
             "list 'entity_key'",
         ),
         (
             {
-                "id": "price",
                 "time": "2024-01-01T00:00:00Z",
-                "kind": "record",
                 "entity_key": [["A"]],
-                "value": None,
+                "features": {},
+                "targets": {},
             },
             "invalid entity key",
         ),
+        (
+            {
+                "time": "2024-01-01T00:00:00Z",
+                "entity_key": [],
+                "features": [],
+                "targets": {},
+            },
+            "object 'features'",
+        ),
+        (
+            {
+                "time": "2024-01-01T00:00:00Z",
+                "entity_key": [],
+                "features": {},
+                "targets": None,
+            },
+            "object 'targets'",
+        ),
+        (
+            {
+                "time": "2024-01-01T00:00:00Z",
+                "entity_key": [],
+                "features": {"price": 1.0},
+                "targets": {"price": 2.0},
+            },
+            "both features and targets",
+        ),
     ],
-    ids=["missing-value", "missing-entity-key", "null-entity-key", "nested-key"],
+    ids=[
+        "missing-time",
+        "missing-entity-key",
+        "null-entity-key",
+        "nested-key",
+        "invalid-features",
+        "invalid-targets",
+        "duplicate-role",
+    ],
 )
-def test_series_record_reader_rejects_malformed_rows(
+def test_series_reader_rejects_malformed_rows(
     tmp_path: Path,
     row: dict[str, object],
     message: str,
 ) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
+    destination = tmp_path / "series.jsonl.gz"
     with gzip.open(destination, "wt", encoding="utf-8") as handle:
         handle.write(json.dumps(row) + "\n")
 
     with pytest.raises(ValueError, match=message):
-        list(open_series(destination))
+        list(read_series_rows(destination))
+
+
+def test_series_reader_rejects_duplicate_json_keys(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+    with gzip.open(destination, "wt", encoding="utf-8") as handle:
+        handle.write(
+            '{"time":"2024-01-01T00:00:00Z","entity_key":[],'
+            '"features":{"price":1,"price":2},"targets":{}}\n'
+        )
+
+    with pytest.raises(ValueError, match="Duplicate JSON key 'price'"):
+        list(read_series_rows(destination))
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
-def test_series_record_reader_rejects_non_standard_numbers(
+def test_series_reader_rejects_non_standard_numbers(
     tmp_path: Path,
     value: str,
 ) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
+    destination = tmp_path / "series.jsonl.gz"
     with gzip.open(destination, "wt", encoding="utf-8") as handle:
         handle.write(
-            '{"id":"price","time":"2024-01-01T00:00:00Z",'
-            f'"kind":"record","entity_key":[],"value":{value}}}\n'
+            '{"time":"2024-01-01T00:00:00Z","entity_key":[],'
+            f'"features":{{"price":{value}}},"targets":{{}}}}\n'
         )
 
     with pytest.raises(ValueError, match="Non-standard JSON"):
-        list(open_series(destination))
+        list(read_series_rows(destination))
 
 
-def test_series_record_reader_rejects_fewer_rows_than_declared(
-    tmp_path: Path,
-) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    write_series_rows(
-        destination,
-        [series_record_to_row(SeriesRecord("price", _time(0), 1.0))],
-    )
+def test_series_reader_rejects_fewer_rows_than_declared(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+    write_series_rows(destination, [_row(0, features={"price": 1.0})])
 
     with pytest.raises(ValueError, match="declares 2 rows but contains 1"):
-        list(open_series(destination, expected_rows=2))
+        list(read_series_rows(destination, expected_rows=2))
 
 
-def test_series_record_reader_rejects_extra_row_before_yielding_it(
-    tmp_path: Path,
-) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    records = [SeriesRecord("price", _time(hour), float(hour)) for hour in range(2)]
-    write_series_rows(destination, map(series_record_to_row, records))
-    opened = open_series(destination, expected_rows=1)
+def test_series_reader_rejects_extra_row_before_yielding_it(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+    rows = [
+        _row(0, features={"price": 1.0}),
+        _row(1, features={"price": 2.0}),
+    ]
+    write_series_rows(destination, rows)
+    opened = read_series_rows(destination, expected_rows=1)
 
-    assert next(opened) == records[0]
+    assert next(opened) == rows[0]
     with pytest.raises(ValueError, match="more than its declared 1 rows"):
         next(opened)
 
 
-def test_series_record_reader_does_not_verify_unread_rows(tmp_path: Path) -> None:
-    destination = tmp_path / "inputs.jsonl.gz"
-    record = SeriesRecord("price", _time(0), 1.0)
-    write_series_rows(destination, [series_record_to_row(record)])
-    opened = open_series(destination, expected_rows=2)
+def test_series_reader_does_not_verify_unread_rows(tmp_path: Path) -> None:
+    destination = tmp_path / "series.jsonl.gz"
+    row = _row(0, features={"price": 1.0})
+    write_series_rows(destination, [row])
+    opened = read_series_rows(destination, expected_rows=2)
 
-    assert next(opened) == record
+    assert next(opened) == row
     opened.close()
+
+
+def test_open_series_validates_order_keys_and_per_series_counts(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        _row(
+            0,
+            entity_key=("A",),
+            features={
+                "price__@ticker:A": 1.0,
+                "price__@ticker:B": 2.0,
+            },
+            targets={"return": 0.1},
+        ),
+        _row(
+            1,
+            entity_key=("A",),
+            features={"price__@ticker:A": 3.0},
+            targets={"return": 0.2},
+        ),
+    ]
+    manifest_path = _write_manifest(
+        tmp_path,
+        rows,
+        features=[{"id": "price", "samples": 2}],
+        targets=[{"id": "return", "samples": 2}],
+        sample_keys=["security_id"],
+        sample_key_types=["string"],
+    )
+
+    assert list(open_series(manifest_path)) == rows
+
+
+def test_open_series_rejects_unordered_rows(tmp_path: Path) -> None:
+    rows = [
+        _row(1, features={"price": 2.0}),
+        _row(0, features={"price": 1.0}),
+    ]
+    manifest_path = _write_manifest(
+        tmp_path,
+        rows,
+        features=[{"id": "price", "samples": 2}],
+    )
+
+    with pytest.raises(ValueError, match="not strictly ordered"):
+        list(open_series(manifest_path))
+
+
+def test_open_series_rejects_invalid_sample_key_type(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        [_row(0, entity_key=(7,), features={"price": 1.0})],
+        features=[{"id": "price", "samples": 1}],
+        sample_keys=["security_id"],
+        sample_key_types=["string"],
+    )
+
+    with pytest.raises(TypeError, match="security_id.*string"):
+        list(open_series(manifest_path))
+
+
+def test_open_series_rejects_unexpected_series_id(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(
+        tmp_path,
+        [_row(0, features={"volume": 1.0})],
+        features=[{"id": "price", "samples": 1}],
+    )
+
+    with pytest.raises(ValueError, match="unexpected series id 'volume'"):
+        list(open_series(manifest_path))
+
+
+def test_open_series_rejects_changed_wide_value_with_valid_counts(
+    tmp_path: Path,
+) -> None:
+    original = _row(
+        0,
+        features={
+            "price__@ticker:A": 1.0,
+            "price__@ticker:B": 2.0,
+        },
+    )
+    manifest_path = _write_manifest(
+        tmp_path,
+        [original],
+        features=[{"id": "price", "samples": 1}],
+    )
+    manifest = load_series_manifest(manifest_path)
+    data_path = manifest_path.parent / manifest.path
+    write_series_rows(
+        data_path,
+        [_row(0, features={"price__@ticker:A": 1.0})],
+    )
+
+    with pytest.raises(ValueError, match="content digest"):
+        list(open_series(manifest_path, manifest))
+
+
+@pytest.mark.parametrize(
+    ("role", "features", "targets", "message"),
+    [
+        (
+            "feature",
+            [{"id": "price", "samples": 2}],
+            [],
+            "incorrect feature sample counts",
+        ),
+        (
+            "target",
+            [],
+            [{"id": "return", "samples": 2}],
+            "incorrect target sample counts",
+        ),
+    ],
+)
+def test_open_series_rejects_incorrect_per_series_count(
+    tmp_path: Path,
+    role: str,
+    features: list[dict[str, object]],
+    targets: list[dict[str, object]],
+    message: str,
+) -> None:
+    values = {"price": 1.0} if role == "feature" else {}
+    target_values = {"return": 0.1} if role == "target" else {}
+    manifest_path = _write_manifest(
+        tmp_path,
+        [_row(0, features=values, targets=target_values)],
+        features=features,
+        targets=targets,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        list(open_series(manifest_path))
+
+
+def test_prune_series_cache_removes_only_stale_generations(tmp_path: Path) -> None:
+    artifacts_root = tmp_path / "artifacts"
+    manifest_path = artifacts_root / "build/manifest.json"
+    current = manifest_path.parent / "manifest.data/current"
+    stale = manifest_path.parent / "manifest.data/stale"
+    current.mkdir(parents=True)
+    stale.mkdir()
+    (current / "series.jsonl.gz").write_bytes(b"current")
+    (stale / "series.jsonl.gz").write_bytes(b"stale")
+    manifest_path.write_text(json.dumps(_valid_manifest()), encoding="utf-8")
+
+    removed = prune_series_cache(manifest_path, artifacts_root)
+
+    assert removed == (stale,)
+    assert current.is_dir()
+    assert not stale.exists()

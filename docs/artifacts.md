@@ -7,15 +7,16 @@ An artifact's registry key is its operation ID (`scaler`, `series`,
 `metadata`, or `coverage_stats`). Custom operation IDs come from their YAML
 filenames, such as `operations/model_grid.yaml`.
 
-- `build/series/manifest.json` plus compressed feature/target shards under
-  `build/series/manifest.shards/`:
-  durable inputs consumed by sample assembly. Values may contain only `None`,
-  `bool`, `int`, `float`, `str`, lists, and string-keyed dictionaries;
-  sample-key components may use only those scalar types. Other Python objects
-  fail the build instead of being converted to strings. Each successful build
-  publishes a new immutable shard generation. Project commands hold one
-  artifact-workspace lock; generations no longer referenced by the manifest
-  are pruned only after the locked command finishes.
+- `build/series/manifest.json` plus one compressed, globally ordered companion
+  under `build/series/manifest.data/`: durable sparse sample inputs consumed
+  by dataset assembly. Each row stores its sample key once with all available
+  feature and target values. Values may contain only `None`, `bool`, `int`,
+  `float`, `str`, lists, and string-keyed dictionaries; sample-key components
+  may use only those scalar types. Other Python objects fail the build instead
+  of being converted to strings. Each successful build publishes a new
+  immutable generation. The manifest records its row counts and content digest.
+  Project commands hold one artifact-workspace lock; generations no longer
+  referenced by the manifest are pruned only after the locked command finishes.
 - `build/scaler.json`: managed scaler statistics. Unsplit datasets store one
   standard scaler; split datasets store one scaler fitted from each fold's
   training labels.
@@ -70,6 +71,18 @@ The old build-state entry and `build/variable_records/` directory are ignored;
 after the migration. Reinstall an editable checkout after upgrading so its
 entry-point metadata exposes the renamed core artifacts.
 
+Jerry 7 beta series manifests used one gzip file per configured series. Current
+manifests use format version 8 and one grouped companion, avoiding an
+open-file-per-series limit and repeated key parsing. The artifact fingerprint
+includes this format version, so `AUTO` rebuilds beta series, metadata, and
+coverage artifacts. YAML configuration and final dataset output are unchanged.
+
+Jerry 7 metadata supports the three distinct window modes `union`,
+`intersection`, and `strict`. The former `relaxed` mode was identical to
+`union`; replace it with `union` in metadata operation overrides. Metadata
+format version 3 records the narrower contract, so `AUTO` rebuilds older
+metadata and dependent coverage artifacts.
+
 Jerry 7 also renames the raw availability-counter artifact from `stats` to
 `coverage_stats`:
 
@@ -103,8 +116,8 @@ The v7 Python layer replaces
 `datapipeline.config.dataset.series.SeriesConfig`, and replaces
 `datapipeline.domain.variable.VariableRecord` / `VariableSequence` with
 `datapipeline.domain.series.SeriesRecord` / `SeriesSequence`. Preview stage
-`variables` is now `series`. Series ID encoding, serialized row fields, and
-final sample values are unchanged.
+`variables` is now `series`. Series ID encoding and final sample values are
+unchanged; the internal artifact rows are grouped by sample key.
 
 Serve, inspect, and materialize use one command-wide `artifact_mode` for their
 prerequisite phase. Its precedence is CLI `--artifact-mode`, then the matching

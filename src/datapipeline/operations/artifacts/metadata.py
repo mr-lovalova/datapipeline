@@ -8,20 +8,23 @@ from datapipeline.artifacts.models import (
     SampleMetadata,
     VectorMetadata,
     VectorMetadataCounts,
-    VectorMetadataEntry,
     VECTOR_METADATA_VERSION,
     Window,
     WindowMode,
 )
+from datapipeline.artifacts.series import load_series_manifest, open_series
+from datapipeline.artifacts.specs import SERIES
 from datapipeline.config.tasks import MetadataTask
+from datapipeline.execution.observability import OperationProgressTracker
+from datapipeline.execution.runner import resolve_heartbeat_interval_seconds
 from datapipeline.operations.persistence import ArtifactOutput
 from datapipeline.runtime import Runtime
 from datapipeline.utils.json_artifact import write_json_artifact
 from datapipeline.utils.time import count_cadence_buckets, parse_cadence
 
 from .utils import (
-    collect_vector_metadata,
     metadata_entries_from_stats,
+    VectorMetadataCollector,
     VectorMetadataStats,
 )
 
@@ -103,8 +106,6 @@ def _window_bounds_from_stats(
         return _range_intersection(base_ranges)
     if mode == "strict":
         return _range_intersection(partition_ranges)
-    if mode == "relaxed":
-        return _range_union(partition_ranges)
     raise ValueError(f"Unsupported metadata window mode {mode!r}.")
 
 
@@ -113,7 +114,7 @@ def _merge_sample_domains(
     target_domain: dict[tuple, tuple[datetime, datetime]],
     mode: WindowMode,
 ) -> dict[tuple, tuple[datetime, datetime]]:
-    if mode not in {"union", "intersection", "strict", "relaxed"}:
+    if mode not in {"union", "intersection", "strict"}:
         raise ValueError(f"Unsupported metadata window mode {mode!r}.")
     if not target_domain:
         return dict(feature_domain)
@@ -162,37 +163,45 @@ def materialize_metadata(
     task_cfg: MetadataTask,
 ) -> ArtifactOutput:
     dataset = runtime.dataset
-    features_cfgs = list(dataset.features)
-    (
-        feature_stats,
-        feature_vectors,
-        feature_domain,
-    ) = collect_vector_metadata(
-        runtime,
-        features_cfgs,
-        dataset.sample.cadence,
-        dataset.sample.keys,
-        "scan_features",
-    )
-    target_meta: tuple[VectorMetadataEntry, ...] = ()
-    target_vectors = 0
-    target_cfgs = list(dataset.targets)
-    target_stats: list[VectorMetadataStats] = []
-    target_domain: dict[tuple, tuple[datetime, datetime]] = {}
-    if target_cfgs:
-        (
-            target_stats,
-            target_vectors,
-            target_domain,
-        ) = collect_vector_metadata(
-            runtime,
-            target_cfgs,
-            dataset.sample.cadence,
-            dataset.sample.keys,
-            "scan_targets",
+    artifact = runtime.artifacts.optional(SERIES)
+    if artifact is None:
+        raise RuntimeError("Series artifact is required before metadata.")
+    manifest_path = artifact.resolve(runtime.artifacts.root)
+    manifest = load_series_manifest(manifest_path)
+    if manifest.cadence != dataset.sample.cadence or manifest.sample_keys != tuple(
+        dataset.sample.keys
+    ):
+        raise RuntimeError(
+            "Series artifact sample configuration does not match the dataset."
         )
-        target_meta = metadata_entries_from_stats(target_stats)
+    feature_collector = VectorMetadataCollector(
+        dataset.features,
+        dataset.sample.keys,
+    )
+    target_collector = VectorMetadataCollector(
+        dataset.targets,
+        dataset.sample.keys,
+    )
+    progress = OperationProgressTracker(
+        "scan_series",
+        "samples",
+        resolve_heartbeat_interval_seconds(runtime.heartbeat_interval_seconds),
+    )
+    rows = open_series(manifest_path, manifest)
+    try:
+        for row in rows:
+            feature_collector.observe(row.key, row.features)
+            target_collector.observe(row.key, row.targets)
+            progress.advance()
+    finally:
+        closer = getattr(rows, "close", None)
+        if callable(closer):
+            closer()
+
+    feature_stats, feature_vectors, feature_domain = feature_collector.result()
+    target_stats, target_vectors, target_domain = target_collector.result()
     feature_meta = metadata_entries_from_stats(feature_stats)
+    target_meta = metadata_entries_from_stats(target_stats)
 
     window_obj: Window | None = None
     computed_start, computed_end = _window_bounds_from_stats(

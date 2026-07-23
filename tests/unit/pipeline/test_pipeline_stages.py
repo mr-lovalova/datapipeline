@@ -24,10 +24,9 @@ from datapipeline.config.transforms import (
     PreprocessConfig,
     TransformConfig,
 )
-from datapipeline.domain.series import SeriesRecord, SeriesSequence
+from datapipeline.domain.series import SeriesSequence
 from datapipeline.domain.record import TemporalRecord
 from datapipeline.domain.sample import Sample
-from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.events import (
@@ -72,13 +71,12 @@ from datapipeline.sources.adapters.fs import FsFileTransport, FsGlobTransport
 from datapipeline.sources.loader import DataLoader
 from datapipeline.sources.decoders import JsonLinesDecoder
 from datapipeline.sources.source import Source
-from datapipeline.utils.time import parse_cadence
 from datapipeline.artifacts.series import (
-    SeriesShard,
-    series_record_to_row,
+    SeriesRow,
     load_series_manifest,
     open_series,
     prune_series_cache,
+    read_series_rows,
 )
 from tests.series_helpers import register_series
 
@@ -357,7 +355,7 @@ def _register_price_metadata(runtime: Runtime) -> None:
     metadata_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "counts": {"feature_vectors": 1, "target_vectors": 0},
                 "features": [
                     {
@@ -1296,22 +1294,19 @@ def test_series_artifact_feeds_serve_pipeline(tmp_path: Path) -> None:
     assert result.meta == {
         "features": 2,
         "targets": 0,
-        "feature_rows": 6,
-        "target_rows": 0,
+        "rows": 3,
         "format": "jsonl.gz",
     }
     manifest_path = runtime.artifacts_root / result.relative_path
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    shard_paths = [Path(shard["path"]) for shard in manifest["features"]]
-    assert shard_paths[0].parts[:1] == ("manifest.shards",)
-    assert shard_paths[0].parts[1] == shard_paths[1].parts[1]
-    assert [path.parts[2:] for path in shard_paths] == [
-        ("features", "000000.jsonl.gz"),
-        ("features", "000001.jsonl.gz"),
+    manifest = load_series_manifest(manifest_path)
+    data_path = Path(manifest.path)
+    assert data_path.parts[0] == "manifest.data"
+    assert data_path.parts[2:] == ("series.jsonl.gz",)
+    assert [(entry.id, entry.samples) for entry in manifest.features] == [
+        ("value_feature", 3),
+        ("other_feature", 3),
     ]
-    assert result.companion_paths == tuple(
-        str(Path("build/series") / path) for path in shard_paths
-    )
+    assert result.companion_paths == (str(Path("build/series") / data_path),)
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert cached == [
         (
@@ -1435,15 +1430,28 @@ def test_series_shared_stream_matches_independent_series_pipelines(
     result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
-    actual_price = list(open_series(manifest_path.parent / manifest.features[0].path))
-    actual_volume = list(open_series(manifest_path.parent / manifest.targets[0].path))
+    actual_rows = list(open_series(manifest_path, manifest))
 
-    assert [series_record_to_row(item) for item in actual_price] == [
-        series_record_to_row(item) for item in expected_price
-    ]
-    assert [series_record_to_row(item) for item in actual_volume] == [
-        series_record_to_row(item) for item in expected_volume
-    ]
+    expected_features: dict[tuple, dict[str, object]] = {}
+    for item in expected_price:
+        assert isinstance(item, SeriesSequence)
+        expected_features.setdefault(
+            (item.time, *item.entity_key),
+            {},
+        )[item.id] = item.values
+    expected_targets: dict[tuple, dict[str, object]] = {}
+    for item in expected_volume:
+        assert not isinstance(item, SeriesSequence)
+        expected_targets.setdefault(
+            (item.time, *item.entity_key),
+            {},
+        )[item.id] = item.value
+    assert [row.key for row in actual_rows] == sorted(
+        expected_features.keys() | expected_targets.keys()
+    )
+    for row in actual_rows:
+        assert row.features == expected_features.get(row.key, {})
+        assert row.targets == expected_targets.get(row.key, {})
     assert source.opens == 1
     assert source.closes == 1
 
@@ -1472,14 +1480,14 @@ def test_series_store_sequence_values_unscaled(
     result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
-    [sequence] = open_series(manifest_path.parent / manifest.features[0].path)
+    [row] = open_series(manifest_path, manifest)
 
-    assert isinstance(sequence, SeriesSequence)
-    assert sequence.time == _ts(1)
-    assert sequence.values == [1.0, 11.0]
+    assert row.time == _ts(1)
+    assert row.features == {"price": [1.0, 11.0]}
+    assert row.targets == {}
 
 
-def test_series_writes_empty_shards_from_a_shared_stream(
+def test_series_manifest_counts_empty_series_from_a_shared_stream(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1510,8 +1518,13 @@ def test_series_writes_empty_shards_from_a_shared_stream(
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
 
-    assert [shard.rows for shard in manifest.features] == [0, 2]
-    assert list(open_series(manifest_path.parent / manifest.features[0].path)) == []
+    assert [(entry.id, entry.samples) for entry in manifest.features] == [
+        ("window", 0),
+        ("value", 2),
+    ]
+    assert all(
+        "window" not in row.features for row in open_series(manifest_path, manifest)
+    )
 
 
 def test_series_record_sort_is_part_of_the_observed_stream_pipeline(
@@ -1530,7 +1543,7 @@ def test_series_record_sort_is_part_of_the_observed_stream_pipeline(
 
     build_series_artifact(runtime, SeriesTask())
 
-    assert observer.starts == ["series:stream"]
+    assert observer.starts == ["series:artifact", "series:stream"]
     assert "project_series" in observer.nodes
     assert "order_series" in observer.nodes
 
@@ -1583,34 +1596,30 @@ def test_failed_series_rebuild_preserves_previous_generation(
     first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
-    previous = json.loads(previous_manifest)
-    previous_shards = [
-        manifest_path.parent / shard["path"] for shard in previous["features"]
-    ]
-    previous_generation = Path(previous["features"][0]["path"]).parts[1]
+    previous = load_series_manifest(manifest_path)
+    previous_data = manifest_path.parent / previous.path
+    previous_generation = Path(previous.path).parts[1]
 
-    write_rows = series_operation.write_series_rows
-    writes = 0
-
-    def fail_second_shard(path, rows):
-        nonlocal writes
-        writes += 1
-        if writes == 2:
-            raise RuntimeError("second shard failed")
-        return write_rows(path, rows)
+    def fail_data_write(path, rows):
+        for _ in rows:
+            break
+        raise RuntimeError("series data failed")
 
     monkeypatch.setattr(
         series_operation,
         "write_series_rows",
-        fail_second_shard,
+        fail_data_write,
     )
 
-    with pytest.raises(RuntimeError, match="second shard failed"):
+    with pytest.raises(RuntimeError, match="series data failed"):
         build_series_artifact(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
-    assert all(path.is_file() for path in previous_shards)
-    cache_root = manifest_path.parent / "manifest.shards"
+    assert previous_data.is_file()
+    assert list(read_series_rows(previous_data)) == list(
+        open_series(manifest_path, previous)
+    )
+    cache_root = manifest_path.parent / "manifest.data"
     assert [path.name for path in cache_root.iterdir()] == [previous_generation]
 
 
@@ -1631,7 +1640,7 @@ def test_failed_series_manifest_commit_removes_new_generation(
     manifest_path = runtime.artifacts_root / first.relative_path
     previous_manifest = manifest_path.read_bytes()
     previous = load_series_manifest(manifest_path)
-    previous_path = manifest_path.parent / previous.features[0].path
+    previous_path = manifest_path.parent / previous.path
 
     def fail_manifest(*_args, **_kwargs):
         raise OSError("manifest commit failed")
@@ -1646,7 +1655,7 @@ def test_failed_series_manifest_commit_removes_new_generation(
         build_series_artifact(runtime, task)
 
     assert manifest_path.read_bytes() == previous_manifest
-    previous_generation = previous_path.parent.parent
+    previous_generation = previous_path.parent
     assert set(previous_generation.parent.iterdir()) == {previous_generation}
 
 
@@ -1666,15 +1675,15 @@ def test_identical_series_rebuild_publishes_a_new_generation(
     first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     first_manifest = load_series_manifest(manifest_path)
-    first_path = manifest_path.parent / first_manifest.features[0].path
+    first_path = manifest_path.parent / first_manifest.path
 
     build_series_artifact(runtime, task)
     second_manifest = load_series_manifest(manifest_path)
-    second_path = manifest_path.parent / second_manifest.features[0].path
+    second_path = manifest_path.parent / second_manifest.path
 
     assert second_path != first_path
     assert first_path.is_file()
-    assert len(list(open_series(second_path))) == 1
+    assert len(list(open_series(manifest_path, second_manifest))) == 1
 
 
 def test_changed_series_rebuild_retains_previous_generation(
@@ -1693,8 +1702,8 @@ def test_changed_series_rebuild_retains_previous_generation(
     first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     first_manifest = load_series_manifest(manifest_path)
-    first_path = manifest_path.parent / first_manifest.features[0].path
-    first_rows = list(open_series(first_path))
+    first_path = manifest_path.parent / first_manifest.path
+    first_rows = list(open_series(manifest_path, first_manifest))
 
     source = runtime.streams["stream"].source
     assert isinstance(source, _StubSource)
@@ -1702,16 +1711,16 @@ def test_changed_series_rebuild_retains_previous_generation(
     build_series_artifact(runtime, task)
 
     second_manifest = load_series_manifest(manifest_path)
-    second_path = manifest_path.parent / second_manifest.features[0].path
+    second_path = manifest_path.parent / second_manifest.path
     assert second_path != first_path
     assert first_path.is_file()
-    assert list(open_series(first_path)) == first_rows
-    assert len(list(open_series(second_path))) == 2
+    assert list(read_series_rows(first_path)) == first_rows
+    assert len(list(open_series(manifest_path, second_manifest))) == 2
 
     assert prune_series_cache(
         manifest_path,
         runtime.artifacts_root,
-    ) == (first_path.parent.parent,)
+    ) == (first_path.parent,)
     assert not first_path.exists()
     assert second_path.is_file()
 
@@ -1732,17 +1741,17 @@ def test_series_rebuild_replaces_a_corrupt_generation(
     first = build_series_artifact(runtime, task)
     manifest_path = runtime.artifacts_root / first.relative_path
     manifest = load_series_manifest(manifest_path)
-    shard_path = manifest_path.parent / manifest.features[0].path
-    shard_path.write_bytes(b"corrupt")
+    data_path = manifest_path.parent / manifest.path
+    data_path.write_bytes(b"corrupt")
 
     build_series_artifact(runtime, task)
 
     rebuilt = load_series_manifest(manifest_path)
-    rebuilt_path = manifest_path.parent / rebuilt.features[0].path
-    assert rebuilt_path != shard_path
-    assert len(list(open_series(rebuilt_path))) == 1
+    rebuilt_path = manifest_path.parent / rebuilt.path
+    assert rebuilt_path != data_path
+    assert len(list(open_series(manifest_path, rebuilt))) == 1
     removed = prune_series_cache(manifest_path, runtime.artifacts_root)
-    assert removed == (shard_path.parent.parent,)
+    assert removed == (data_path.parent,)
 
 
 def test_series_rejects_symlinked_output_before_mutation(
@@ -1811,7 +1820,7 @@ def test_cached_sample_input_rejects_manifest_cadence_mismatch(
         )
 
 
-def test_cached_sample_input_verifies_manifest_shard_rows(
+def test_cached_sample_input_verifies_manifest_rows(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime_with_rows(
@@ -1822,7 +1831,7 @@ def test_cached_sample_input_verifies_manifest_shard_rows(
     register_series(runtime, [cfg], "1h")
     manifest = runtime.artifacts_root / "build/series/manifest.json"
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    payload["features"][0]["rows"] = 2
+    payload["rows"] = 2
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(ValueError, match="declares 2 rows but contains 1"):
@@ -1863,7 +1872,7 @@ def test_cached_sample_input_reads_requested_feature_subset(
     ]
 
 
-def test_cached_series_records_close_streams_when_stopped_early(
+def test_cached_series_rows_close_reader_when_stopped_early(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -1871,22 +1880,32 @@ def test_cached_series_records_close_streams_when_stopped_early(
         SeriesConfig(stream="stream", id="a", field="value"),
         SeriesConfig(stream="stream", id="b", field="value"),
     ]
-    closed_streams: list[str] = []
+    runtime = _runtime_with_rows(
+        tmp_path,
+        rows=[
+            {"time": _ts(0), "value": 1.0},
+            {"time": _ts(1), "value": 2.0},
+        ],
+    )
+    register_series(runtime, configs, "1h")
+    closed = False
+    opens = 0
 
-    class _ClosingStream:
-        def __init__(self, feature_id: str) -> None:
-            self.feature_id = feature_id
+    class _ClosingRows:
+        def __init__(self) -> None:
             self.items = iter(
                 [
-                    SeriesRecord(
-                        id=feature_id,
+                    SeriesRow(
                         time=_ts(0),
-                        value=1.0,
+                        entity_key=(),
+                        features={"a": 1.0, "b": 1.0},
+                        targets={},
                     ),
-                    SeriesRecord(
-                        id=feature_id,
+                    SeriesRow(
                         time=_ts(1),
-                        value=2.0,
+                        entity_key=(),
+                        features={"a": 2.0, "b": 2.0},
+                        targets={},
                     ),
                 ]
             )
@@ -1898,35 +1917,74 @@ def test_cached_series_records_close_streams_when_stopped_early(
             return next(self.items)
 
         def close(self) -> None:
-            closed_streams.append(self.feature_id)
+            nonlocal closed
+            closed = True
 
-    def _open_records(path, expected_rows):
-        assert expected_rows == 2
-        if path.name == "a.jsonl.gz":
-            return _ClosingStream("a")
-        if path.name == "b.jsonl.gz":
-            return _ClosingStream("b")
-        raise AssertionError(path)
+    def _open_rows(manifest_path, manifest):
+        nonlocal opens
+        opens += 1
+        assert manifest_path.name == "manifest.json"
+        assert manifest.rows == 2
+        return _ClosingRows()
 
     monkeypatch.setattr(
         "datapipeline.pipelines.sample.input.open_series",
-        _open_records,
+        _open_rows,
     )
 
-    keyed_records = sample_input._merged_keyed_records(
-        manifest_path=tmp_path / "manifest.json",
-        shards=(
-            SeriesShard(id="a", path="a.jsonl.gz", rows=2),
-            SeriesShard(id="b", path="b.jsonl.gz", rows=2),
-        ),
-        configs=configs,
-        group_by_cadence=parse_cadence("1h"),
-        sample_key_contract=SampleKeyContract(()),
+    samples = open_samples(
+        PipelineContext(runtime),
+        configs,
+        "1h",
+        rectangular=False,
     )
-    first = next(keyed_records)
-    assert first[0] == (_ts(0),)
-    assert first[1].id == "a"
-    assert closed_streams == []
+    assert next(samples).features.values == {"a": 1.0, "b": 1.0}
+    assert opens == 1
+    assert not closed
 
-    keyed_records.close()
-    assert set(closed_streams) == {"a", "b"}
+    samples.close()
+    assert closed
+
+
+def test_cached_sample_input_opens_one_reader_for_many_series(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    feature_count = 80
+    row = {"time": _ts(0)}
+    configs: list[SeriesConfig] = []
+    for index in range(feature_count):
+        field = f"value_{index}"
+        row[field] = float(index)
+        configs.append(
+            SeriesConfig(
+                stream="stream",
+                id=f"feature_{index}",
+                field=field,
+            )
+        )
+
+    runtime = _runtime_with_rows(tmp_path, rows=[row])
+    register_series(runtime, configs, "1h")
+    original_open_series = sample_input.open_series
+    opens = 0
+
+    def count_opened_reader(manifest_path, manifest):
+        nonlocal opens
+        opens += 1
+        return original_open_series(manifest_path, manifest)
+
+    monkeypatch.setattr(sample_input, "open_series", count_opened_reader)
+
+    samples = list(
+        open_samples(
+            PipelineContext(runtime),
+            configs,
+            "1h",
+            rectangular=False,
+        )
+    )
+
+    assert opens == 1
+    assert len(samples) == 1
+    assert len(samples[0].features.values) == feature_count

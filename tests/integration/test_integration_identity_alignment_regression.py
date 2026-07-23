@@ -24,14 +24,14 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
     manifest = load_series_manifest(runtime.artifacts.resolve_path(SERIES))
     assert manifest.sample_keys == ("ticker",)
     assert manifest.sample_key_types == ("string",)
-    assert [(shard.id, shard.rows) for shard in manifest.features] == [
+    assert [(entry.id, entry.samples) for entry in manifest.features] == [
         ("price_scaled", 6),
         ("price_history", 4),
         ("price_mean_2", 6),
         ("price_lag_1", 6),
         ("price_lead_1", 6),
         ("pe_ratio", 3),
-        ("fundamental", 11),
+        ("fundamental", 6),
     ]
 
     scaler_artifact = runtime.artifacts.load(SCALER_SPEC)

@@ -7,8 +7,8 @@ from datapipeline.domain.sample_key import SampleKeyContract
 from datapipeline.utils.time import CADENCE_PATTERN
 
 
-WindowMode = Literal["union", "intersection", "strict", "relaxed"]
-VECTOR_METADATA_VERSION: Final = 2
+WindowMode = Literal["union", "intersection", "strict"]
+VECTOR_METADATA_VERSION: Final = 3
 
 
 class Window(BaseModel):
@@ -151,7 +151,7 @@ class VectorMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[2] = VECTOR_METADATA_VERSION
+    schema_version: Literal[3] = VECTOR_METADATA_VERSION
     generated_at: datetime | None = None
     window: Window | None = None
     meta: dict[str, Any] | None = None

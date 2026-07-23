@@ -1,9 +1,9 @@
 import logging
 import shutil
-from collections import defaultdict
-from collections.abc import Iterator, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from itertools import groupby
 from pathlib import Path
@@ -12,20 +12,22 @@ from uuid import uuid4
 
 from datapipeline.artifacts.series import (
     SERIES_MANIFEST_VERSION,
+    SeriesEntry,
     SeriesManifest,
-    SeriesShard,
-    series_record_to_row,
+    SeriesRow,
     write_series_rows,
 )
 from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import SeriesTask
 from datapipeline.domain.sample_key import SampleKeyContract
+from datapipeline.domain.series import SeriesSequence
+from datapipeline.domain.series_id import base_id
 from datapipeline.execution.context import PipelineContext
-from datapipeline.execution.pipeline import Pipeline, Stage
+from datapipeline.execution.pipeline import Input, Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.operations.persistence import ArtifactOutput
-from datapipeline.pipelines.series.stages import SeriesSequencer
 from datapipeline.pipelines.series.projector import SeriesProjector
+from datapipeline.pipelines.series.stages import SeriesSequencer
 from datapipeline.pipelines.sort import SortProgress, batch_sort
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import Runtime, require_runtime_stream
@@ -37,17 +39,33 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class _ShardPlan:
-    ordinal: int
-    config: SeriesConfig
-    path: Path
+class _StreamPlan:
+    stream_id: str
+    features: tuple[SeriesConfig, ...]
+    targets: tuple[SeriesConfig, ...]
 
 
 @dataclass(frozen=True)
-class _SeriesRow:
-    ordinal: int
-    order: tuple[Any, ...]
-    payload: dict[str, Any]
+class _ProjectedScalar:
+    id: str
+    value: Any
+
+
+@dataclass(frozen=True)
+class _ProjectedSequence:
+    id: str
+    values: list[Any]
+
+
+_ProjectedValue = _ProjectedScalar | _ProjectedSequence
+
+
+@dataclass(frozen=True)
+class _ProjectedRow:
+    key: tuple[Any, ...]
+    time: datetime
+    features: tuple[_ProjectedValue, ...]
+    targets: tuple[_ProjectedValue, ...]
 
 
 def build_series_artifact(
@@ -55,78 +73,58 @@ def build_series_artifact(
     task_cfg: SeriesTask,
 ) -> ArtifactOutput:
     dataset = runtime.dataset
-
     relative_path = Path(task_cfg.output)
     destination = resolve_artifact_output_path(relative_path, runtime.artifacts_root)
-    cache_root = destination.parent / f"{destination.stem}.shards"
+    cache_root = destination.parent / f"{destination.stem}.data"
     if cache_root.is_symlink():
-        raise ValueError("Series shard directory must not be a symlink.")
+        raise ValueError("Series data directory must not be a symlink.")
+
     generation = uuid4().hex
     staging_root = cache_root / f".staging-{generation}"
     generation_root = cache_root / generation
-
+    data_path = staging_root / "series.jsonl.gz"
     context = PipelineContext(runtime)
-    sample_key_contract = SampleKeyContract(dataset.sample.keys)
-    feature_dir = staging_root / "features"
-    target_dir = staging_root / "targets"
-
-    feature_plans = tuple(
-        _ShardPlan(
-            ordinal=index,
-            config=config,
-            path=feature_dir / f"{index:06d}.jsonl.gz",
-        )
-        for index, config in enumerate(dataset.features)
-    )
-    target_offset = len(feature_plans)
-    target_plans = tuple(
-        _ShardPlan(
-            ordinal=target_offset + index,
-            config=config,
-            path=target_dir / f"{index:06d}.jsonl.gz",
-        )
-        for index, config in enumerate(dataset.targets)
-    )
+    sample_keys = SampleKeyContract(dataset.sample.keys)
+    feature_counts: Counter[str] = Counter()
+    target_counts: Counter[str] = Counter()
 
     try:
-        feature_dir.mkdir(parents=True)
-        target_dir.mkdir()
-        written_shards = _materialize_stream_groups(
+        staging_root.mkdir(parents=True)
+        projected = _ordered_projected_rows(
             context,
-            (*feature_plans, *target_plans),
-            sample_key_contract,
-            dataset.sample.cadence,
+            _stream_plans(dataset.features, dataset.targets),
+            sample_keys,
+            parse_cadence(dataset.sample.cadence),
         )
-        relative_generation_root = Path(cache_root.name) / generation
-
-        feature_shards = tuple(
-            SeriesShard(
-                id=plan.config.id,
-                path=str(
-                    relative_generation_root / plan.path.relative_to(staging_root)
-                ),
-                rows=written_shards[plan.ordinal],
+        try:
+            rows = _group_series_rows(
+                projected,
+                dataset.features,
+                dataset.targets,
+                feature_counts,
+                target_counts,
             )
-            for plan in feature_plans
-        )
-        target_shards = tuple(
-            SeriesShard(
-                id=plan.config.id,
-                path=str(
-                    relative_generation_root / plan.path.relative_to(staging_root)
-                ),
-                rows=written_shards[plan.ordinal],
-            )
-            for plan in target_plans
-        )
+            written = write_series_rows(data_path, rows)
+        finally:
+            _close_iterator(projected)
 
+        relative_data_path = Path(cache_root.name) / generation / data_path.name
         manifest = SeriesManifest(
             version=SERIES_MANIFEST_VERSION,
             cadence=dataset.sample.cadence,
             sample_keys=tuple(dataset.sample.keys),
-            sample_key_types=sample_key_contract.types,
-            features=feature_shards,
-            targets=target_shards,
+            sample_key_types=sample_keys.types,
+            path=str(relative_data_path),
+            rows=written.rows,
+            sha256=written.sha256,
+            features=tuple(
+                SeriesEntry(id=config.id, samples=feature_counts[config.id])
+                for config in dataset.features
+            ),
+            targets=tuple(
+                SeriesEntry(id=config.id, samples=target_counts[config.id])
+                for config in dataset.targets
+            ),
         )
         staging_root.rename(generation_root)
     except BaseException:
@@ -139,22 +137,234 @@ def build_series_artifact(
         _remove_failed_generation(generation_root)
         raise
 
-    feature_rows = sum(shard.rows for shard in feature_shards)
-    target_rows = sum(shard.rows for shard in target_shards)
+    companion_path = relative_path.parent / manifest.path
     return ArtifactOutput(
         relative_path=str(relative_path),
-        companion_paths=tuple(
-            str(relative_path.parent / shard.path)
-            for shard in (*feature_shards, *target_shards)
-        ),
+        companion_paths=(str(companion_path),),
         meta={
-            "features": len(feature_shards),
-            "targets": len(target_shards),
-            "feature_rows": feature_rows,
-            "target_rows": target_rows,
+            "features": len(manifest.features),
+            "targets": len(manifest.targets),
+            "rows": manifest.rows,
             "format": manifest.format,
         },
     )
+
+
+def _stream_plans(
+    features: Sequence[SeriesConfig],
+    targets: Sequence[SeriesConfig],
+) -> tuple[_StreamPlan, ...]:
+    feature_configs: dict[str, list[SeriesConfig]] = defaultdict(list)
+    target_configs: dict[str, list[SeriesConfig]] = defaultdict(list)
+    stream_ids: list[str] = []
+    seen: set[str] = set()
+
+    for config in (*features, *targets):
+        if config.stream not in seen:
+            seen.add(config.stream)
+            stream_ids.append(config.stream)
+    for config in features:
+        feature_configs[config.stream].append(config)
+    for config in targets:
+        target_configs[config.stream].append(config)
+
+    return tuple(
+        _StreamPlan(
+            stream_id=stream_id,
+            features=tuple(feature_configs[stream_id]),
+            targets=tuple(target_configs[stream_id]),
+        )
+        for stream_id in stream_ids
+    )
+
+
+def _ordered_projected_rows(
+    context: PipelineContext,
+    plans: Sequence[_StreamPlan],
+    sample_keys: SampleKeyContract,
+    cadence: timedelta,
+) -> Iterator[_ProjectedRow]:
+    sort_progress = SortProgress()
+    pipeline = Pipeline(
+        name="series:artifact",
+        input=Input(
+            name="project_streams",
+            open=partial(
+                _project_streams,
+                context,
+                plans,
+                sample_keys,
+                cadence,
+            ),
+        ),
+        stages=(
+            Stage(
+                name="order_series",
+                apply=partial(
+                    batch_sort,
+                    buffer_bytes=context.runtime.execution.sort_buffer_bytes,
+                    key=lambda row: (row.key, row.time),
+                    progress=sort_progress,
+                ),
+                progress=sort_progress.snapshot,
+            ),
+        ),
+    )
+    return run_pipeline(context, pipeline)
+
+
+def _project_streams(
+    context: PipelineContext,
+    plans: Sequence[_StreamPlan],
+    sample_keys: SampleKeyContract,
+    cadence: timedelta,
+) -> Iterator[_ProjectedRow]:
+    for plan in plans:
+        yield from _project_stream(context, plan, sample_keys, cadence)
+
+
+def _project_stream(
+    context: PipelineContext,
+    plan: _StreamPlan,
+    sample_keys: SampleKeyContract,
+    cadence: timedelta,
+) -> Iterator[_ProjectedRow]:
+    stream = require_runtime_stream(context.runtime, plan.stream_id)
+    configs = (*plan.features, *plan.targets)
+    feature_ids = {config.id for config in plan.features}
+    projector = SeriesProjector(stream.partition_by, sample_keys)
+    sequencers = {
+        config.id: SeriesSequencer(config.sequence)
+        for config in configs
+        if config.sequence is not None
+    }
+
+    def project(records: Iterator[Any]) -> Iterator[_ProjectedRow]:
+        for record in records:
+            features: list[_ProjectedValue] = []
+            targets: list[_ProjectedValue] = []
+            row_key: tuple[Any, ...] | None = None
+            row_time: datetime | None = None
+
+            for config, projected in zip(
+                configs,
+                projector.project(record, configs),
+                strict=True,
+            ):
+                sequencer = sequencers.get(config.id)
+                result = projected if sequencer is None else sequencer.append(projected)
+                if result is None:
+                    continue
+
+                key = (
+                    floor_time_to_cadence(result.time, cadence),
+                    *result.entity_key,
+                )
+                if row_key is None:
+                    row_key = key
+                    row_time = result.time
+                elif key != row_key or result.time != row_time:
+                    raise RuntimeError(
+                        f"Stream '{plan.stream_id}' projected one record into different "
+                        "sample keys."
+                    )
+
+                value: _ProjectedValue
+                if isinstance(result, SeriesSequence):
+                    value = _ProjectedSequence(result.id, result.values)
+                else:
+                    value = _ProjectedScalar(result.id, result.value)
+                if config.id in feature_ids:
+                    features.append(value)
+                else:
+                    targets.append(value)
+
+            if row_key is not None and row_time is not None:
+                yield _ProjectedRow(
+                    key=row_key,
+                    time=row_time,
+                    features=tuple(features),
+                    targets=tuple(targets),
+                )
+
+    record_pipeline = build_stream_pipeline(context, plan.stream_id)
+    pipeline = Pipeline(
+        name=f"series:{plan.stream_id}",
+        input=record_pipeline.input,
+        stages=(
+            *record_pipeline.stages,
+            Stage(name="project_series", apply=project),
+        ),
+        summary=record_pipeline.summary,
+    )
+    projected = run_pipeline(context, pipeline)
+    try:
+        yield from projected
+    finally:
+        _close_iterator(projected)
+
+
+def _group_series_rows(
+    projected: Iterator[_ProjectedRow],
+    feature_configs: Sequence[SeriesConfig],
+    target_configs: Sequence[SeriesConfig],
+    feature_counts: Counter[str],
+    target_counts: Counter[str],
+) -> Iterator[SeriesRow]:
+    feature_order = {config.id: index for index, config in enumerate(feature_configs)}
+    target_order = {config.id: index for index, config in enumerate(target_configs)}
+
+    for key, group in groupby(projected, key=lambda row: row.key):
+        feature_records: list[_ProjectedValue] = []
+        target_records: list[_ProjectedValue] = []
+        for row in group:
+            feature_records.extend(row.features)
+            target_records.extend(row.targets)
+
+        features = _assemble_values(feature_records, feature_order)
+        targets = _assemble_values(target_records, target_order)
+        feature_counts.update({base_id(series_id) for series_id in features})
+        target_counts.update({base_id(series_id) for series_id in targets})
+        yield SeriesRow(
+            time=key[0],
+            entity_key=tuple(key[1:]),
+            features=features,
+            targets=targets,
+        )
+
+
+def _assemble_values(
+    records: Iterable[_ProjectedValue],
+    config_order: dict[str, int],
+) -> dict[str, Any]:
+    values_by_id: dict[str, list[Any]] = {}
+    sequence_ids: set[str] = set()
+    for record in records:
+        if record.id in values_by_id and isinstance(record, _ProjectedSequence) != (
+            record.id in sequence_ids
+        ):
+            raise ValueError(
+                f"Series {record.id!r} contains both scalar and sequence values."
+            )
+        values = values_by_id.setdefault(record.id, [])
+        if isinstance(record, _ProjectedSequence):
+            sequence_ids.add(record.id)
+            values.extend(record.values)
+        else:
+            values.append(record.value)
+
+    ordered_ids = sorted(
+        values_by_id,
+        key=lambda series_id: (config_order[base_id(series_id)], series_id),
+    )
+    return {
+        series_id: (
+            values_by_id[series_id]
+            if series_id in sequence_ids or len(values_by_id[series_id]) != 1
+            else values_by_id[series_id][0]
+        )
+        for series_id in ordered_ids
+    }
 
 
 def _remove_failed_generation(generation_root: Path) -> None:
@@ -168,117 +378,6 @@ def _remove_failed_generation(generation_root: Path) -> None:
             generation_root,
             exc_info=True,
         )
-
-
-def _materialize_stream_groups(
-    context: PipelineContext,
-    plans: Sequence[_ShardPlan],
-    sample_key_contract: SampleKeyContract,
-    cadence: str,
-) -> dict[int, int]:
-    plans_by_stream: dict[str, list[_ShardPlan]] = defaultdict(list)
-    for plan in plans:
-        plans_by_stream[plan.config.stream].append(plan)
-
-    cadence_step = parse_cadence(cadence)
-    rows: dict[int, int] = {}
-    for stream_plans in plans_by_stream.values():
-        rows.update(
-            _materialize_stream_group(
-                context,
-                stream_plans,
-                sample_key_contract,
-                cadence_step,
-            )
-        )
-    return rows
-
-
-def _materialize_stream_group(
-    context: PipelineContext,
-    plans: Sequence[_ShardPlan],
-    sample_key_contract: SampleKeyContract,
-    cadence_step: timedelta,
-) -> dict[int, int]:
-    stream_id = plans[0].config.stream
-    stream = require_runtime_stream(context.runtime, stream_id)
-    configs = tuple(plan.config for plan in plans)
-    projector = SeriesProjector(stream.partition_by, sample_key_contract)
-    sequencers = {
-        plan.ordinal: SeriesSequencer(plan.config.sequence)
-        for plan in plans
-        if plan.config.sequence is not None
-    }
-
-    def project_series(
-        records: Iterator[Any],
-    ) -> Iterator[_SeriesRow]:
-        for record in records:
-            for plan, projected in zip(
-                plans,
-                projector.project(record, configs),
-                strict=True,
-            ):
-                sequencer = sequencers.get(plan.ordinal)
-                result = projected if sequencer is None else sequencer.append(projected)
-                if result is not None:
-                    if sample_key_contract.fields:
-                        order = (
-                            plan.ordinal,
-                            floor_time_to_cadence(result.time, cadence_step),
-                            *result.entity_key,
-                            result.time,
-                            result.id,
-                        )
-                    else:
-                        order = plan.ordinal, result.time, result.id
-                    yield _SeriesRow(
-                        ordinal=plan.ordinal,
-                        order=order,
-                        payload=series_record_to_row(result),
-                    )
-
-    record_pipeline = build_stream_pipeline(context, stream_id)
-    sort_progress = SortProgress()
-    pipeline = Pipeline(
-        name=f"series:{stream_id}",
-        input=record_pipeline.input,
-        stages=(
-            *record_pipeline.stages,
-            Stage(
-                name="project_series",
-                apply=project_series,
-            ),
-            Stage(
-                name="order_series",
-                apply=partial(
-                    batch_sort,
-                    buffer_bytes=context.runtime.execution.sort_buffer_bytes,
-                    key=lambda row: row.order,
-                    progress=sort_progress,
-                ),
-                progress=sort_progress.snapshot,
-            ),
-        ),
-        summary=record_pipeline.summary,
-    )
-    ordered = run_pipeline(context, pipeline)
-    plans_by_ordinal = {plan.ordinal: plan for plan in plans}
-    row_counts: dict[int, int] = {}
-    try:
-        for ordinal, rows in groupby(ordered, key=lambda row: row.ordinal):
-            plan = plans_by_ordinal[ordinal]
-            row_counts[ordinal] = write_series_rows(
-                plan.path,
-                (row.payload for row in rows),
-            )
-    finally:
-        _close_iterator(ordered)
-
-    for plan in plans:
-        if plan.ordinal not in row_counts:
-            row_counts[plan.ordinal] = write_series_rows(plan.path, ())
-    return row_counts
 
 
 def _close_iterator(items: Iterator[object]) -> None:

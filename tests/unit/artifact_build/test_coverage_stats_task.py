@@ -23,7 +23,7 @@ def _ts(day: int) -> datetime:
 def _metadata() -> VectorMetadata:
     return VectorMetadata.model_validate(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "features": [
                 {
                     "id": "speed",

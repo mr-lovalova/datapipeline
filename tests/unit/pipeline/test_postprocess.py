@@ -45,7 +45,7 @@ def test_dataset_pipeline_assembles_before_postprocess(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         metadata={
-            "schema_version": 2,
+            "schema_version": 3,
             "counts": {"feature_vectors": 0, "target_vectors": 0},
             "features": [
                 {
@@ -75,7 +75,7 @@ def test_postprocess_has_one_explicit_execution_order(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         metadata={
-            "schema_version": 2,
+            "schema_version": 3,
             "counts": {"feature_vectors": 2, "target_vectors": 0},
             "features": [
                 {
@@ -131,7 +131,7 @@ def test_postprocess_applies_explicit_target_policies(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         metadata={
-            "schema_version": 2,
+            "schema_version": 3,
             "counts": {"feature_vectors": 1, "target_vectors": 1},
             "features": [
                 {
@@ -187,7 +187,7 @@ def test_column_selection_uses_metadata_counts_without_mutating_metadata(
     runtime = _runtime(
         tmp_path,
         metadata={
-            "schema_version": 2,
+            "schema_version": 3,
             "counts": {"feature_vectors": 100, "target_vectors": 0},
             "window": {
                 "start": "2024-01-01T00:00:00Z",

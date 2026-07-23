@@ -7,6 +7,7 @@ from pathlib import Path
 
 from datapipeline.artifacts.models import VECTOR_METADATA_VERSION
 from datapipeline.artifacts.planning import build_artifact_graph
+from datapipeline.artifacts.series import SERIES_MANIFEST_VERSION
 from datapipeline.artifacts.specs import dataset_requires_scaler
 from datapipeline.config.dataset.dataset import DatasetConfig
 from datapipeline.config.sources import (
@@ -187,6 +188,7 @@ def _artifact_inputs(
         )
         return (
             {
+                "series_format_version": SERIES_MANIFEST_VERSION,
                 "dataset": {
                     "sample": dataset.sample.model_dump(mode="json"),
                     "features": [

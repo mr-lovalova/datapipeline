@@ -26,7 +26,7 @@ class _Artifacts:
         if spec is VECTOR_METADATA_SPEC:
             return VectorMetadata.model_validate(
                 {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "features": [],
                     "targets": [],
                     "counts": {

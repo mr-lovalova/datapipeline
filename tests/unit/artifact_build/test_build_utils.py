@@ -1,28 +1,29 @@
 import json
 import math
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
-from datapipeline.artifacts.specs import VECTOR_METADATA
+from datapipeline.artifacts.series import SeriesRow
+from datapipeline.artifacts.specs import SERIES, VECTOR_METADATA
 from datapipeline.config.dataset.dataset import DatasetConfig, SampleConfig
 from datapipeline.config.dataset.series import SeriesConfig
 from datapipeline.config.tasks import MetadataTask
-from datapipeline.domain.sample import Sample
-from datapipeline.domain.vector import Vector
 from datapipeline.execution.context import PipelineContext
-from datapipeline.operations.artifacts import utils as artifact_utils
+from datapipeline.operations.artifacts import metadata as artifact_metadata
 from datapipeline.operations.artifacts.metadata import (
     _window_bounds_from_stats,
     materialize_metadata,
 )
 from datapipeline.operations.artifacts.utils import (
+    VectorMetadataCollector,
     VectorMetadataStats,
-    collect_vector_metadata,
     metadata_entries_from_stats,
 )
-from datapipeline.runtime import Runtime, SourceRuntimeStream
+from datapipeline.runtime import Runtime
 from datapipeline.utils.load import load_yaml
 
 
@@ -30,13 +31,9 @@ def _hour(hour: int) -> datetime:
     return datetime(2024, 1, 1, hour=hour, tzinfo=timezone.utc)
 
 
-class _EmptySource:
-    def stream(self):
-        return iter(())
-
-
-def _identity(records):
-    return records
+def test_metadata_task_rejects_removed_relaxed_window_mode() -> None:
+    with pytest.raises(ValidationError, match="window_mode"):
+        MetadataTask.model_validate({"window_mode": "relaxed"})
 
 
 def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
@@ -66,149 +63,52 @@ def _runtime_with_dataset(tmp_path, dataset_text: str) -> Runtime:
         artifacts_root=artifacts_root,
         dataset=DatasetConfig.model_validate(load_yaml(dataset_path)),
     )
-    runtime.streams["market.prices"] = SourceRuntimeStream(
-        source=_EmptySource(),
-        mapper=_identity,
-        preprocess=(),
-        transforms=(),
-        partition_by=(),
-        presorted=False,
-    )
     return runtime
 
 
-def _collect_from_pipeline(
-    monkeypatch,
-    tmp_path,
-    configs,
-    pipeline,
+def _collect_metadata(
+    configs: list[SeriesConfig],
+    observations,
     sample_keys=(),
 ):
-    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
+    collector = VectorMetadataCollector(configs, sample_keys)
+    for key, values in observations:
+        collector.observe(key, values)
+    return collector.result()
+
+
+def _mock_series_rows(monkeypatch, runtime: Runtime, rows) -> None:
+    runtime.artifacts.register(SERIES, "series.json")
+    manifest = SimpleNamespace(
+        cadence=runtime.dataset.sample.cadence,
+        sample_keys=tuple(runtime.dataset.sample.keys),
+    )
     monkeypatch.setattr(
-        artifact_utils,
-        "open_samples",
-        lambda *_args, **_kwargs: pipeline,
+        artifact_metadata,
+        "load_series_manifest",
+        lambda _path: manifest,
     )
-    return collect_vector_metadata(
-        runtime,
-        configs,
-        "1h",
-        sample_keys,
-        "scan_features",
-    )
-
-
-def test_collect_vector_metadata_counts_nan(monkeypatch, tmp_path):
-    """Ensure metadata collection treats NaN values as nulls."""
-    artifacts_root = tmp_path / "artifacts"
-    artifacts_root.mkdir()
-    project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text(
-        "schema_version: 3\nartifact_revision: 1\n", encoding="utf-8"
-    )
-    runtime = Runtime(
-        project_yaml=project_yaml,
-        artifacts_root=artifacts_root,
-        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
-    )
-    cfg = SeriesConfig(
-        id="wind_speed",
-        stream="met.obs",
-        field="value",
-    )
-    sample = Sample(
-        key=(_hour(0),),
-        features=Vector(values={"wind_speed": math.nan}),
-    )
-
-    def fake_pipeline(
-        context,
-        configs,
-        group_by_cadence,
-        target_configs=None,
-        rectangular=True,
-        sample_keys=(),
-    ):
-        assert rectangular is False
-        assert sample_keys == ()
-        return iter([sample])
-
     monkeypatch.setattr(
-        "datapipeline.operations.artifacts.utils.open_samples",
-        fake_pipeline,
+        artifact_metadata,
+        "open_series",
+        lambda *_args: iter(rows),
     )
 
-    stats, vector_count, domain = collect_vector_metadata(
-        runtime,
-        [cfg],
-        "1h",
-        (),
-        "scan_features",
+
+def test_vector_metadata_collector_counts_nan() -> None:
+    config = SeriesConfig(id="wind_speed", stream="met.obs", field="value")
+    stats, vector_count, domain = _collect_metadata(
+        [config],
+        [((_hour(0),), {"wind_speed": math.nan})],
     )
 
     assert vector_count == 1
     assert domain == {}
-    entry = next(item for item in stats if item.id == "wind_speed")
-    assert entry.present_count == 1
-    assert entry.null_count == 1
+    assert stats[0].present_count == 1
+    assert stats[0].null_count == 1
 
 
-def test_collect_vector_metadata_emits_progress(monkeypatch, tmp_path):
-    artifacts_root = tmp_path / "artifacts"
-    artifacts_root.mkdir()
-    project_yaml = tmp_path / "project.yaml"
-    project_yaml.write_text(
-        "schema_version: 3\nartifact_revision: 1\n", encoding="utf-8"
-    )
-    runtime = Runtime(
-        project_yaml=project_yaml,
-        artifacts_root=artifacts_root,
-        dataset=DatasetConfig(sample=SampleConfig(cadence="1h")),
-    )
-    cfg = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="close",
-    )
-    samples = [
-        Sample(key=(_hour(0),), features=Vector(values={"price": 1.0})),
-        Sample(key=(_hour(1),), features=Vector(values={"price": 2.0})),
-    ]
-    trackers: list[tuple[str, str, float]] = []
-    advances: list[int] = []
-
-    class Progress:
-        def __init__(self, step: str, unit: str, interval_seconds: float) -> None:
-            trackers.append((step, unit, interval_seconds))
-
-        def advance(self, count: int = 1) -> None:
-            advances.append(count)
-
-    runtime.heartbeat_interval_seconds = 180
-    monkeypatch.setattr(
-        artifact_utils,
-        "open_samples",
-        lambda *_args, **_kwargs: iter(samples),
-    )
-    monkeypatch.setattr(artifact_utils, "OperationProgressTracker", Progress)
-
-    collect_vector_metadata(
-        runtime,
-        [cfg],
-        "1h",
-        (),
-        "scan_features",
-    )
-
-    assert trackers == [("scan_features", "vectors", 180)]
-    assert advances == [1, 1]
-
-
-def test_collect_vector_metadata_uses_config_order_not_observation_order(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def test_vector_metadata_collector_uses_config_order() -> None:
     configs = [
         SeriesConfig(id="history", stream="market.prices", field="value"),
         SeriesConfig(id="price", stream="market.prices", field="value"),
@@ -218,27 +118,19 @@ def test_collect_vector_metadata_uses_config_order_not_observation_order(
             field="value",
         ),
     ]
-    samples = [
-        Sample(
-            key=(_hour(0),),
-            features=Vector(
-                values={
+    stats, _, _ = _collect_metadata(
+        configs,
+        [
+            (
+                (_hour(0),),
+                {
                     "price": 1.0,
                     "fundamental__@metric:revenue": 10.0,
                     "fundamental__@metric:debt": 5.0,
-                }
+                },
             ),
-        ),
-        Sample(
-            key=(_hour(1),),
-            features=Vector(values={"history": [1.0, 2.0]}),
-        ),
-    ]
-    stats, _, _ = _collect_from_pipeline(
-        monkeypatch,
-        tmp_path,
-        configs,
-        iter(samples),
+            ((_hour(1),), {"history": [1.0, 2.0]}),
+        ],
     )
 
     assert [entry.id for entry in stats] == [
@@ -249,42 +141,24 @@ def test_collect_vector_metadata_uses_config_order_not_observation_order(
     ]
 
 
-def test_collect_vector_metadata_rejects_configured_ids_with_no_observations(
-    monkeypatch,
-    tmp_path,
-) -> None:
+def test_vector_metadata_collector_rejects_missing_configured_ids() -> None:
     configs = [
         SeriesConfig(id="missing", stream="market.prices", field="value"),
         SeriesConfig(id="price", stream="market.prices", field="value"),
     ]
+
     with pytest.raises(RuntimeError, match="missing"):
-        _collect_from_pipeline(
-            monkeypatch,
-            tmp_path,
+        _collect_metadata(
             configs,
-            iter(
-                [
-                    Sample(
-                        key=(_hour(0),),
-                        features=Vector(values={"price": 1.0}),
-                    )
-                ]
-            ),
+            [((_hour(0),), {"price": 1.0})],
         )
 
 
-def test_collect_vector_metadata_rejects_when_every_configured_id_is_empty(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    config = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="value",
-    )
+def test_vector_metadata_collector_rejects_when_all_ids_are_empty() -> None:
+    config = SeriesConfig(id="price", stream="market.prices", field="value")
 
     with pytest.raises(RuntimeError, match="price"):
-        _collect_from_pipeline(monkeypatch, tmp_path, [config], iter(()))
+        _collect_metadata([config], [])
 
 
 @pytest.mark.parametrize(
@@ -297,139 +171,54 @@ def test_collect_vector_metadata_rejects_when_every_configured_id_is_empty(
         (("ticker",), (_hour(0),)),
     ],
 )
-def test_collect_vector_metadata_rejects_malformed_sample_keys(
-    monkeypatch,
-    tmp_path,
+def test_vector_metadata_collector_rejects_malformed_sample_keys(
     sample_keys,
     key,
 ) -> None:
-    config = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="value",
-    )
+    config = SeriesConfig(id="price", stream="market.prices", field="value")
+
     with pytest.raises(RuntimeError, match="sample key"):
-        _collect_from_pipeline(
-            monkeypatch,
-            tmp_path,
+        _collect_metadata(
             [config],
-            iter([Sample(key=key, features=Vector(values={"price": 1.0}))]),
+            [(key, {"price": 1.0})],
             sample_keys=sample_keys,
         )
 
 
-def test_collect_vector_metadata_rejects_ids_outside_configured_vectors(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    config = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="value",
-    )
+def test_vector_metadata_collector_rejects_unknown_ids() -> None:
+    config = SeriesConfig(id="price", stream="market.prices", field="value")
 
     with pytest.raises(RuntimeError, match="rogue"):
-        _collect_from_pipeline(
-            monkeypatch,
-            tmp_path,
+        _collect_metadata(
             [config],
-            iter(
-                [
-                    Sample(
-                        key=(_hour(0),),
-                        features=Vector(values={"price": 1.0, "rogue": 2.0}),
-                    )
-                ]
-            ),
+            [((_hour(0),), {"price": 1.0, "rogue": 2.0})],
         )
 
 
-def test_collect_vector_metadata_closes_pipeline_when_collection_fails(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    config = SeriesConfig(
-        id="history",
-        stream="market.prices",
-        field="value",
-    )
-    closed = False
+def test_vector_metadata_collector_omits_unkeyed_domain() -> None:
+    config = SeriesConfig(id="price", stream="market.prices", field="value")
 
-    def failing_pipeline():
-        nonlocal closed
-        try:
-            yield Sample(
-                key=(_hour(0),),
-                features=Vector(values={"history": [1.0]}),
-            )
-            yield Sample(
-                key=(_hour(1),),
-                features=Vector(values={"history": [2.0, 3.0]}),
-            )
-        finally:
-            closed = True
-
-    pipeline = failing_pipeline()
-
-    with pytest.raises(ValueError):
-        _collect_from_pipeline(
-            monkeypatch,
-            tmp_path,
-            [config],
-            pipeline,
-        )
-
-    assert closed
-
-
-def test_collect_vector_metadata_skips_sample_domain_without_sample_keys(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    config = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="value",
-    )
-    samples = [
-        Sample(key=(_hour(0),), features=Vector(values={"price": 1.0})),
-        Sample(key=(_hour(1),), features=Vector(values={"price": 2.0})),
-    ]
-    _, _, domain = _collect_from_pipeline(
-        monkeypatch, tmp_path, [config], iter(samples)
+    _, _, domain = _collect_metadata(
+        [config],
+        [
+            ((_hour(0),), {"price": 1.0}),
+            ((_hour(1),), {"price": 2.0}),
+        ],
     )
 
     assert domain == {}
 
 
-def test_collect_vector_metadata_tracks_each_keyed_sample_domain(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    config = SeriesConfig(
-        id="price",
-        stream="market.prices",
-        field="value",
-    )
-    samples = [
-        Sample(
-            key=(_hour(2), "AAPL"),
-            features=Vector(values={"price": 2.0}),
-        ),
-        Sample(
-            key=(_hour(0), "AAPL"),
-            features=Vector(values={"price": 1.0}),
-        ),
-        Sample(
-            key=(_hour(1), "MSFT"),
-            features=Vector(values={"price": 3.0}),
-        ),
-    ]
-    _, _, domain = _collect_from_pipeline(
-        monkeypatch,
-        tmp_path,
+def test_vector_metadata_collector_tracks_each_keyed_domain() -> None:
+    config = SeriesConfig(id="price", stream="market.prices", field="value")
+
+    _, _, domain = _collect_metadata(
         [config],
-        iter(samples),
+        [
+            ((_hour(2), "AAPL"), {"price": 2.0}),
+            ((_hour(0), "AAPL"), {"price": 1.0}),
+            ((_hour(1), "MSFT"), {"price": 3.0}),
+        ],
         sample_keys=("ticker",),
     )
 
@@ -446,67 +235,29 @@ def test_collect_vector_metadata_tracks_each_keyed_sample_domain(
         ([1.0], 2.0),
     ],
 )
-def test_collect_vector_metadata_rejects_scalar_list_mixtures(
-    monkeypatch,
-    tmp_path,
-    values,
-) -> None:
-    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
-    config = SeriesConfig(
-        id="history",
-        stream="market.prices",
-        field="close",
-    )
-    samples = [
-        Sample(key=(_hour(index),), features=Vector(values={"history": value}))
-        for index, value in enumerate(values)
-    ]
-    monkeypatch.setattr(
-        artifact_utils,
-        "open_samples",
-        lambda *_args, **_kwargs: iter(samples),
-    )
+def test_vector_metadata_collector_rejects_scalar_list_mixtures(values) -> None:
+    config = SeriesConfig(id="history", stream="market.prices", field="close")
 
     with pytest.raises(ValueError, match="both (scalar and list|list and scalar)"):
-        collect_vector_metadata(
-            runtime,
+        _collect_metadata(
             [config],
-            "1h",
-            (),
-            "scan_features",
+            [
+                ((_hour(0),), {"history": values[0]}),
+                ((_hour(1),), {"history": values[1]}),
+            ],
         )
 
 
-def test_collect_vector_metadata_rejects_series_list_lengths(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    runtime = _runtime_with_dataset(tmp_path, "sample:\n  cadence: 1h\n")
-    config = SeriesConfig(
-        id="history",
-        stream="market.prices",
-        field="close",
-    )
-    samples = [
-        Sample(key=(_hour(0),), features=Vector(values={"history": [1.0]})),
-        Sample(
-            key=(_hour(1),),
-            features=Vector(values={"history": [2.0, 3.0]}),
-        ),
-    ]
-    monkeypatch.setattr(
-        artifact_utils,
-        "open_samples",
-        lambda *_args, **_kwargs: iter(samples),
-    )
+def test_vector_metadata_collector_rejects_variable_list_lengths() -> None:
+    config = SeriesConfig(id="history", stream="market.prices", field="close")
 
     with pytest.raises(ValueError, match="different lengths: 1 and 2"):
-        collect_vector_metadata(
-            runtime,
+        _collect_metadata(
             [config],
-            "1h",
-            (),
-            "scan_features",
+            [
+                ((_hour(0),), {"history": [1.0]}),
+                ((_hour(1),), {"history": [2.0, 3.0]}),
+            ],
         )
 
 
@@ -521,7 +272,7 @@ def test_pipeline_context_rejects_invalid_registered_metadata(tmp_path) -> None:
     metadata_path.write_text(
         json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "features": [
                     {
                         "id": "history",
@@ -567,26 +318,13 @@ def test_metadata_materialization_writes_keyed_sample_domain(
     )
     start = datetime(2024, 1, 1, 0, tzinfo=timezone.utc)
     end = datetime(2024, 1, 1, 1, tzinfo=timezone.utc)
-
-    def collected_entries(*args, **kwargs):
-        return (
-            [
-                VectorMetadataStats(
-                    id="price",
-                    base_id="price",
-                    kind="scalar",
-                    present_count=2,
-                    first_observed=start,
-                    last_observed=end,
-                )
-            ],
-            2,
-            {("AAPL",): (start, end)},
-        )
-
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
-        collected_entries,
+    _mock_series_rows(
+        monkeypatch,
+        runtime,
+        [
+            SeriesRow(start, ("AAPL",), {"price": 1.0}, {}),
+            SeriesRow(end, ("AAPL",), {"price": 2.0}, {}),
+        ],
     )
 
     materialize_metadata(runtime, MetadataTask(output="metadata.json"))
@@ -627,26 +365,10 @@ def test_metadata_materialization_preserves_one_timestamp_window(
         ),
     )
     observed_at = _hour(4)
-
-    def collected_entries(*args, **kwargs):
-        return (
-            [
-                VectorMetadataStats(
-                    id="price",
-                    base_id="price",
-                    kind="scalar",
-                    present_count=1,
-                    first_observed=observed_at,
-                    last_observed=observed_at,
-                )
-            ],
-            1,
-            {},
-        )
-
-    monkeypatch.setattr(
-        "datapipeline.operations.artifacts.metadata.collect_vector_metadata",
-        collected_entries,
+    _mock_series_rows(
+        monkeypatch,
+        runtime,
+        [SeriesRow(observed_at, (), {"price": 1.0}, {})],
     )
 
     materialize_metadata(runtime, MetadataTask(output="metadata.json"))
@@ -665,6 +387,105 @@ def test_metadata_materialization_preserves_one_timestamp_window(
     materialize_metadata(runtime, MetadataTask(output="metadata.json"))
 
     assert path.read_bytes() == first
+
+
+def test_metadata_materialization_scans_features_and_targets_once(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1h",
+                "features:",
+                "  - id: price",
+                "    stream: market.prices",
+                "    field: close",
+                "targets:",
+                "  - id: return",
+                "    stream: market.prices",
+                "    field: return",
+                "",
+            ]
+        ),
+    )
+    rows = [
+        SeriesRow(_hour(0), (), {"price": 1.0}, {"return": 0.1}),
+        SeriesRow(_hour(1), (), {"price": 2.0}, {"return": 0.2}),
+    ]
+    _mock_series_rows(monkeypatch, runtime, rows)
+    opens = 0
+    trackers: list[tuple[str, str, float]] = []
+    advances: list[int] = []
+
+    def open_rows(*_args):
+        nonlocal opens
+        opens += 1
+        return iter(rows)
+
+    class Progress:
+        def __init__(self, step: str, unit: str, interval_seconds: float) -> None:
+            trackers.append((step, unit, interval_seconds))
+
+        def advance(self, count: int = 1) -> None:
+            advances.append(count)
+
+    runtime.heartbeat_interval_seconds = 180
+    monkeypatch.setattr(artifact_metadata, "open_series", open_rows)
+    monkeypatch.setattr(artifact_metadata, "OperationProgressTracker", Progress)
+
+    materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    payload = json.loads(
+        (runtime.artifacts_root / "metadata.json").read_text(encoding="utf-8")
+    )
+    assert payload["counts"] == {
+        "feature_vectors": 2,
+        "target_vectors": 2,
+    }
+    assert [entry["id"] for entry in payload["features"]] == ["price"]
+    assert [entry["id"] for entry in payload["targets"]] == ["return"]
+    assert opens == 1
+    assert trackers == [("scan_series", "samples", 180)]
+    assert advances == [1, 1]
+
+
+def test_metadata_materialization_closes_rows_after_collection_error(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    runtime = _runtime_with_dataset(
+        tmp_path,
+        "\n".join(
+            [
+                "sample:",
+                "  cadence: 1h",
+                "features:",
+                "  - id: history",
+                "    stream: market.prices",
+                "    field: close",
+                "",
+            ]
+        ),
+    )
+    closed = False
+
+    def failing_rows():
+        nonlocal closed
+        try:
+            yield SeriesRow(_hour(0), (), {"history": [1.0]}, {})
+            yield SeriesRow(_hour(1), (), {"history": [2.0, 3.0]}, {})
+        finally:
+            closed = True
+
+    _mock_series_rows(monkeypatch, runtime, failing_rows())
+
+    with pytest.raises(ValueError, match="different lengths"):
+        materialize_metadata(runtime, MetadataTask(output="metadata.json"))
+
+    assert closed
 
 
 def test_metadata_entries_include_observation_bounds():
@@ -768,10 +589,6 @@ def test_window_bounds_modes():
     start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="strict")
     assert start == _hour(2)
     assert end == _hour(5)
-
-    start, end = _window_bounds_from_stats(feature_stats, target_stats, mode="relaxed")
-    assert start == _hour(0)
-    assert end == _hour(7)
 
 
 def test_window_bounds_preserve_single_timestamp() -> None:

@@ -228,7 +228,7 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
             },
         ],
         "counts": {"feature_vectors": 6, "target_vectors": 6},
-        "schema_version": 2,
+        "schema_version": 3,
         "targets": [
             {
                 "base_id": "power_target",
@@ -277,26 +277,28 @@ def test_full_regression_project_through_serve(copy_fixture) -> None:
         "sample_keys": manifest["sample_keys"],
         "version": manifest["version"],
         "features": [
-            {"id": entry["id"], "rows": entry["rows"]} for entry in manifest["features"]
+            {"id": entry["id"], "samples": entry["samples"]}
+            for entry in manifest["features"]
         ],
         "targets": [
-            {"id": entry["id"], "rows": entry["rows"]} for entry in manifest["targets"]
+            {"id": entry["id"], "samples": entry["samples"]}
+            for entry in manifest["targets"]
         ],
     } == {
         "cadence": "1h",
         "format": "jsonl.gz",
         "sample_keys": [],
-        "version": 7,
+        "version": 8,
         "features": [
-            {"id": "linear_scaled", "rows": 6},
-            {"id": "sine_window", "rows": 5},
-            {"id": "humidity_partitioned", "rows": 12},
-            {"id": "humidity_adjusted", "rows": 12},
-            {"id": "humidity_slope", "rows": 12},
+            {"id": "linear_scaled", "samples": 6},
+            {"id": "sine_window", "samples": 5},
+            {"id": "humidity_partitioned", "samples": 6},
+            {"id": "humidity_adjusted", "samples": 6},
+            {"id": "humidity_slope", "samples": 6},
         ],
         "targets": [
-            {"id": "power_target", "rows": 6},
-            {"id": "power_future_2", "rows": 6},
-            {"id": "power_log1p", "rows": 6},
+            {"id": "power_target", "samples": 6},
+            {"id": "power_future_2", "samples": 6},
+            {"id": "power_log1p", "samples": 6},
         ],
     }

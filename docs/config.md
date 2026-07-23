@@ -813,10 +813,9 @@ epsilon: 1.0e-12
   value types, per-partition timestamps, and the dataset window. Mixed
   scalar/list values, empty lists, and varying list lengths fail metadata
   generation. Configure `metadata.window_mode` with
-  `union|intersection|strict|relaxed` (default `intersection`) to control how
-  start/end bounds are derived. `union` considers base features,
-  `intersection` uses their overlap, `strict` intersects every partition, and
-  `relaxed` unions partitions independently.
+  `union|intersection|strict` (default `intersection`) to control how
+  start/end bounds are derived. `union` spans every series, `intersection`
+  intersects base-series ranges, and `strict` intersects every partition.
 - Artifact operation execution order comes from the typed dependency graph. Runtime
   commands prepare the union of all selected profiles' requirements once;
   explicit build profiles remain separate artifact roots.

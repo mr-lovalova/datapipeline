@@ -21,6 +21,7 @@ def _time(hour: int) -> datetime:
     [
         {"start": _time(2), "end": _time(1)},
         {"mode": "unknown"},
+        {"mode": "relaxed"},
         {"size": 0},
     ],
 )
@@ -111,14 +112,14 @@ def test_sample_metadata_rejects_unstable_identity_values(domain) -> None:
 
 def _metadata_payload() -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "features": [],
         "targets": [],
         "counts": {"feature_vectors": 1, "target_vectors": 1},
     }
 
 
-@pytest.mark.parametrize("version", [1, 3, "2"])
+@pytest.mark.parametrize("version", [1, 2, 4, "3"])
 def test_vector_metadata_rejects_unsupported_schema_versions(version: object) -> None:
     with pytest.raises(ValidationError, match="schema_version"):
         VectorMetadata.model_validate(
@@ -131,7 +132,7 @@ def test_metadata_ids_share_one_feature_and_target_namespace() -> None:
         VectorMetadata.model_validate(
             {
                 **_metadata_payload(),
-                "schema_version": 2,
+                "schema_version": 3,
                 "features": [
                     {
                         "id": "price",
