@@ -201,9 +201,7 @@ def _serve_preview(
             sample_keys=sample_keys,
         )
         selected_pipeline = (
-            dataset_pipeline.input_only()
-            if preview == "samples"
-            else dataset_pipeline
+            dataset_pipeline.input_only() if preview == "samples" else dataset_pipeline
         )
         sample_stream = run_pipeline(context, selected_pipeline)
         if target.format == "parquet":

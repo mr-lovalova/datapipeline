@@ -697,9 +697,7 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
     monkeypatch.setattr(
         persistence,
         "emit_rows_written",
-        lambda output_id, row_count: results.append(
-            ("rows", output_id, row_count)
-        ),
+        lambda output_id, row_count: results.append(("rows", output_id, row_count)),
     )
     monkeypatch.setattr(
         persistence,

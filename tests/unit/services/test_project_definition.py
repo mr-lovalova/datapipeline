@@ -172,7 +172,9 @@ loader:
     assert second.streams.sources["prices"].loader.path == "data/second.jsonl"
 
 
-def test_load_project_definition_canonicalizes_symlinked_dataset_path(tmp_path: Path) -> None:
+def test_load_project_definition_canonicalizes_symlinked_dataset_path(
+    tmp_path: Path,
+) -> None:
     project_yaml = _write_project(tmp_path)
     dataset = tmp_path / "dataset.yaml"
     target = tmp_path / "dataset.actual.yaml"
@@ -501,9 +503,7 @@ def test_scaling_policy_does_not_invalidate_unscaled_series(
         operations,
     )
 
-    assert scaled_hashes.for_artifact(SERIES) == (
-        unscaled_hashes.for_artifact(SERIES)
-    )
+    assert scaled_hashes.for_artifact(SERIES) == (unscaled_hashes.for_artifact(SERIES))
     assert scaled_hashes.for_artifact(SCALER_STATISTICS) != (
         unscaled_hashes.for_artifact(SCALER_STATISTICS)
     )
@@ -674,9 +674,7 @@ def test_core_artifact_hashes_track_only_referenced_source_closure(
         streams,
         definition.artifact_operations,
     )
-    assert after_unused_change.for_artifact(SERIES) == baseline.for_artifact(
-        SERIES
-    )
+    assert after_unused_change.for_artifact(SERIES) == baseline.for_artifact(SERIES)
 
     used.write_text("used changed\n", encoding="utf-8")
     after_used_change = calculate_artifact_hashes(
@@ -808,9 +806,7 @@ def test_metadata_format_version_invalidates_only_metadata_and_dependents(
         tasks,
     )
 
-    assert changed.for_artifact(SERIES) == current.for_artifact(
-        SERIES
-    )
+    assert changed.for_artifact(SERIES) == current.for_artifact(SERIES)
     assert changed.for_artifact(VECTOR_METADATA) != current.for_artifact(
         VECTOR_METADATA
     )

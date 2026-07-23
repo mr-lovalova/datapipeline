@@ -68,9 +68,7 @@ class DatasetConfig(BaseModel):
     def validate_hash_split_sequences(self) -> Self:
         if not isinstance(self.split, HashSplitConfig):
             return self
-        sequenced = [
-            config.id for config in self.series if config.sequence is not None
-        ]
+        sequenced = [config.id for config in self.series if config.sequence is not None]
         if sequenced:
             raise ValueError(
                 "hash splits cannot be used with sequenced features or targets: "

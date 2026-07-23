@@ -152,9 +152,7 @@ def write_series_rows(
             elif kind == "sequence":
                 values = payload.get("values")
                 if type(values) is not list:
-                    raise TypeError(
-                        "Series sequence rows require list 'values'."
-                    )
+                    raise TypeError("Series sequence rows require list 'values'.")
             else:
                 raise TypeError(f"Unsupported series row kind {kind!r}.")
             _require_json_value(payload)
@@ -196,14 +194,11 @@ def load_series_manifest(path: Path) -> SeriesManifest:
             resolved.relative_to(root)
         except ValueError as exc:
             raise ValueError(
-                f"Series shard '{shard.path}' escapes manifest directory "
-                f"'{root}'."
+                f"Series shard '{shard.path}' escapes manifest directory '{root}'."
             ) from exc
         resolved_paths.append(resolved)
     if len(resolved_paths) != len(set(resolved_paths)):
-        raise ValueError(
-            f"Series manifest '{path}' has duplicate shard paths."
-        )
+        raise ValueError(f"Series manifest '{path}' has duplicate shard paths.")
     return manifest
 
 
@@ -221,9 +216,7 @@ def prune_series_cache(
     if not cache_root.exists():
         return ()
     if cache_root.is_symlink() or not cache_root.is_dir():
-        raise RuntimeError(
-            f"Series shard path is not a directory: {cache_root}"
-        )
+        raise RuntimeError(f"Series shard path is not a directory: {cache_root}")
 
     retained: set[str] = set()
     for shard in (*manifest.features, *manifest.targets):
@@ -265,8 +258,7 @@ def open_series(
             yield _row_to_series(row, path)
     if expected_rows is not None and rows != expected_rows:
         raise ValueError(
-            f"Series shard '{path}' declares {expected_rows} rows but "
-            f"contains {rows}."
+            f"Series shard '{path}' declares {expected_rows} rows but contains {rows}."
         )
 
 
@@ -294,9 +286,7 @@ def _row_to_series(
     if kind == "sequence":
         values = row.get("values")
         if not isinstance(values, list):
-            raise ValueError(
-                f"Series sequence row in '{path}' must define values."
-            )
+            raise ValueError(f"Series sequence row in '{path}' must define values.")
         return SeriesSequence(
             time=time_value,
             id=series_id,
@@ -309,9 +299,7 @@ def _row_to_series(
 def _entity_key(row: Mapping[str, Any], path: Path) -> tuple:
     value = row.get("entity_key")
     if not isinstance(value, list):
-        raise ValueError(
-            f"Series row in '{path}' must define list 'entity_key'."
-        )
+        raise ValueError(f"Series row in '{path}' must define list 'entity_key'.")
     for index, component in enumerate(value):
         try:
             sample_key_value_type(f"entity_key[{index}]", component)

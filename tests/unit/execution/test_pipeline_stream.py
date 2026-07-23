@@ -139,12 +139,11 @@ def test_pipeline_can_stop_at_an_ordered_stage() -> None:
     assert len(pipeline.stages) == 2
     assert pipeline.input_only().input.name == "source"
     assert pipeline.input_only().stages == ()
-    assert [
-        stage.name for stage in pipeline.through_stage_count(1).stages
-    ] == ["map"]
-    assert [
-        stage.name for stage in pipeline.through_stage_named("filter").stages
-    ] == ["map", "filter"]
+    assert [stage.name for stage in pipeline.through_stage_count(1).stages] == ["map"]
+    assert [stage.name for stage in pipeline.through_stage_named("filter").stages] == [
+        "map",
+        "filter",
+    ]
     with pytest.raises(ValueError, match="no stage named 'missing'"):
         pipeline.through_stage_named("missing")
     with pytest.raises(ValueError, match="stage count -1 is out of range"):
@@ -169,9 +168,7 @@ def test_run_starts_lazily(tmp_path: Path) -> None:
     assert observer.pipeline_started == []
     assert next(stream) == 1
     assert opened == ["source"]
-    assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="lazy")
-    ]
+    assert observer.pipeline_started == [PipelineStarted(pipeline_name="lazy")]
     stream.close()
 
 
@@ -207,9 +204,7 @@ def test_stages_emit_ordered_results_and_counts(tmp_path: Path) -> None:
         "odd": (1, 2, "success"),
         "scale": (2, 2, "success"),
     }
-    assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="numbers")
-    ]
+    assert observer.pipeline_started == [PipelineStarted(pipeline_name="numbers")]
     assert observer.pipeline_summaries == [
         PipelineSummary(pipeline_name="numbers", summary="filter then scale")
     ]
@@ -287,15 +282,11 @@ def test_pipeline_only_observation_skips_node_instrumentation(tmp_path: Path) ->
         name="pipeline-only",
         summary="two stages",
         input=Input("source", lambda: [1, 2], progress=fail_progress),
-        stages=(
-            Stage("double", lambda records: (value * 2 for value in records)),
-        ),
+        stages=(Stage("double", lambda records: (value * 2 for value in records)),),
     )
 
     assert list(run_pipeline(context, pipeline)) == [2, 4]
-    assert observer.pipeline_started == [
-        PipelineStarted(pipeline_name="pipeline-only")
-    ]
+    assert observer.pipeline_started == [PipelineStarted(pipeline_name="pipeline-only")]
     assert observer.pipeline_summaries == [
         PipelineSummary(pipeline_name="pipeline-only", summary="two stages")
     ]
@@ -843,9 +834,7 @@ def test_unobserved_run_uses_the_fast_path(
     pipeline = Pipeline(
         name="fast",
         input=Input("source", lambda: [1, 2]),
-        stages=(
-            Stage("double", lambda records: (value * 2 for value in records)),
-        ),
+        stages=(Stage("double", lambda records: (value * 2 for value in records)),),
     )
 
     assert list(run_pipeline(_context(tmp_path), pipeline)) == [2, 4]

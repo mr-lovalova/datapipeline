@@ -38,9 +38,7 @@ def _dataset_samples(project_yaml):
         )
     series_rel = build_series_artifact(
         runtime,
-        SeriesTask(
-            id="series", output="series/manifest.json"
-        ),
+        SeriesTask(id="series", output="series/manifest.json"),
     )
     runtime.artifacts.register(
         SERIES,

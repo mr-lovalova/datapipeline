@@ -54,9 +54,7 @@ def test_conform_features_reuses_validated_sequence() -> None:
     history = [1.0, 2.0]
     sample = make_vector(0, {"history": history})
 
-    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(
-        iter([sample])
-    )
+    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(iter([sample]))
 
     assert output.features.values["history"] is history
 
@@ -65,9 +63,7 @@ def test_conform_features_reuses_validated_sequence() -> None:
 def test_conform_features_expands_null_sequence(missing: object) -> None:
     sample = make_vector(0, {"history": missing})
 
-    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(
-        iter([sample])
-    )
+    [output] = ConformFeaturesTransform([_sequence("history", 2)]).apply(iter([sample]))
 
     assert output.features.values == {"history": [None, None]}
 

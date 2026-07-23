@@ -156,8 +156,8 @@ def iter_model_batches(
 ) -> Iterator[ModelBatch]:
     """Stream bounded numerical batches from the final dataset pipeline."""
 
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
+    if type(batch_size) is not int or batch_size <= 0:
+        raise ValueError("batch_size must be a positive integer")
     if dtype not in ("float32", "float64"):
         raise ValueError("dtype must be 'float32' or 'float64'")
 

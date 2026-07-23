@@ -67,14 +67,10 @@ def series_id_components(series_id: str) -> tuple[tuple[str, object], ...]:
     components: list[tuple[str, object]] = []
     for encoded_component in suffix.split(SERIES_ID_COMPONENT_SEPARATOR):
         if not encoded_component.startswith("@"):
-            raise ValueError(
-                f"Invalid series identity component {encoded_component!r}"
-            )
+            raise ValueError(f"Invalid series identity component {encoded_component!r}")
         encoded_field, separator, encoded_value = encoded_component[1:].partition(":")
         if not separator or not encoded_field:
-            raise ValueError(
-                f"Invalid series identity component {encoded_component!r}"
-            )
+            raise ValueError(f"Invalid series identity component {encoded_component!r}")
 
         field = unquote(encoded_field)
         if encoded_value == "!n":

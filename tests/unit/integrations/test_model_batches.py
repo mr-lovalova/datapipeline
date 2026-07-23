@@ -389,7 +389,22 @@ def test_closing_model_batches_closes_dataset_pipeline(
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"batch_size": 0, "dtype": "float32"}, "batch_size must be positive"),
+        (
+            {"batch_size": 0, "dtype": "float32"},
+            "batch_size must be a positive integer",
+        ),
+        (
+            {"batch_size": True, "dtype": "float32"},
+            "batch_size must be a positive integer",
+        ),
+        (
+            {"batch_size": 1.5, "dtype": "float32"},
+            "batch_size must be a positive integer",
+        ),
+        (
+            {"batch_size": float("nan"), "dtype": "float32"},
+            "batch_size must be a positive integer",
+        ),
         ({"batch_size": 1, "dtype": "float16"}, "dtype must be"),
     ],
 )

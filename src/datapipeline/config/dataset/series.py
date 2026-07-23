@@ -32,7 +32,6 @@ class SeriesConfig(BaseModel):
     def validate_id(cls, series_id: str) -> str:
         if SERIES_ID_SEPARATOR in series_id:
             raise ValueError(
-                "series id must not contain reserved separator "
-                f"{SERIES_ID_SEPARATOR!r}"
+                f"series id must not contain reserved separator {SERIES_ID_SEPARATOR!r}"
             )
         return series_id

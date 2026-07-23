@@ -1435,12 +1435,8 @@ def test_series_shared_stream_matches_independent_series_pipelines(
     result = build_series_artifact(runtime, SeriesTask())
     manifest_path = runtime.artifacts_root / result.relative_path
     manifest = load_series_manifest(manifest_path)
-    actual_price = list(
-        open_series(manifest_path.parent / manifest.features[0].path)
-    )
-    actual_volume = list(
-        open_series(manifest_path.parent / manifest.targets[0].path)
-    )
+    actual_price = list(open_series(manifest_path.parent / manifest.features[0].path))
+    actual_volume = list(open_series(manifest_path.parent / manifest.targets[0].path))
 
     assert [series_record_to_row(item) for item in actual_price] == [
         series_record_to_row(item) for item in expected_price
@@ -1515,10 +1511,7 @@ def test_series_writes_empty_shards_from_a_shared_stream(
     manifest = load_series_manifest(manifest_path)
 
     assert [shard.rows for shard in manifest.features] == [0, 2]
-    assert (
-        list(open_series(manifest_path.parent / manifest.features[0].path))
-        == []
-    )
+    assert list(open_series(manifest_path.parent / manifest.features[0].path)) == []
 
 
 def test_series_record_sort_is_part_of_the_observed_stream_pipeline(
@@ -1564,9 +1557,7 @@ def test_series_closes_shared_stream_after_feature_error(
 
     assert source.opens == 1
     assert source.closes == 1
-    assert not (
-        runtime.artifacts_root / "build/series/manifest.json"
-    ).exists()
+    assert not (runtime.artifacts_root / "build/series/manifest.json").exists()
 
 
 def test_failed_series_rebuild_preserves_previous_generation(

@@ -63,6 +63,7 @@ Jerry 7 renames the v6 `variable_records` artifact to `series`:
 - `build/variable_records/manifest.json` becomes
   `build/series/manifest.json`.
 - `--preview variables` becomes `--preview series`.
+- Python imports replace `VariableRecordsTask` with `SeriesTask`.
 
 The old build-state entry and `build/variable_records/` directory are ignored;
 `AUTO` builds the new artifact and its dependents. They may be deleted manually

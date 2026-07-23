@@ -443,7 +443,6 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(
     assert "Model grid: /tmp/model_grid.jsonl" in messages
     assert (
         "Operation build:model_grid · write_artifact · running "
-        "reported_at=1s rows=3"
-        in messages
+        "reported_at=1s rows=3" in messages
     )
     assert messages[-1].startswith("Operation build:model_grid finished status=success")

@@ -21,9 +21,7 @@ def test_long_and_hybrid_identity_with_aligned_derived_stream(copy_fixture) -> N
     hydrated = hydrate_runtime_artifacts_for_pipeline(runtime, request.definition)
     assert set(hydrated) >= {"series", "scaler", "metadata"}
 
-    manifest = load_series_manifest(
-        runtime.artifacts.resolve_path(SERIES)
-    )
+    manifest = load_series_manifest(runtime.artifacts.resolve_path(SERIES))
     assert manifest.sample_keys == ("ticker",)
     assert manifest.sample_key_types == ("string",)
     assert [(shard.id, shard.rows) for shard in manifest.features] == [

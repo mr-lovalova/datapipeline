@@ -71,3 +71,17 @@ For repeated research and training passes, persist Parquet once and let the
 analytical or training framework read it directly. Model batches are an
 ephemeral, one-pass integration boundary; Parquet remains Jerry's durable
 tabular format.
+
+## Migrating from Jerry 6
+
+Jerry 7 removes the stateful `VectorAdapter`, the row and DataFrame helpers,
+`stream_vectors()`, and `torch_dataset()`. Use:
+
+- `iter_samples()` for final keyed Jerry samples;
+- `iter_model_batches()` for bounded numerical arrays;
+- served Parquet with Pandas or Polars for tabular research; and
+- `torch.from_numpy()` for framework conversion.
+
+Import the new API from `datapipeline.integrations.ml`; it is no longer
+re-exported from `datapipeline.integrations`. The `ml` extra installs NumPy
+only. Install PyTorch separately when using the conversion example above.

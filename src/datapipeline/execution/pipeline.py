@@ -50,9 +50,7 @@ class Pipeline:
         for index, stage in enumerate(self.stages, start=1):
             if stage.name == stage_name:
                 return self.through_stage_count(index)
-        raise ValueError(
-            f"Pipeline '{self.name}' has no stage named '{stage_name}'."
-        )
+        raise ValueError(f"Pipeline '{self.name}' has no stage named '{stage_name}'.")
 
     def through_stage_count(self, stage_count: int) -> "Pipeline":
         if not 0 <= stage_count <= len(self.stages):
