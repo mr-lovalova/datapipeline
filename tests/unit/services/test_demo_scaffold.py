@@ -17,8 +17,7 @@ def test_demo_scaffold_creates_self_contained_plugin(tmp_path: Path) -> None:
     assert plugin_root == tmp_path / "demo"
     assert not (plugin_root / "your-dataset").exists()
     assert (plugin_root / "demo" / "project.yaml").is_file()
-    assert (plugin_root / "demo" / "scripts" / "run_dataframe.py").is_file()
-    assert (plugin_root / "demo" / "scripts" / "run_torch.py").is_file()
+    assert (plugin_root / "demo" / "scripts" / "run_model_batches.py").is_file()
     assert (plugin_root / "src" / "demo" / "domains" / "equity").is_dir()
     assert "your-dataset" not in (plugin_root / "README.md").read_text()
 

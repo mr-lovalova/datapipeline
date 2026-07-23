@@ -138,8 +138,7 @@ jobs:
           jerry demo init --out .
           test -f demo/jerry.yaml
           test -f demo/demo/.env.example
-          test -f demo/demo/scripts/run_dataframe.py
-          test -f demo/demo/scripts/run_torch.py
+          test -f demo/demo/scripts/run_model_batches.py
           test ! -e demo/_dataset_base
           test ! -e jerry.yaml
           if find smoke-plugin demo \( -name __pycache__ -o -name '*.pyc' -o -name '.DS_Store' \) | grep -q .; then

@@ -20,17 +20,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Extra helpers for ML adapters in datapipeline.integrations
+# Bounded numerical batches from datapipeline.integrations.ml
 ml = [
-  "pandas>=2.0",
-  "torch>=2.0",
+  "numpy>=1.26",
 ]
 parquet = ["pyarrow>=14"]
-test = ["pytest>=8.0", "pyarrow>=14"]
+test = ["numpy>=1.26", "pytest>=8.0", "pyarrow>=14"]
 mutation = ["mutmut>=3.5,<4"]
 dev = [
   "build>=1.2",
   "mypy>=1.10",
+  "numpy>=1.26",
   "pytest>=8.0",
   "pyarrow>=14",
   "ruff>=0.9",

@@ -28,8 +28,8 @@ for custom loaders, parsers, mappers, and stream combiners.
   downstream ML teams.
 - Extend the runtime with entry-point driven plugins for domain-specific I/O,
   mapping, combining, and custom operations.
-- Consume vectors directly from Python via iterators, Pandas DataFrames, or
-  `torch.utils.data.Dataset`.
+- Consume final samples or bounded, metadata-ordered NumPy batches directly
+  from Python.
 
 ---
 
@@ -183,7 +183,8 @@ These live under `lib/<plugin>/src/<package>/`:
 - [CLI](docs/cli.md): command behavior beyond `--help`.
 - [Transforms](docs/transforms/index.md): preprocess, ordered, series, and postprocess stages.
 - [Artifacts](docs/artifacts.md): dependencies, freshness, splitting, and serving.
-- [Python integrations](docs/python.md): iterator, Pandas, and Torch APIs.
+- [Python integrations](docs/python.md): final-sample and bounded model-batch
+  iterators.
 - [Research workflow](docs/research.md): export samples to Parquet, derive a
   series with Polars, and reingest it into Jerry.
 - [Extending](docs/extending.md): plugin entry points and contracts.

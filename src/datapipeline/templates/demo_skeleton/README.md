@@ -8,5 +8,6 @@ python -m pip install -e .
 jerry serve --dataset demo --limit 3
 ```
 
-The example DataFrame and PyTorch integrations live under `demo/scripts/`.
-Install `jerry-thomas[ml]` before running them.
+The bounded NumPy model-batch example lives at
+`demo/scripts/run_model_batches.py`. Install `jerry-thomas[ml]` before running
+it.
