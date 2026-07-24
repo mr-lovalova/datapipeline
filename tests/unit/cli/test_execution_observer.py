@@ -24,6 +24,7 @@ from datapipeline.execution.events import (
     PipelineStarted,
     PipelineSummary,
     ProgressSnapshot,
+    format_elapsed,
 )
 from datapipeline.execution.observability import (
     CommandFinished,
@@ -48,6 +49,29 @@ class _CaptureHandler:
 
 
 @pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0, "0ms"),
+        (0.2396, "240ms"),
+        (0.9996, "1.0s"),
+        (12.34, "12.3s"),
+        (59.96, "1m00.0s"),
+        (239.853907, "3m59.9s"),
+        (1_383.786434, "23m03.8s"),
+        (3_723.4, "1h02m03.4s"),
+    ],
+)
+def test_elapsed_time_formatting(seconds, expected) -> None:
+    assert format_elapsed(seconds) == expected
+
+
+@pytest.mark.parametrize("seconds", [-0.1, float("inf"), float("nan")])
+def test_elapsed_time_formatting_rejects_invalid_values(seconds) -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        format_elapsed(seconds)
+
+
+@pytest.mark.parametrize(
     ("event", "level", "message"),
     [
         (
@@ -68,12 +92,12 @@ class _CaptureHandler:
         (
             CommandFinished("serve", "success", 2.5),
             logging.INFO,
-            "Command serve finished status=success elapsed=2.500000s",
+            "Command serve finished status=success elapsed=2.5s",
         ),
         (
             CommandFinished("serve", "error", 2.5),
             logging.ERROR,
-            "Command serve finished status=error elapsed=2.500000s",
+            "Command serve finished status=error elapsed=2.5s",
         ),
         (
             PipelineStarted(pipeline_name="pipeline"),
@@ -95,7 +119,7 @@ class _CaptureHandler:
                 elapsed_seconds=60,
             ),
             logging.INFO,
-            "[pipeline] running elapsed=60s items=10",
+            "[pipeline] running elapsed=1m00.0s items=10",
         ),
         (
             PipelineFinished(
@@ -105,7 +129,7 @@ class _CaptureHandler:
                 elapsed_seconds=0.5,
             ),
             logging.INFO,
-            "[pipeline] finished status=success items=3 elapsed=0.500000s",
+            "[pipeline] finished status=success items=3 elapsed=500ms",
         ),
         (
             NodeStarted(pipeline_name="pipeline", node_name="load", node_index=0),
@@ -121,7 +145,7 @@ class _CaptureHandler:
                 elapsed_seconds=0,
             ),
             logging.DEBUG,
-            "[pipeline/load] running elapsed=0s items=0",
+            "[pipeline/load] running elapsed=0ms items=0",
         ),
         (
             NodeFinished(
@@ -133,7 +157,7 @@ class _CaptureHandler:
                 elapsed_seconds=0.25,
             ),
             logging.DEBUG,
-            "[pipeline/load] finished status=success out=3 elapsed=0.250000s",
+            "[pipeline/load] finished status=success out=3 elapsed=250ms",
         ),
         (
             OperationProgress(
@@ -144,7 +168,7 @@ class _CaptureHandler:
                 unit="rows",
             ),
             logging.INFO,
-            "Operation build:schema · write · running reported_at=1s rows=3",
+            "Operation build:schema · write · running reported_at=1.9s rows=3",
         ),
         (
             OperationStarted("serve:dataset"),
@@ -154,7 +178,7 @@ class _CaptureHandler:
         (
             OperationFinished("serve:dataset", "success", 0.25),
             logging.INFO,
-            "Operation serve:dataset finished status=success elapsed=0.250000s",
+            "Operation serve:dataset finished status=success elapsed=250ms",
         ),
         (
             OperationFinished(
@@ -166,7 +190,7 @@ class _CaptureHandler:
             ),
             logging.ERROR,
             "Operation serve:dataset finished status=error "
-            "error=ValueError: bad\\ninput elapsed=0.500000s",
+            "error=ValueError: bad\\ninput elapsed=500ms",
         ),
     ],
 )
@@ -211,7 +235,7 @@ def test_observer_logs_root_lifecycle_and_summary_at_info(caplog) -> None:
     assert [record.getMessage() for record in caplog.records] == [
         "[stream:prices] started",
         "[stream:prices] transport=fs.file file=prices",
-        "[stream:prices] finished status=success items=3 elapsed=0.020000s",
+        "[stream:prices] finished status=success items=3 elapsed=20ms",
     ]
 
 
@@ -240,7 +264,7 @@ def test_observer_logs_stages_at_debug(caplog) -> None:
 
     assert [record.getMessage() for record in caplog.records] == [
         "[pipeline/load] started",
-        "[pipeline/load] finished status=success out=2 elapsed=0.010000s",
+        "[pipeline/load] finished status=success out=2 elapsed=10ms",
     ]
 
 
@@ -269,7 +293,7 @@ def test_observer_logs_pipeline_heartbeat_at_info(caplog) -> None:
 
     assert len(caplog.records) == 1
     assert caplog.records[0].getMessage() == (
-        "[series:close] running elapsed=60s items=15"
+        "[series:close] running elapsed=1m00.0s items=15"
     )
     assert getattr(caplog.records[0], "dp_event_kind", None) == "execution"
 
@@ -300,7 +324,7 @@ def test_observer_logs_only_heartbeat_node_progress_at_debug(caplog) -> None:
         )
 
     assert [record.getMessage() for record in caplog.records] == [
-        "[series:close/ensure_record_order] running elapsed=60s items=20"
+        "[series:close/ensure_record_order] running elapsed=1m00.0s items=20"
     ]
 
 
@@ -355,7 +379,7 @@ def test_make_pipeline_observer_routes_to_logger_and_context_handler(caplog) -> 
     ]
     assert [record.getMessage() for record in caplog.records] == [
         "[dataset] started",
-        "[dataset] finished status=success items=1 elapsed=0.500000s",
+        "[dataset] finished status=success items=1 elapsed=500ms",
     ]
 
 
@@ -443,6 +467,6 @@ def test_operation_scope_emits_flat_lifecycle_result_and_progress(
     assert "Model grid: /tmp/model_grid.jsonl" in messages
     assert (
         "Operation build:model_grid · write_artifact · running "
-        "reported_at=1s rows=3" in messages
+        "reported_at=1.0s rows=3" in messages
     )
     assert messages[-1].startswith("Operation build:model_grid finished status=success")

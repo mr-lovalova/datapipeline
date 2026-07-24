@@ -14,6 +14,7 @@ from datapipeline.execution.events import (
     PipelineProgress,
     PipelineStarted,
     PipelineSummary,
+    format_elapsed,
     format_node_progress,
 )
 from datapipeline.execution.observer import PipelineObserver
@@ -100,7 +101,7 @@ class ExecutionEventFormatter:
         if isinstance(event, CommandFinished):
             return (
                 f"Command {event.command} finished status={event.status} "
-                f"elapsed={event.elapsed_seconds:.6f}s"
+                f"elapsed={format_elapsed(event.elapsed_seconds)}"
             )
         if isinstance(event, OperationStarted):
             return f"Operation {event.name} started"
@@ -108,7 +109,7 @@ class ExecutionEventFormatter:
             error_suffix = cls.error_suffix(event)
             return (
                 f"Operation {event.name} finished status={event.status}"
-                f"{error_suffix} elapsed={event.elapsed_seconds:.6f}s"
+                f"{error_suffix} elapsed={format_elapsed(event.elapsed_seconds)}"
             )
         if isinstance(event, ExecutionMessage):
             return event.message
@@ -119,14 +120,15 @@ class ExecutionEventFormatter:
         if isinstance(event, PipelineProgress):
             return (
                 f"[{event.pipeline_name}] running "
-                f"elapsed={event.elapsed_seconds:.0f}s items={event.output_items}"
+                f"elapsed={format_elapsed(event.elapsed_seconds)} "
+                f"items={event.output_items}"
             )
         if isinstance(event, PipelineFinished):
             error_suffix = cls.error_suffix(event)
             return (
                 f"[{event.pipeline_name}] finished "
                 f"status={event.status}{error_suffix} items={event.output_items} "
-                f"elapsed={event.elapsed_seconds:.6f}s"
+                f"elapsed={format_elapsed(event.elapsed_seconds)}"
             )
         if isinstance(event, NodeStarted):
             label = f"{event.pipeline_name}/{event.node_name}"
@@ -137,7 +139,7 @@ class ExecutionEventFormatter:
         if isinstance(event, OperationProgress):
             return (
                 f"Operation {event.name} · {event.step} · running "
-                f"reported_at={int(event.reported_at_seconds)}s "
+                f"reported_at={format_elapsed(event.reported_at_seconds)} "
                 f"{event.unit}={event.completed}"
             )
         if isinstance(event, NodeFinished):
@@ -146,7 +148,7 @@ class ExecutionEventFormatter:
             return (
                 f"[{label}] finished "
                 f"status={event.status}{error_suffix} out={event.output_items} "
-                f"elapsed={event.elapsed_seconds:.6f}s"
+                f"elapsed={format_elapsed(event.elapsed_seconds)}"
             )
         raise TypeError(f"Unsupported execution event: {type(event).__name__}")
 

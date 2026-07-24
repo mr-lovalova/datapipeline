@@ -63,7 +63,7 @@ def test_operation_and_output_events_render_as_flat_plain_logs_without_visuals(
     assert stream.getvalue().splitlines() == [
         "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
-        "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
+        "Operation materialize:adv.20 finished status=success elapsed=0ms",
     ]
 
 
@@ -112,7 +112,7 @@ def test_operation_and_output_logs_do_not_depend_on_visual_handler(
     for expected in (
         "Operation materialize:adv.20 started",
         "Output: /tmp/adv.20.jsonl",
-        "Operation materialize:adv.20 finished status=success elapsed=0.000000s",
+        "Operation materialize:adv.20 finished status=success elapsed=0ms",
     ):
         assert visual_content.count(expected) == 1
     assert len(handler.events) == 3
@@ -152,7 +152,8 @@ def test_operation_heartbeat_stays_in_file_during_visuals(
 
     content = log_path.read_text(encoding="utf-8")
     heartbeat = (
-        "Operation serve:dataset · write_output · running reported_at=180s rows=2592885"
+        "Operation serve:dataset · write_output · running "
+        "reported_at=3m00.0s rows=2592885"
     )
     assert content.count(heartbeat) == 1
     assert len(handler.events) == 3
@@ -225,7 +226,7 @@ def test_root_logging_scope_restores_command_outputs(tmp_path) -> None:
 
     assert execution_log.read_text(encoding="utf-8") == "operation\n"
     assert command_log.read_text(encoding="utf-8") == (
-        "Command serve finished status=success elapsed=1.500000s\n"
+        "Command serve finished status=success elapsed=1.5s\n"
     )
 
 
@@ -258,7 +259,7 @@ def test_root_logging_scope_restores_command_outputs_after_failure(tmp_path) -> 
 
     assert execution_log.read_text(encoding="utf-8") == "operation\n"
     assert command_log.read_text(encoding="utf-8") == (
-        "Command serve finished status=error elapsed=1.500000s\n"
+        "Command serve finished status=error elapsed=1.5s\n"
     )
 
 
@@ -316,7 +317,7 @@ def test_visual_command_summary_is_rendered_and_logged_once(
         route_execution_event(event, logger)
     _flush_root_handlers()
 
-    message = "Command serve finished status=success elapsed=1.500000s"
+    message = "Command serve finished status=success elapsed=1.5s"
     assert stream.getvalue().count(message) == 1
     assert log_path.read_text(encoding="utf-8") == f"{message}\n"
 

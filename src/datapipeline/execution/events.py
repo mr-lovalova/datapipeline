@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import isfinite
 from typing import Literal
 
 
@@ -40,13 +41,33 @@ class ProgressSnapshot:
     resource: ProgressResource | None = None
 
 
+def format_elapsed(seconds: float) -> str:
+    if not isfinite(seconds) or seconds < 0:
+        raise ValueError("Elapsed seconds must be finite and non-negative")
+
+    milliseconds = round(seconds * 1_000)
+    if milliseconds < 1_000:
+        return f"{milliseconds}ms"
+
+    tenths = round(seconds * 10)
+    if tenths < 600:
+        return f"{tenths / 10:.1f}s"
+
+    hours, remainder = divmod(tenths, 36_000)
+    minutes, remainder = divmod(remainder, 600)
+    elapsed_seconds = remainder / 10
+    if hours:
+        return f"{hours}h{minutes:02d}m{elapsed_seconds:04.1f}s"
+    return f"{minutes}m{elapsed_seconds:04.1f}s"
+
+
 def format_node_progress(
     progress: ProgressSnapshot,
     elapsed_seconds: float,
 ) -> str:
     parts = [
         "running",
-        f"elapsed={elapsed_seconds:.0f}s",
+        f"elapsed={format_elapsed(elapsed_seconds)}",
         f"{progress.unit}={progress.completed}",
     ]
     if progress.total is not None:

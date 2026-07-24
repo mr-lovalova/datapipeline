@@ -515,7 +515,7 @@ def test_rich_renderer_persists_node_finish_at_debug() -> None:
 
     assert progress_renderer.events == [event]
     assert output.getvalue().strip() == (
-        "[stream:adv.20/rolling] finished status=success out=100 elapsed=1.000000s"
+        "[stream:adv.20/rolling] finished status=success out=100 elapsed=1.0s"
     )
 
 
@@ -558,7 +558,7 @@ def test_rich_renderer_persists_failed_node_finish_at_info() -> None:
     assert progress_renderer.events == [event]
     assert output.getvalue().strip() == (
         "[stream:adv.20/rolling] finished "
-        "status=error error=ValueError: invalid record out=0 elapsed=1.000000s"
+        "status=error error=ValueError: invalid record out=0 elapsed=1.0s"
     )
 
 
@@ -581,7 +581,7 @@ def test_rich_renderer_persists_root_pipeline_lifecycle() -> None:
     assert progress_renderer.events == events
     assert output.getvalue().splitlines() == [
         "[stream:adv.20] started",
-        "[stream:adv.20] finished status=success items=100 elapsed=1.000000s",
+        "[stream:adv.20] finished status=success items=100 elapsed=1.0s",
     ]
 
 
@@ -857,9 +857,7 @@ def test_visual_summary_uses_a_stateless_renderer_and_restores_context(
     finally:
         reset_current_execution_event_handler(token)
 
-    assert output.getvalue() == (
-        "Command serve finished status=success elapsed=1.500000s\n"
-    )
+    assert output.getvalue() == "Command serve finished status=success elapsed=1.5s\n"
 
 
 def test_visual_execution_releases_file_proxies_before_process_shutdown() -> None:
