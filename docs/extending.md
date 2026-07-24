@@ -53,11 +53,11 @@ def run_report(
 `runtime` is the compiled `Runtime`, `task` is the configured `RuntimeTask`,
 and `limit` is the CLI cap or `None`. Return `RuntimeOutput`,
 `RoutedRuntimeOutput`, `RuntimeOutputBatch`, or `None`. Jerry persists the result
-using the profile output. A routed output's `output_for_row` callback returns a
-string output ID present in its `targets` mapping, or `None` to drop that row;
-any other result fails the operation. Dataset split routing, preview, throttle, and
-`include_outputs` belong to the built-in dataset operation and are not passed to
-plugins.
+using the profile output. A routed output yields `(output_id, row)` pairs, where
+each output ID is present in its `targets` mapping. Omit a row from the iterable
+to drop it; an unknown output ID fails the operation. Dataset split routing,
+preview, throttle, and `include_outputs` belong to the built-in dataset operation
+and are not passed to plugins.
 
 Preprocess and ordered transforms are validated built-in operations rather than
 plugin entry points. Series shaping and postprocess policies are fixed pipeline

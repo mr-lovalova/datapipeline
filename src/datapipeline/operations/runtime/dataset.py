@@ -1,7 +1,6 @@
 import logging
 import time
-from collections.abc import Iterator, Mapping, Sequence
-from functools import partial
+from collections.abc import Iterator, Sequence
 from itertools import islice
 from typing import TypeVar
 
@@ -30,12 +29,12 @@ from datapipeline.operations.persistence import (
 )
 from datapipeline.pipelines.dataset.postprocess import build_postprocess_plan
 from datapipeline.pipelines.dataset.pipeline import (
+    FoldOutputPlan,
     build_dataset_pipeline,
     run_dataset_pipeline,
-    run_fold_dataset_pipeline,
+    run_fold_outputs_pipeline,
     run_scaled_dataset_pipeline,
 )
-from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.series.pipeline import run_series_pipeline
 from datapipeline.pipelines.stream.pipeline import build_stream_pipeline
 from datapipeline.runtime import (
@@ -60,16 +59,16 @@ def limit_items(items: Iterator[T], limit: int | None) -> Iterator[T]:
         yield from islice(items, limit)
 
 
-def throttle_samples(
-    samples: Iterator[Sample],
+def throttle_items(
+    items: Iterator[T],
     throttle_ms: float | None,
-) -> Iterator[Sample]:
+) -> Iterator[T]:
     if not throttle_ms or throttle_ms <= 0:
-        yield from samples
+        yield from items
         return
     delay = throttle_ms / 1000.0
-    for sample in samples:
-        yield sample
+    for item in items:
+        yield item
         time.sleep(delay)
 
 
@@ -103,7 +102,7 @@ def _sample_output(
     limit: int | None,
     throttle_ms: float | None,
 ) -> RuntimeOutput:
-    return _runtime_output(throttle_samples(stream, throttle_ms), target, limit)
+    return _runtime_output(throttle_items(stream, throttle_ms), target, limit)
 
 
 def _parquet_sample_output(
@@ -115,7 +114,7 @@ def _parquet_sample_output(
 ) -> DatasetTableOutput:
     return DatasetTableOutput(
         rows=limit_items(
-            _managed_items(throttle_samples(stream, throttle_ms)),
+            _managed_items(throttle_items(stream, throttle_ms)),
             limit,
         ),
         table=table,
@@ -331,8 +330,7 @@ def _serve_fold_outputs(
         raise ValueError("Fold outputs require dataset split configuration.")
 
     runtime.window_bounds = resolve_window_bounds(runtime, True)
-    labeler = build_labeler(split_cfg)
-    outputs: list[RoutedRuntimeOutput | RoutedDatasetTableOutput] = []
+    selected_folds = _selected_fold_outputs(split_cfg, output_ids)
     table = (
         _served_dataset_table(
             context,
@@ -343,51 +341,45 @@ def _serve_fold_outputs(
         if target.format == "parquet"
         else None
     )
-    for fold, labels_by_output in _selected_fold_outputs(split_cfg, output_ids):
-        outputs_by_label = {
-            label: output_id
-            for output_id, labels in labels_by_output.items()
-            for label in labels
-        }
-        samples = run_fold_dataset_pipeline(
-            context,
-            feature_cfgs,
-            cadence,
-            fold,
-            outputs_by_label,
-            target_configs=target_cfgs,
-            rectangular=True,
-            sample_keys=sample_keys,
+    plans = tuple(
+        FoldOutputPlan(
+            fold=fold,
+            output_by_label={
+                label: output_id
+                for output_id, labels in labels_by_output.items()
+                for label in labels
+            },
         )
-        rows = throttle_samples(_managed_items(samples), throttle_ms)
-        output_targets = {
-            output_id: target.for_output(output_id) for output_id in labels_by_output
-        }
-        output_for_row = partial(
-            _fold_output_for_sample,
-            labeler,
-            outputs_by_label,
+        for fold, labels_by_output in selected_folds
+    )
+    samples = run_fold_outputs_pipeline(
+        context,
+        feature_cfgs,
+        cadence,
+        plans,
+        target_configs=target_cfgs,
+        rectangular=True,
+        sample_keys=sample_keys,
+    )
+    rows = throttle_items(_managed_items(samples), throttle_ms)
+    output_targets = {
+        output_id: target.for_output(output_id) for output_id in output_ids
+    }
+    output = (
+        RoutedDatasetTableOutput(
+            rows=rows,
+            table=table,
+            targets=output_targets,
+            limit_per_output=limit,
         )
-        if table is not None:
-            outputs.append(
-                RoutedDatasetTableOutput(
-                    rows=rows,
-                    table=table,
-                    targets=output_targets,
-                    output_for_row=output_for_row,
-                    limit_per_output=limit,
-                )
-            )
-        else:
-            outputs.append(
-                RoutedRuntimeOutput(
-                    rows=rows,
-                    targets=output_targets,
-                    output_for_row=output_for_row,
-                    limit_per_output=limit,
-                )
-            )
-    return RuntimeOutputBatch(outputs=tuple(outputs))
+        if table is not None
+        else RoutedRuntimeOutput(
+            rows=rows,
+            targets=output_targets,
+            limit_per_output=limit,
+        )
+    )
+    return RuntimeOutputBatch(outputs=(output,))
 
 
 def _assembled_dataset_table(
@@ -454,14 +446,6 @@ def _dataset_table(
         scaled_feature_ids,
         scaled_target_ids,
     )
-
-
-def _fold_output_for_sample(
-    labeler: HashLabeler | TimeLabeler,
-    outputs_by_label: Mapping[str, str],
-    sample: Sample,
-) -> str | None:
-    return outputs_by_label.get(labeler.label(sample.key))
 
 
 def _selected_fold_outputs(

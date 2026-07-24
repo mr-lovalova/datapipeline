@@ -32,9 +32,6 @@ class BaseDataLoader(ABC):
     def progress_unit(self) -> SourceProgressUnit:
         return "records"
 
-    def __iter__(self) -> Iterator[Any]:
-        return self.load()
-
 
 class DataLoader(BaseDataLoader):
     """Decode rows from byte resources supplied by a transport."""

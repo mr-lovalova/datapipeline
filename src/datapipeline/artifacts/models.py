@@ -151,10 +151,8 @@ class VectorMetadata(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[3] = VECTOR_METADATA_VERSION
-    generated_at: datetime | None = None
+    schema_version: Literal[3]
     window: Window | None = None
-    meta: dict[str, Any] | None = None
     features: tuple[VectorMetadataEntry, ...] = ()
     targets: tuple[VectorMetadataEntry, ...] = ()
     counts: VectorMetadataCounts
@@ -186,8 +184,6 @@ class VectorMetadata(BaseModel):
             raise ValueError(
                 "vector metadata ids must be unique across features and targets"
             )
-        if self.generated_at is not None and self.generated_at.tzinfo is None:
-            raise ValueError("metadata generated_at must be timezone-aware")
         return self
 
 

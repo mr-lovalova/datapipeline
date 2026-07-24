@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from datapipeline.artifacts.models import SampleDomainEntry
-from datapipeline.domain.series import SeriesRecord, SeriesSequence
 from datapipeline.utils.time import (
     floor_time_to_cadence,
     parse_cadence,
@@ -64,13 +63,6 @@ class RectangularKeyPlan:
             and window_end.tzinfo is origin_timezone
             for _, window_start, window_end in self.windows
         )
-
-
-def sample_key_for(
-    item: SeriesRecord | SeriesSequence,
-    cadence: timedelta,
-) -> tuple:
-    return (floor_time_to_cadence(item.time, cadence), *item.entity_key)
 
 
 def window_key_plan(

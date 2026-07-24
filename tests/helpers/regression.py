@@ -14,12 +14,14 @@ def serve_dataset(
     artifact_mode: Literal["AUTO", "FORCE"] = "FORCE",
     cli_output: ServeOutputConfig | None = None,
     preview: PreviewStage | None = None,
+    limit: int | None = None,
 ) -> RuntimeRunRequest:
     request = build_runtime_run_request(
         "serve",
         str(project_root / "project.yaml"),
         profile_name="dataset",
         artifact_mode=artifact_mode,
+        limit=limit,
         preview=preview,
         cli_output=cli_output,
         cli_visuals="off",

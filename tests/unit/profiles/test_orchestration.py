@@ -1171,8 +1171,8 @@ def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(
         outputs=(
             RoutedRuntimeOutput(
                 rows=(
-                    {"output": "first", "value": 1},
-                    {"output": "blocked", "value": 2},
+                    ("first", {"output": "first", "value": 1}),
+                    ("blocked", {"output": "blocked", "value": 2}),
                 ),
                 targets={
                     "first": OutputTarget(
@@ -1190,7 +1190,6 @@ def test_later_output_commit_failure_marks_run_failed_and_preserves_latest(
                         destination=blocked_output,
                     ),
                 },
-                output_for_row=lambda row: row["output"],
             ),
         )
     )

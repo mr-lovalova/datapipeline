@@ -11,7 +11,7 @@ from datapipeline.io.writers.base import LineWriter
 from datapipeline.io.writers.csv_writer import CsvFileWriter
 from datapipeline.io.writers.jsonl import JsonLinesFileWriter
 from datapipeline.io.writers.pickle_writer import PickleFileWriter
-from datapipeline.io.writers.parquet import ParquetFileWriter
+from datapipeline.io.writers.parquet import DEFAULT_ROW_GROUP_ROWS, ParquetFileWriter
 
 
 def writer_factory(target: OutputTarget, overwrite: bool = True) -> Writer:
@@ -70,6 +70,7 @@ def dataset_writer_factory(
     target: OutputTarget,
     table: DatasetTable,
     overwrite: bool = True,
+    row_group_rows: int = DEFAULT_ROW_GROUP_ROWS,
 ) -> Writer:
     if target.format != "parquet":
         raise ValueError("Dataset table output requires parquet format.")
@@ -86,4 +87,5 @@ def dataset_writer_factory(
         destination,
         table,
         overwrite=overwrite,
+        row_group_rows=row_group_rows,
     )

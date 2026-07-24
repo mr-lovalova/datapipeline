@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeAlias
 
 from datapipeline.build.state import ArtifactFileFingerprint
 from datapipeline.domain.sample import Sample
@@ -20,6 +20,7 @@ from datapipeline.io.normalization import json_text, raw_payload
 from datapipeline.io.output import OutputTarget, output_destination_key
 from datapipeline.io.protocols import Writer
 from datapipeline.io.sinks.files import AtomicTextFileSink
+from datapipeline.io.writers.parquet import DEFAULT_ROW_GROUP_ROWS
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,8 @@ class RuntimeOutput:
 
 @dataclass(frozen=True)
 class RoutedRuntimeOutput:
-    rows: Iterable[Any]
+    rows: Iterable[tuple[str, Any]]
     targets: Mapping[str, OutputTarget]
-    output_for_row: Callable[[Any], str | None]
     limit_per_output: int | None = None
 
 
@@ -67,16 +67,15 @@ class DatasetTableOutput:
 
 @dataclass(frozen=True)
 class RoutedDatasetTableOutput:
-    rows: Iterable[Sample]
+    rows: Iterable[tuple[str, Sample]]
     table: DatasetTable
     targets: Mapping[str, OutputTarget]
-    output_for_row: Callable[[Sample], str | None]
     limit_per_output: int | None = None
 
 
-RuntimeOutputItem = (
-    RuntimeOutput | RoutedRuntimeOutput | DatasetTableOutput | RoutedDatasetTableOutput
-)
+RoutedOutput: TypeAlias = RoutedRuntimeOutput | RoutedDatasetTableOutput
+
+RuntimeOutputItem = RuntimeOutput | RoutedOutput | DatasetTableOutput
 
 
 @dataclass(frozen=True)
@@ -293,7 +292,7 @@ def _persist_dataset_table_output(
 
 
 def _planned_routed_targets(
-    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
+    result: RoutedOutput,
 ) -> list[tuple[str, OutputTarget, Path]]:
     if not result.targets:
         raise ValueError("Routed runtime output requires at least one target.")
@@ -316,41 +315,33 @@ def _planned_routed_targets(
     return planned
 
 
-def _route_runtime_rows(
-    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
-    rows: Iterator[Any],
+def _write_routed_rows(
+    rows: Iterator[tuple[str, Any]],
     writers: Mapping[str, Writer],
     progress: OperationProgressTracker,
+    limit_per_output: int | None,
 ) -> dict[str, int]:
     counts = dict.fromkeys(writers, 0)
-    for row in rows:
-        routed_id = result.output_for_row(row)
-        if routed_id is None:
-            continue
-        writer = writers.get(routed_id)
+    for output_id, row in rows:
+        writer = writers.get(output_id)
         if writer is None:
-            raise ValueError(
-                f"output_for_row returned unknown output ID {routed_id!r}."
-            )
-        if (
-            result.limit_per_output is not None
-            and counts[routed_id] >= result.limit_per_output
-        ):
-            if all(count >= result.limit_per_output for count in counts.values()):
+            raise ValueError(f"Routed row has unknown output ID {output_id!r}.")
+        if limit_per_output is not None and counts[output_id] >= limit_per_output:
+            if all(count >= limit_per_output for count in counts.values()):
                 break
             continue
         writer.write(row)
-        counts[routed_id] += 1
+        counts[output_id] += 1
         progress.advance()
-        if result.limit_per_output is not None and all(
-            count >= result.limit_per_output for count in counts.values()
+        if limit_per_output is not None and all(
+            count >= limit_per_output for count in counts.values()
         ):
             break
     return counts
 
 
 def _persist_routed_output(
-    result: RoutedRuntimeOutput | RoutedDatasetTableOutput,
+    result: RoutedOutput,
     *,
     heartbeat_interval_seconds: float | None,
     logger: logging.Logger,
@@ -359,9 +350,17 @@ def _persist_routed_output(
     try:
         with _runtime_rows(result.rows, logger) as rows:
             planned = _planned_routed_targets(result)
+            parquet_row_group_rows = max(
+                1,
+                DEFAULT_ROW_GROUP_ROWS // len(planned),
+            )
             for output_id, target, _destination in planned:
                 writers[output_id] = (
-                    dataset_writer_factory(target, result.table)
+                    dataset_writer_factory(
+                        target,
+                        result.table,
+                        row_group_rows=parquet_row_group_rows,
+                    )
                     if isinstance(result, RoutedDatasetTableOutput)
                     else writer_factory(target)
                 )
@@ -371,7 +370,12 @@ def _persist_routed_output(
                 "rows",
                 resolve_heartbeat_interval_seconds(heartbeat_interval_seconds),
             )
-            counts = _route_runtime_rows(result, rows, writers, progress)
+            counts = _write_routed_rows(
+                rows,
+                writers,
+                progress,
+                result.limit_per_output,
+            )
 
         for writer in writers.values():
             writer.close()
@@ -418,7 +422,7 @@ def _persist_runtime_batch(
     try:
         for output in result.outputs:
             attempted += 1
-            if isinstance(output, (RoutedDatasetTableOutput, RoutedRuntimeOutput)):
+            if isinstance(output, RoutedOutput):
                 _persist_routed_output(
                     output,
                     heartbeat_interval_seconds=heartbeat_interval_seconds,
@@ -466,17 +470,9 @@ def persist_runtime_result(
         return
     if not isinstance(
         result,
-        RuntimeOutput
-        | RoutedRuntimeOutput
-        | DatasetTableOutput
-        | RoutedDatasetTableOutput
-        | RuntimeOutputBatch,
+        RuntimeOutput | RoutedOutput | DatasetTableOutput | RuntimeOutputBatch,
     ):
-        raise TypeError(
-            "Runtime operation must return RuntimeOutput, RoutedRuntimeOutput, "
-            "DatasetTableOutput, RoutedDatasetTableOutput, RuntimeOutputBatch, "
-            "or None."
-        )
+        raise TypeError("Runtime operation returned an unsupported output type.")
     if isinstance(result, RuntimeOutputBatch):
         _persist_runtime_batch(
             result,
@@ -486,7 +482,7 @@ def persist_runtime_result(
         )
         return
 
-    if isinstance(result, (RoutedDatasetTableOutput, RoutedRuntimeOutput)):
+    if isinstance(result, RoutedOutput):
         _persist_routed_output(
             result,
             heartbeat_interval_seconds=heartbeat_interval_seconds,

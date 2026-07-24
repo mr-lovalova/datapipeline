@@ -37,6 +37,6 @@ split:
       validation: [validation_0]
       test: [test_0]
     - id: fold_1
-      train: [train_1]
+      train: [train_0, validation_0, train_1]
       validation: [validation_1]
       test: [test_1]

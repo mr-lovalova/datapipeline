@@ -264,8 +264,13 @@ def test_dataset_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.dataset.run_fold_dataset_pipeline",
-        lambda *args, **kwargs: iter(samples),
+        "datapipeline.operations.runtime.dataset.run_fold_outputs_pipeline",
+        lambda *args, **kwargs: iter(
+            (
+                ("holdout.train", samples[0]),
+                ("holdout.validation", samples[1]),
+            )
+        ),
     )
 
     result = _serve(runtime, dataset, target, preview=None)
@@ -282,10 +287,9 @@ def test_dataset_operation_returns_split_fanout_output(monkeypatch, tmp_path):
         output.targets["holdout.validation"].destination
         == tmp_path / "dataset.holdout.validation.jsonl"
     )
-    routed = list(output.rows)
-    assert [output.output_for_row(sample) for sample in routed] == [
-        "holdout.train",
-        "holdout.validation",
+    assert list(output.rows) == [
+        ("holdout.train", samples[0]),
+        ("holdout.validation", samples[1]),
     ]
 
 
@@ -318,7 +322,7 @@ def test_dataset_operation_returns_parquet_split_outputs(monkeypatch, tmp_path):
         lambda runtime_obj, rectangular_required: ("start", "end"),
     )
     monkeypatch.setattr(
-        "datapipeline.operations.runtime.dataset.run_fold_dataset_pipeline",
+        "datapipeline.operations.runtime.dataset.run_fold_outputs_pipeline",
         lambda *args, **kwargs: iter(()),
     )
     monkeypatch.setattr(

@@ -481,7 +481,6 @@ def test_routed_runtime_output_rejects_colliding_destinations(tmp_path) -> None:
             RoutedRuntimeOutput(
                 rows=iter(()),
                 targets=targets,
-                output_for_row=lambda row: row["output"],
             ),
             target=None,
             logger=logging.getLogger(__name__),
@@ -498,7 +497,6 @@ def test_invalid_routed_runtime_output_closes_rows() -> None:
             RoutedRuntimeOutput(
                 rows=rows,
                 targets={},
-                output_for_row=lambda _row: None,
             ),
             target=None,
             logger=logging.getLogger(__name__),
@@ -707,13 +705,12 @@ def test_routed_runtime_output_routes_rows_to_output_targets(
 
     persist_runtime_result(
         RoutedRuntimeOutput(
-            rows=iter(rows),
+            rows=iter((("train", rows[0]), ("val", rows[1]))),
             targets={
                 "train": train_target,
                 "val": val_target,
                 "empty": empty_target,
             },
-            output_for_row=lambda row: row["output"],
         ),
         target=None,
         logger=logging.getLogger(__name__),
@@ -756,15 +753,58 @@ def test_routed_runtime_output_rejects_unknown_output_id(tmp_path) -> None:
     ):
         persist_runtime_result(
             RoutedRuntimeOutput(
-                rows=iter(({"output": "train"}, {"output": "test"})),
+                rows=iter(
+                    (
+                        ("train", {"value": 1}),
+                        ("test", {"value": 2}),
+                    )
+                ),
                 targets=targets,
-                output_for_row=lambda row: row["output"],
             ),
             target=None,
             logger=logging.getLogger(__name__),
         )
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_routed_rows_failure_preserves_every_destination(tmp_path) -> None:
+    destinations = {
+        output_id: tmp_path / f"{output_id}.jsonl"
+        for output_id in ("fold_0.train", "fold_1.train")
+    }
+    for destination in destinations.values():
+        destination.write_text("previous\n", encoding="utf-8")
+
+    def rows():
+        yield "fold_0.train", {"value": 1}
+        yield "fold_1.train", {"value": 2}
+        raise RuntimeError("assembly failed")
+
+    with pytest.raises(RuntimeError, match="assembly failed"):
+        persist_runtime_result(
+            RoutedRuntimeOutput(
+                rows=rows(),
+                targets={
+                    output_id: OutputTarget(
+                        transport="fs",
+                        format="jsonl",
+                        view="raw",
+                        encoding="utf-8",
+                        destination=destination,
+                    )
+                    for output_id, destination in destinations.items()
+                },
+            ),
+            target=None,
+            logger=logging.getLogger(__name__),
+        )
+
+    assert all(
+        destination.read_text(encoding="utf-8") == "previous\n"
+        for destination in destinations.values()
+    )
+    assert set(tmp_path.iterdir()) == set(destinations.values())
 
 
 def test_routed_runtime_output_writes_gzip_targets(tmp_path) -> None:
@@ -786,9 +826,13 @@ def test_routed_runtime_output_writes_gzip_targets(tmp_path) -> None:
 
     persist_runtime_result(
         RoutedRuntimeOutput(
-            rows=iter(rows),
+            rows=iter(
+                (
+                    ("train", rows[0]),
+                    ("validation", rows[1]),
+                )
+            ),
             targets=targets,
-            output_for_row=lambda row: row["output"],
         ),
         target=None,
         logger=logging.getLogger(__name__),
@@ -828,9 +872,8 @@ def test_routed_runtime_output_limit_applies_per_output(tmp_path) -> None:
 
     persist_runtime_result(
         RoutedRuntimeOutput(
-            rows=iter(rows),
+            rows=iter((row["split"], row) for row in rows if row["split"] is not None),
             targets={"train": train_target, "val": val_target},
-            output_for_row=lambda row: row["split"],
             limit_per_output=1,
         ),
         target=None,
@@ -898,12 +941,14 @@ def test_routed_dataset_table_output_persists_each_parquet_output(tmp_path) -> N
 
     persist_runtime_result(
         RoutedDatasetTableOutput(
-            rows=iter(samples),
+            rows=iter(
+                (
+                    ("train", samples[0]),
+                    ("validation", samples[1]),
+                )
+            ),
             table=_dataset_table(),
             targets=targets,
-            output_for_row=lambda sample: (
-                "train" if sample.key[1] == "AAPL" else "validation"
-            ),
         ),
         target=None,
         logger=logging.getLogger(__name__),

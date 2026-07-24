@@ -25,7 +25,7 @@ def test_plugin_init_out_path_is_workspace_relative(
 
     monkeypatch.setattr(plugin, "scaffold_plugin", fake_scaffold_plugin)
 
-    plugin.handle("init", "my-plugin", "plugins", workspace=workspace)
+    plugin.handle("my-plugin", "plugins", workspace=workspace)
 
     assert calls["name"] == "my-plugin"
     assert calls["outdir"] == (tmp_path / "plugins").resolve()

@@ -8,7 +8,7 @@ from datapipeline.services.scaffold.source_yaml import (
 )
 
 
-def test_source_create_resolves_alias_and_builtin_loader(monkeypatch) -> None:
+def test_source_create_uses_source_id_and_builtin_loader(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_create_source_yaml(**kwargs):
@@ -17,10 +17,7 @@ def test_source_create_resolves_alias_and_builtin_loader(monkeypatch) -> None:
     monkeypatch.setattr(source, "create_source_yaml", fake_create_source_yaml)
 
     source.handle(
-        subcmd="create",
-        provider=None,
-        dataset=None,
-        alias="demo.weather",
+        source_id="demo.weather",
         transport="fs",
         format="csv",
         parser="identity",
@@ -45,9 +42,7 @@ def test_source_create_explicit_loader_overrides_transport(monkeypatch) -> None:
     monkeypatch.setattr(source, "create_source_yaml", fake_create_source_yaml)
 
     source.handle(
-        subcmd="create",
-        provider="demo.weather",
-        dataset=None,
+        source_id="demo.weather",
         transport="http",
         format="json",
         loader="demo.loaders.weather",
@@ -74,22 +69,17 @@ def test_source_create_defaults_to_identity_parser_when_noninteractive(
     monkeypatch.setattr(source.sys, "stdin", SimpleNamespace(isatty=lambda: False))
 
     source.handle(
-        subcmd="create",
-        provider="demo",
-        dataset="ticks",
+        source_id="demo.ticks",
         transport="synthetic",
     )
 
     assert captured["parser_ep"] == "identity"
 
 
-def test_source_create_rejects_invalid_alias() -> None:
+def test_source_create_rejects_invalid_source_id() -> None:
     with pytest.raises(SystemExit):
         source.handle(
-            subcmd="create",
-            provider=None,
-            dataset=None,
-            alias="weather",
+            source_id="weather",
             transport="synthetic",
             parser="identity",
         )
@@ -98,9 +88,7 @@ def test_source_create_rejects_invalid_alias() -> None:
 def test_source_create_rejects_unsafe_source_id_before_loader_selection() -> None:
     with pytest.raises(SystemExit) as exc:
         source.handle(
-            subcmd="create",
-            provider="demo/vendor",
-            dataset="weather",
+            source_id="demo/vendor.weather",
             transport="synthetic",
             parser="identity",
         )
@@ -111,9 +99,7 @@ def test_source_create_rejects_unsafe_source_id_before_loader_selection() -> Non
 def test_source_create_rejects_pickle_format(caplog) -> None:
     with pytest.raises(SystemExit) as exc:
         source.handle(
-            subcmd="create",
-            provider="demo",
-            dataset="weather",
+            source_id="demo.weather",
             transport="fs",
             format="pickle",
             parser="identity",
@@ -126,9 +112,7 @@ def test_source_create_rejects_pickle_format(caplog) -> None:
 def test_source_create_rejects_http_parquet(caplog) -> None:
     with pytest.raises(SystemExit) as exc:
         source.handle(
-            subcmd="create",
-            provider="demo",
-            dataset="weather",
+            source_id="demo.weather",
             transport="http",
             format="parquet",
             parser="identity",
@@ -147,6 +131,6 @@ def test_interactive_parser_menu_can_select_temporal_record(monkeypatch) -> None
         lambda prompt, options: "temporal_record",
     )
 
-    parser_ep = source._resolve_parser_entrypoint(False, None, None)
+    parser_ep = source._resolve_parser_entrypoint(None, None)
 
     assert parser_ep == DEFAULT_TEMPORAL_RECORD_PARSER_EP

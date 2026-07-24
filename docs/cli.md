@@ -123,7 +123,7 @@ phase has visuals enabled.
 
 ### Scaffolding & Reference
 
-- `jerry plugin init <package> --out <dir>` (also supports `-n/--name`)
+- `jerry plugin init <package> --out <dir>`
   - Generates a self-contained plugin workspace (pyproject, package skeleton,
     local `jerry.yaml`, and config templates).
 - `jerry demo init`
@@ -146,12 +146,11 @@ phase has visuals enabled.
     selected order and returns one record or `None`.
   - `--identity` applies only to source-backed streams.
 - `jerry source create <provider>.<dataset> --transport fs|http|synthetic --format csv|json|jsonl|parquet`
-  - Also supports positional `<provider> <dataset>` and `--alias <provider>.<dataset>`.
   - Creates a source YAML only (no Python code).
   - Parquet is supported only for local `fs` files and globs. It yields row
     mappings with native Parquet values to the configured parser; text encoding,
     external gzip compression, and HTTP Parquet are not supported.
-- `jerry domain create <name>` (also supports `-n/--name`)
+- `jerry domain create <name>`
   - Adds a `domains/<name>/` package with a `model.py` stub.
 - `jerry list sources|domains`
   - Introspect configured source aliases or domain packages.

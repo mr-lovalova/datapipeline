@@ -47,8 +47,7 @@ def test_source_add_skips_dataset_resolution(monkeypatch, tmp_path):
             "jerry",
             "source",
             "create",
-            "stooq",
-            "ohlcv_daily",
+            "stooq.ohlcv_daily",
             "-t",
             "http",
             "-f",
@@ -206,7 +205,7 @@ def test_main_reports_invalid_workspace_as_cli_error(monkeypatch, capsys):
         raise ValueError("invalid jerry.yaml")
 
     monkeypatch.setattr(app, "load_workspace_context", load_invalid_workspace)
-    monkeypatch.setattr(sys, "argv", ["jerry", "source", "list"])
+    monkeypatch.setattr(sys, "argv", ["jerry", "list", "sources"])
 
     with pytest.raises(SystemExit) as exc:
         app.main()

@@ -78,26 +78,15 @@ def execute_command(
                 workspace=workspace_context,
             )
         case "source":
-            if args.source_cmd == "list":
-                handle_list(
-                    subcmd="sources",
-                    plugin_root=plugin_root,
-                    workspace=workspace_context,
-                )
-            else:
-                handle_source(
-                    subcmd=args.source_cmd,
-                    provider=args.provider or args.provider_opt,
-                    dataset=args.dataset or args.dataset_opt,
-                    transport=args.transport,
-                    format=args.format,
-                    alias=args.alias,
-                    identity=args.identity,
-                    loader=args.loader,
-                    parser=args.parser,
-                    plugin_root=plugin_root,
-                    workspace=workspace_context,
-                )
+            handle_source(
+                source_id=args.source_id,
+                transport=args.transport,
+                format=args.format,
+                loader=args.loader,
+                parser=args.parser,
+                plugin_root=plugin_root,
+                workspace=workspace_context,
+            )
         case "list":
             handle_list(
                 subcmd=args.list_cmd,
@@ -105,18 +94,10 @@ def execute_command(
                 workspace=workspace_context,
             )
         case "domain":
-            if args.domain_cmd == "list":
-                handle_list(
-                    subcmd="domains",
-                    plugin_root=plugin_root,
-                    workspace=workspace_context,
-                )
-            else:
-                handle_domain(
-                    subcmd=args.domain_cmd,
-                    domain=args.domain_name or args.domain_name_option,
-                    plugin_root=plugin_root,
-                )
+            handle_domain(
+                domain=args.domain_name,
+                plugin_root=plugin_root,
+            )
         case "dto":
             handle_dto(name=args.name, plugin_root=plugin_root)
         case "parser":
@@ -135,8 +116,7 @@ def execute_command(
             )
         case "plugin":
             handle_plugin(
-                subcmd=args.plugin_cmd,
-                name=args.plugin_name or args.plugin_name_option,
+                name=args.plugin_name,
                 out=args.out,
                 workspace=workspace_context,
             )

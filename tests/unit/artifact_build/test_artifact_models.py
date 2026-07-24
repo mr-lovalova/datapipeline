@@ -127,6 +127,26 @@ def test_vector_metadata_rejects_unsupported_schema_versions(version: object) ->
         )
 
 
+def test_vector_metadata_requires_schema_version() -> None:
+    payload = _metadata_payload()
+    del payload["schema_version"]
+
+    with pytest.raises(ValidationError, match="schema_version"):
+        VectorMetadata.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("generated_at", _time(1)),
+        ("meta", {"producer": "legacy"}),
+    ],
+)
+def test_vector_metadata_rejects_removed_fields(field: str, value: object) -> None:
+    with pytest.raises(ValidationError, match=field):
+        VectorMetadata.model_validate({**_metadata_payload(), field: value})
+
+
 def test_metadata_ids_share_one_feature_and_target_namespace() -> None:
     with pytest.raises(ValidationError, match="across features and targets"):
         VectorMetadata.model_validate(

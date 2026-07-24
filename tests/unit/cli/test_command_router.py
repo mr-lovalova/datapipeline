@@ -22,71 +22,38 @@ def _execute(args, *, plugin_root=None, workspace=None) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["plugin", "init", "weather-plugin"],
-        ["plugin", "init", "--name", "weather-plugin"],
-        ["plugin", "init", "-n", "weather-plugin"],
-    ],
-)
-def test_plugin_name_forms_dispatch_the_same_value(monkeypatch, argv) -> None:
+def test_plugin_name_dispatches_from_positional_argument(monkeypatch) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "datapipeline.cli.command_router.handle_plugin",
         lambda **kwargs: captured.update(kwargs),
     )
 
-    _execute(build_parser().parse_args(argv))
+    _execute(build_parser().parse_args(["plugin", "init", "weather-plugin"]))
 
-    assert captured["subcmd"] == "init"
     assert captured["name"] == "weather-plugin"
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["domain", "create", "weather"],
-        ["domain", "create", "--name", "weather"],
-        ["domain", "create", "-n", "weather"],
-    ],
-)
-def test_domain_name_forms_dispatch_the_same_value(monkeypatch, argv) -> None:
+def test_domain_name_dispatches_from_positional_argument(monkeypatch) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(
         "datapipeline.cli.command_router.handle_domain",
         lambda **kwargs: captured.update(kwargs),
     )
 
-    _execute(build_parser().parse_args(argv))
+    _execute(build_parser().parse_args(["domain", "create", "weather"]))
 
-    assert captured["subcmd"] == "create"
     assert captured["domain"] == "weather"
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["plugin", "init", "one", "--name", "two"],
-        ["domain", "create", "one", "--name", "two"],
-    ],
-)
-def test_positional_and_option_names_are_mutually_exclusive(argv) -> None:
-    with pytest.raises(SystemExit) as exc:
-        build_parser().parse_args(argv)
-
-    assert exc.value.code == 2
 
 
 @pytest.mark.parametrize(
     ("argv", "subcmd"),
     [
         (["list", "domains"], "domains"),
-        (["domain", "list"], "domains"),
-        (["source", "list"], "sources"),
+        (["list", "sources"], "sources"),
     ],
 )
-def test_list_routes_forward_plugin_and_workspace(
+def test_list_route_forwards_plugin_and_workspace(
     monkeypatch,
     tmp_path,
     argv,
@@ -171,7 +138,7 @@ def test_heartbeat_is_an_execution_command_option() -> None:
         ["clean"],
         ["demo", "init"],
         ["list", "domains"],
-        ["source", "list"],
+        ["list", "sources"],
     ],
 )
 def test_non_execution_commands_reject_heartbeat(argv) -> None:

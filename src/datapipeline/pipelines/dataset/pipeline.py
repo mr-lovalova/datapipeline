@@ -1,5 +1,7 @@
-from collections.abc import Collection, Generator, Sequence
+from collections.abc import Collection, Generator, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from functools import partial
+from itertools import islice
 
 from datapipeline.artifacts.registry import SCALER_SPEC
 from datapipeline.artifacts.scaler import (
@@ -14,12 +16,33 @@ from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.pipeline import Pipeline, Stage
 from datapipeline.execution.runner import run_pipeline
 from datapipeline.pipelines.dataset.postprocess import (
+    PostprocessPlan,
     build_postprocess_plan,
-    select_fold_samples,
 )
-from datapipeline.pipelines.dataset.split import build_labeler
+from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler, build_labeler
 from datapipeline.pipelines.sample.input import build_sample_input
 from datapipeline.transforms.vector.scaler import SampleScaler
+
+_FOLD_BATCH_SIZE = 256
+
+
+@dataclass(frozen=True)
+class FoldOutputPlan:
+    fold: DatasetFold
+    output_by_label: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        if not self.output_by_label:
+            raise ValueError(f"Dataset fold {self.fold.id!r} has no selected outputs.")
+        fold_labels = frozenset(
+            (*self.fold.train, *self.fold.validation, *self.fold.test)
+        )
+        unknown = self.output_by_label.keys() - fold_labels
+        if unknown:
+            raise ValueError(
+                f"Dataset fold {self.fold.id!r} does not contain selected labels: "
+                + ", ".join(sorted(unknown))
+            )
 
 
 def run_dataset_pipeline(
@@ -111,55 +134,116 @@ def run_fold_dataset_pipeline(
     rectangular: bool = True,
     sample_keys: Sequence[str] = (),
 ) -> Generator[Sample, None, None]:
-    split = context.runtime.dataset.split
-    if split is None:
-        raise ValueError("Fold dataset output requires dataset split configuration.")
-
     included = frozenset(labels)
-    fold_labels = frozenset((*fold.train, *fold.validation, *fold.test))
     if not included:
         raise ValueError(f"Dataset fold {fold.id!r} has no selected output labels.")
-    if not included <= fold_labels:
-        unknown = ", ".join(sorted(included - fold_labels))
-        raise ValueError(
-            f"Dataset fold {fold.id!r} does not contain selected labels: {unknown}."
-        )
-
-    pipeline_input = build_sample_input(
+    routed = run_fold_outputs_pipeline(
         context,
         feature_configs,
         group_by_cadence,
-        target_configs,
-        rectangular,
-        sample_keys,
-    )
-    stages = [
-        Stage(
-            name="select_fold_samples",
-            apply=partial(select_fold_samples, build_labeler(split), included),
+        (
+            FoldOutputPlan(
+                fold=fold,
+                output_by_label={label: fold.id for label in included},
+            ),
         ),
-    ]
+        target_configs=target_configs,
+        rectangular=rectangular,
+        sample_keys=sample_keys,
+    )
+    try:
+        for _output_id, sample in routed:
+            yield sample
+    finally:
+        routed.close()
+
+
+def run_fold_outputs_pipeline(
+    context: PipelineContext,
+    feature_configs: Sequence[SeriesConfig],
+    group_by_cadence: str,
+    outputs: Sequence[FoldOutputPlan],
+    target_configs: Sequence[SeriesConfig] | None = None,
+    rectangular: bool = True,
+    sample_keys: Sequence[str] = (),
+) -> Generator[tuple[str, Sample], None, None]:
+    split = context.runtime.dataset.split
+    if split is None:
+        raise ValueError("Fold dataset output requires dataset split configuration.")
+    plans = tuple(outputs)
+    if not plans:
+        raise ValueError("Fold dataset output requires at least one selected fold.")
+
+    scaler_artifact: FoldedScalerArtifact | None = None
     if dataset_requires_scaler(context.runtime.dataset):
         artifact = context.require_artifact(SCALER_SPEC)
         if not isinstance(artifact, FoldedScalerArtifact):
             raise RuntimeError("A split dataset requires a folded scaler artifact.")
-        scaler = _sample_scaler(
-            artifact.for_fold(fold.id),
-            feature_configs,
-            target_configs,
-        )
-        stages.append(Stage(name="scale_samples", apply=scaler.apply))
+        scaler_artifact = artifact
 
+    routes = tuple(
+        (
+            plan.output_by_label,
+            (
+                None
+                if scaler_artifact is None
+                else _sample_scaler(
+                    scaler_artifact.for_fold(plan.fold.id),
+                    feature_configs,
+                    target_configs,
+                )
+            ),
+        )
+        for plan in plans
+    )
     postprocess = build_postprocess_plan(context)
-    stages.extend(postprocess.stages)
     return run_pipeline(
         context,
         Pipeline(
-            name=f"dataset:{fold.id}",
-            input=pipeline_input,
-            stages=tuple(stages),
+            name="dataset",
+            input=build_sample_input(
+                context,
+                feature_configs,
+                group_by_cadence,
+                target_configs,
+                rectangular,
+                sample_keys,
+            ),
+            stages=(
+                Stage(
+                    name="prepare_fold_outputs",
+                    apply=partial(
+                        _prepare_fold_outputs,
+                        build_labeler(split),
+                        routes,
+                        postprocess,
+                    ),
+                ),
+            ),
         ),
     )
+
+
+def _prepare_fold_outputs(
+    labeler: HashLabeler | TimeLabeler,
+    routes: Sequence[
+        tuple[
+            Mapping[str, str],
+            SampleScaler | None,
+        ]
+    ],
+    postprocess: PostprocessPlan,
+    samples: Iterator[Sample],
+) -> Iterator[tuple[str, Sample]]:
+    while batch := tuple(islice(samples, _FOLD_BATCH_SIZE)):
+        labeled = tuple((labeler.label(sample.key), sample) for sample in batch)
+        for output_by_label, scaler in routes:
+            selected = (sample for label, sample in labeled if label in output_by_label)
+            processed = selected if scaler is None else scaler.apply(selected)
+            for sample in postprocess.apply(processed):
+                output_id = output_by_label.get(labeler.label(sample.key))
+                if output_id is not None:
+                    yield output_id, sample
 
 
 def _sample_scaler(

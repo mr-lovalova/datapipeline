@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from datapipeline.artifacts.models import ListVectorMetadataEntry, VectorMetadataEntry
@@ -6,7 +6,6 @@ from datapipeline.artifacts.registry import VECTOR_METADATA_SPEC
 from datapipeline.domain.sample import Sample
 from datapipeline.execution.context import PipelineContext
 from datapipeline.execution.pipeline import Stage
-from datapipeline.pipelines.dataset.split import HashLabeler, TimeLabeler
 from datapipeline.transforms.vector.drop.horizontal import (
     DropSamplesTransform,
     DropTargetSamplesTransform,
@@ -33,17 +32,6 @@ class PostprocessPlan:
         for stage in self.stages:
             stream = iter(stage.apply(stream))
         return stream
-
-
-def select_fold_samples(
-    labeler: HashLabeler | TimeLabeler,
-    labels: Collection[str],
-    samples: Iterator[Sample],
-) -> Iterator[Sample]:
-    included = frozenset(labels)
-    for sample in samples:
-        if labeler.label(sample.key) in included:
-            yield sample
 
 
 def build_postprocess_plan(context: PipelineContext) -> PostprocessPlan:
