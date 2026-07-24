@@ -46,8 +46,7 @@ def run_report(
     runtime: Runtime,
     task: RuntimeTask,
     limit: int | None,
-) -> RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch | None:
-    ...
+) -> RuntimeOutput | RoutedRuntimeOutput | RuntimeOutputBatch | None: ...
 ```
 
 `runtime` is the compiled `Runtime`, `task` is the configured `RuntimeTask`,
